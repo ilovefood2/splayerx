@@ -467,6 +467,8 @@
       "aiApiUrl": "API 地址",
       "aiApiKey": "API 密钥",
       "aiModel": "模型",
+      "aiSpokenLanguage": "视频语音语言",
+      "aiSpokenAuto": "自动识别（不太可靠）",
       "aiTargetLanguage": "翻译为",
       "aiTargetAuto": "自动（跟随应用语言）"
     },

@@ -29,8 +29,11 @@ export {
   TranscribeEnvironment,
   TranscribeResult,
   WhisperJson,
+  TranscribeOptions,
   checkTranscribeEnvironment,
   parseWhisperCues,
+  chunkPlanOf,
+  durationOf,
   transcribeVideo,
 } from './transcribe';
 export {
@@ -50,6 +53,7 @@ export {
   makeAITranslationKey,
   registerAITranslation,
   hasAITranslation,
+  appendAITranslationCues,
   getAITranslator,
   clearAITranslation,
   clearAllAITranslations,

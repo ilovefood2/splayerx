@@ -203,6 +203,29 @@
           </tr>
           <tr>
             <td class="aiTranslate__label">
+              {{ $t('preferences.translate.aiSpokenLanguage') }}
+            </td>
+            <td>
+              <select
+                v-model="aiTranscribeLanguage"
+                :disabled="!aiTranslateEnabled"
+                class="aiTranslate__input"
+              >
+                <option value="">
+                  {{ $t('preferences.translate.aiSpokenAuto') }}
+                </option>
+                <option
+                  v-for="code in supportedLanguageCodes"
+                  :key="code"
+                  :value="code"
+                >
+                  {{ codeToLanguageName(code) }}
+                </option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td class="aiTranslate__label">
               {{ $t('preferences.translate.aiTargetLanguage') }}
             </td>
             <td>
@@ -432,6 +455,14 @@ export default {
       },
       set(val) {
         this.persistAI({ aiTranslateTargetLanguage: val });
+      },
+    },
+    aiTranscribeLanguage: {
+      get() {
+        return this.$store.getters.aiTranscribeLanguage;
+      },
+      set(val) {
+        this.persistAI({ aiTranscribeLanguage: val });
       },
     },
   },

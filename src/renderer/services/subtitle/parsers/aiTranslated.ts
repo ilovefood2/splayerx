@@ -20,7 +20,8 @@ export class AITranslatedParser implements IParser {
 
   private readonly key: string;
 
-  private segmentsSeeded = false;
+  /** How many cues have been fed to videoSegments so far. */
+  private seededCues = 0;
 
   private readonly baseTags: ITags = { alignment: 2, pos: undefined };
 
@@ -43,10 +44,16 @@ export class AITranslatedParser implements IParser {
     };
   }
 
+  /**
+   * Seed only the cues we have not seen yet. A transcription streams in chunk by
+   * chunk, so the cue list grows after the first call — seeding once would leave
+   * everything past the first chunk missing from the played-time segments.
+   */
   private seedSegments(cues: ReadonlyArray<{ start: number, end: number }>) {
-    if (this.segmentsSeeded) return;
-    cues.forEach(({ start, end }) => this.videoSegments.insert(start, end));
-    this.segmentsSeeded = true;
+    for (let i = this.seededCues; i < cues.length; i += 1) {
+      this.videoSegments.insert(cues[i].start, cues[i].end);
+    }
+    this.seededCues = cues.length;
   }
 
   public async getDialogues(time?: number): Promise<TextCue[]> {

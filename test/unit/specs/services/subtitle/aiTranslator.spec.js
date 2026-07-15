@@ -3,7 +3,7 @@ import {
   RealtimeSubtitleTranslator, TranslationCache,
   probeOllama, pickChatModel, isEmbeddingModel, parseParameterSize, apiRootOf,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
-  parseWhisperCues, checkTranscribeEnvironment,
+  parseWhisperCues, checkTranscribeEnvironment, chunkPlanOf,
 } from '@/services/subtitle/ai';
 
 const config = {
@@ -302,6 +302,45 @@ describe('services/subtitle/ai - whisper transcription', () => {
     expect(parseWhisperCues({})).to.deep.equal([]);
     expect(parseWhisperCues({ transcription: [] })).to.deep.equal([]);
     expect(parseWhisperCues({ transcription: [{ text: 'no offsets' }] })).to.deep.equal([]);
+  });
+
+  it('accepts cues that stream in after construction, keeping indices stable', async () => {
+    const translate = texts => Promise.resolve(texts.map(t => `Z:${t}`));
+    const first = [{ start: 0, end: 2, text: 'chunk one' }];
+    const rt = new RealtimeSubtitleTranslator(first, config, { translate, lookaheadSeconds: 10 });
+    rt.getCuesAt(0);
+    await delay(5);
+    expect(rt.getCuesAt(0)[0].text).to.equal('Z:chunk one');
+
+    // A later chunk of the transcription lands.
+    const appended = rt.appendCues([{ start: 4, end: 6, text: 'chunk two' }]);
+    expect(appended).to.equal(1);
+    // the already-translated cue must not be disturbed by the append
+    expect(rt.getCuesAt(0)[0].text).to.equal('Z:chunk one');
+    rt.getCuesAt(4);
+    await delay(5);
+    expect(rt.getCuesAt(4)[0].text).to.equal('Z:chunk two');
+    expect(rt.sourceCues.length).to.equal(2);
+  });
+
+  it('splits a long video into chunks that cover it exactly once', () => {
+    // A 193-minute file: transcribing it in one pass means no subtitle for
+    // minutes, so it is cut into pieces that each land as they finish.
+    const plan = chunkPlanOf(193 * 60, 120);
+    expect(plan.length).to.equal(97);
+    expect(plan[0]).to.deep.equal({ start: 0, length: 120 });
+    // no gaps: each chunk starts where the previous one ended
+    plan.slice(1).forEach((c, i) => {
+      expect(c.start).to.equal(plan[i].start + plan[i].length);
+    });
+    // and the last one stops exactly at the end, never past it
+    const last = plan[plan.length - 1];
+    expect(last.start + last.length).to.equal(193 * 60);
+  });
+
+  it('falls back to one pass when the duration is unknown', () => {
+    // length 0 means "to the end of the file"; ffmpeg must not be given -t 0.
+    expect(chunkPlanOf(0, 120)).to.deep.equal([{ start: 0, length: 0 }]);
   });
 
   it('reports exactly which tools are missing', () => {

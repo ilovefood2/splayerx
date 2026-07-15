@@ -30,7 +30,7 @@ import {
 } from '@/services/subtitle';
 import {
   registerAITranslation, makeAITranslationKey, clearAllAITranslations,
-  resolveAIProvider, configFor,
+  appendAITranslationCues, resolveAIProvider, configFor,
   checkTranscribeEnvironment, transcribeVideo,
   AIProviderResolution, AIProviderTuning, TimedText,
 } from '@/services/subtitle/ai';
@@ -143,6 +143,18 @@ async function collectSourceCues(
     .map(cue => ({ start: cue.start, end: cue.end, text: cue.text }));
   if (!cues.length) log.warn('SubtitleManager', 'AI translate: reference subtitle has no text cues');
   return cues;
+}
+
+/**
+ * whisper wants a bare ISO-639-1 code ('ja'), not our regional codes ('zh-CN').
+ * Returns undefined for "auto", which lets whisper detect — less reliable, since
+ * it only listens to the opening seconds.
+ */
+function whisperLanguageOf(code?: string): string | undefined {
+  if (!code) return undefined;
+  const normalized = normalizeCode(code);
+  if (normalized === LanguageCode.No || normalized === LanguageCode.Default) return undefined;
+  return String(normalized).split('-')[0].toLowerCase();
 }
 
 function tuningOptions(tuning: AIProviderTuning) {
@@ -338,6 +350,9 @@ let secondarySelectionComplete = false;
 /** Media currently being transcribed, so a second menu click cannot start a
  *  duplicate multi-minute job for the same video. */
 let transcribingMediaHash = '';
+/** Guards the first chunk: without it two chunks landing close together would
+ *  each create a track. */
+let creatingTranscribedTrack = false;
 let alterDelayTimeoutId: NodeJS.Timer;
 function setDelayTimeout() {
   clearTimeout(alterDelayTimeoutId);
@@ -1087,24 +1102,61 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       return undefined;
     }
     if (transcribingMediaHash === state.mediaHash) return undefined; // already running
-    transcribingMediaHash = state.mediaHash;
+    const mediaHash = state.mediaHash;
+    transcribingMediaHash = mediaHash;
     addBubble(AI_TRANSCRIBE_STARTED);
+    let added: ISubtitleControlListItem | undefined;
+    let key = '';
+    let pending: TimedText[] = [];
     try {
-      const { language, cues } = await transcribeVideo(originSrc, env, {
+      const { cues } = await transcribeVideo(originSrc, env, {
         tmpDir: remote.app.getPath('temp'),
+        language: whisperLanguageOf(getters.aiTranscribeLanguage),
+        // Each chunk is shown as soon as it lands: whisper runs far faster than
+        // playback, so the viewer starts watching in seconds instead of waiting
+        // for a three-hour file to finish.
+        onCues: (chunk, info) => {
+          if (state.mediaHash !== mediaHash || !chunk.length) return;
+          if (added && key) {
+            appendAITranslationCues(key, chunk);
+            return;
+          }
+          // The first chunk creates the track; queue anything that arrives while
+          // that is still in flight.
+          pending = pending.concat(chunk);
+          if (creatingTranscribedTrack) return;
+          creatingTranscribedTrack = true;
+          const first = pending;
+          pending = [];
+          dispatch(a.addTranscribedSubtitle, {
+            targetCode, language: info.language, cues: first,
+          }).then((entity) => {
+            added = entity;
+            if (entity) key = makeAITranslationKey(`whisper-${mediaHash}`, targetCode);
+            if (key && pending.length) {
+              appendAITranslationCues(key, pending);
+              pending = [];
+            }
+          }).catch((error) => {
+            log.warn('SubtitleManager', error);
+          }).then(() => {
+            creatingTranscribedTrack = false;
+          });
+        },
       });
-      if (state.mediaHash !== transcribingMediaHash) return undefined; // media changed
+      if (state.mediaHash !== mediaHash) return undefined; // media changed
       if (!cues.length) {
         addBubble(AI_TRANSCRIBE_NO_SPEECH);
         return undefined;
       }
-      return await dispatch(a.addTranscribedSubtitle, { targetCode, language, cues });
+      return added;
     } catch (error) {
       log.warn('SubtitleManager', error);
       addBubble(AI_TRANSCRIBE_FAILED);
       return undefined;
     } finally {
       transcribingMediaHash = '';
+      creatingTranscribedTrack = false;
     }
   },
   /**

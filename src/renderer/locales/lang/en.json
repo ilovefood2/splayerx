@@ -468,6 +468,8 @@
       "aiApiUrl": "API Endpoint",
       "aiApiKey": "API Key",
       "aiModel": "Model",
+      "aiSpokenLanguage": "Spoken Language",
+      "aiSpokenAuto": "Auto-detect (less reliable)",
       "aiTargetLanguage": "Translate Into",
       "aiTargetAuto": "Auto (app language)"
     },

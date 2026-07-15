@@ -467,6 +467,8 @@
       "aiApiUrl": "API 端點",
       "aiApiKey": "API 金鑰",
       "aiModel": "模型",
+      "aiSpokenLanguage": "影片語音語言",
+      "aiSpokenAuto": "自動辨識（不太可靠）",
       "aiTargetLanguage": "翻譯為",
       "aiTargetAuto": "自動（跟隨應用語言）"
     },

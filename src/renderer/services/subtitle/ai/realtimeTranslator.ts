@@ -147,6 +147,24 @@ export class RealtimeSubtitleTranslator {
     return this.cues;
   }
 
+  /**
+   * Add cues discovered after construction, as a transcription streams in.
+   *
+   * Appends only — never reorders. Batches in flight hold cue *indices*, so
+   * re-sorting here would make a returning batch write its text onto the wrong
+   * cue. Appending keeps every existing index valid, and order does not matter
+   * anyway: lookups scan for overlap rather than assuming sorted input.
+   */
+  public appendCues(cues: TimedText[]): number {
+    const incoming = cues.filter(cue => cue && typeof cue.text === 'string' && !!cue.text);
+    incoming.forEach((cue) => {
+      this.cues.push(cue);
+      this.translated.push(undefined);
+      this.pending.push(false);
+    });
+    return incoming.length;
+  }
+
   public get error(): Error | undefined {
     return this.lastError;
   }

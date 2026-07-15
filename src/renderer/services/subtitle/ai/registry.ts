@@ -38,6 +38,20 @@ export function hasAITranslation(key: string): boolean {
   return registry.has(key);
 }
 
+/**
+ * Add cues to an existing entry as a transcription streams in.
+ *
+ * Updates the entry's cues so a translator built later sees them, and the live
+ * translator too when one already exists.
+ */
+export function appendAITranslationCues(key: string, cues: TimedText[]): boolean {
+  const entry = registry.get(key);
+  if (!entry) return false;
+  entry.sourceCues.push(...cues);
+  if (entry.translator) entry.translator.appendCues(cues);
+  return true;
+}
+
 /** Lazily builds (and memoizes) the realtime translator for a registered entry. */
 export function getAITranslator(key: string): RealtimeSubtitleTranslator | undefined {
   const entry = registry.get(key);

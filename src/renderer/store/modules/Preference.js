@@ -28,6 +28,8 @@ const state = {
   aiTranslateApiKey: '',
   aiTranslateModel: '',
   aiTranslateTargetLanguage: '',
+  // Spoken language for whisper transcription; '' means auto-detect.
+  aiTranscribeLanguage: '',
 };
 const getters = {
   nsfwProcessDone: state => state.nsfwProcessDone,
@@ -58,6 +60,7 @@ const getters = {
   aiTranslateApiKey: state => state.aiTranslateApiKey,
   aiTranslateModel: state => state.aiTranslateModel,
   aiTranslateTargetLanguage: state => state.aiTranslateTargetLanguage,
+  aiTranscribeLanguage: state => state.aiTranscribeLanguage,
 };
 
 const mutations = {
