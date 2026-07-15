@@ -93,10 +93,6 @@
       "title": "Speech Recognition Not Set Up",
       "content": "This video has no subtitle, so its audio must be transcribed first. Missing: {missing}. Install with: brew install whisper-cpp ffmpeg — and put a ggml model in Application Support/SPlayer/whisper."
     },
-    "aiTranscribeStarted": {
-      "title": "Transcribing Audio",
-      "content": "This video has no subtitle, so its speech is being recognised locally. This takes a few minutes; the subtitle appears when it is done."
-    },
     "aiTranscribeNoSpeech": {
       "title": "No Speech Found",
       "content": "Nothing recognisable was heard in this video's audio."

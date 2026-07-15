@@ -92,10 +92,6 @@
       "title": "语音识别未就绪",
       "content": "这个视频没有字幕，需要先识别它的语音。缺少：{missing}。请运行 brew install whisper-cpp ffmpeg 安装，并把 ggml 模型放到 Application Support/SPlayer/whisper 目录。"
     },
-    "aiTranscribeStarted": {
-      "title": "正在识别语音",
-      "content": "这个视频没有字幕，正在本地识别它的语音。需要几分钟，完成后字幕会自动出现。"
-    },
     "aiTranscribeNoSpeech": {
       "title": "没有识别到语音",
       "content": "在这个视频的音频里没有识别到可用的语音。"

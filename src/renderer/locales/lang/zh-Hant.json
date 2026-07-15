@@ -92,10 +92,6 @@
       "title": "語音辨識未就緒",
       "content": "這部影片沒有字幕，需要先辨識它的語音。缺少：{missing}。請執行 brew install whisper-cpp ffmpeg 安裝，並把 ggml 模型放到 Application Support/SPlayer/whisper 目錄。"
     },
-    "aiTranscribeStarted": {
-      "title": "正在辨識語音",
-      "content": "這部影片沒有字幕，正在本機辨識它的語音。需要幾分鐘，完成後字幕會自動出現。"
-    },
     "aiTranscribeNoSpeech": {
       "title": "沒有辨識到語音",
       "content": "在這部影片的音訊裡沒有辨識到可用的語音。"
