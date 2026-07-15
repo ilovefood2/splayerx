@@ -1,0 +1,70 @@
+name: Build macOS app (unsigned)
+
+# Builds a downloadable, UNSIGNED macOS .dmg on a macOS runner and uploads it as
+# a workflow artifact. No Apple Developer account required. Because the app is
+# not code-signed/notarized, on first launch macOS Gatekeeper will block it —
+# right-click the app in the mounted .dmg and choose "Open" to run it.
+#
+# Runs on macos-13 (Intel/x64) on purpose: the app pins Node 12 and a custom
+# Electron 7 fork, neither of which has Apple-Silicon (arm64) builds.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/legacy-modernize-subtitle-translation-w5r38e
+
+jobs:
+  build-mac:
+    runs-on: macos-13
+    env:
+      CI: true
+      # Unsigned build: do not try to discover a signing identity.
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 12
+        uses: actions/setup-node@v4
+        with:
+          node-version: 12
+
+      - name: Toolchain info
+        run: |
+          node -v
+          npm -v
+          sw_vers
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --network-timeout 600000
+
+      - name: Verify Electron fork is installed
+        run: node -e "const e = require('electron'); if (!e || !e.splayerx) { console.error('electron fork missing splayerx'); process.exit(1);} console.log('electron fork OK');"
+
+      - name: Rebuild native app dependencies (non-fatal)
+        run: npx electron-builder install-app-deps || echo "install-app-deps failed (optional native modules); continuing unsigned build"
+
+      - name: Generate electron-builder config
+        run: node scripts/gen-electron-builder-config.js
+
+      - name: Build renderer & main bundles
+        run: node .electron-vue/build.js
+
+      - name: Package unsigned macOS .dmg
+        run: npx electron-builder --mac -p never -c.mac.hardenedRuntime=false
+
+      - name: List build output
+        if: always()
+        run: ls -la build || true
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SPlayer-macOS-unsigned
+          path: |
+            build/*.dmg
+            build/*.zip
+            build/*.blockmap
+            build/latest-mac.yml
+          if-no-files-found: warn
