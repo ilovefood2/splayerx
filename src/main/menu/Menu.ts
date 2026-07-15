@@ -1084,9 +1084,6 @@ export default class Menubar {
     const about = this.createMenuItem('msg.splayerx.about', () => {
       app.emit('add-window-about');
     }, undefined, true);
-    const checkForUpdates = this.createMenuItem('msg.splayerx.checkForUpdates', () => {
-      app.emit('check-for-updates');
-    }, undefined, true);
     const preference = this.createMenuItem('msg.splayerx.preferences', () => {
       app.emit('add-preference');
     }, 'CmdOrCtrl+,');
@@ -1114,8 +1111,6 @@ export default class Menubar {
     // mac dmg
     if (isMacintoshDMG && !hideCheckBtn && this._routeName !== 'welcome-privacy' && this._routeName !== 'language-setting') {
       const items = this._routeName === 'browsing-view' ? [preference, separator()] : [
-        checkForUpdates,
-        separator(),
         preference,
         account,
         separator(),
@@ -1209,14 +1204,6 @@ export default class Menubar {
       }, undefined, true);
 
       helpMenu.append(about);
-
-      helpMenu.append(separator());
-
-      const checkForUpdates = this.createMenuItem('msg.splayerx.checkForUpdates', () => {
-        app.emit('check-for-updates');
-      }, undefined, true, undefined, 'splayerx.checkForUpdates');
-
-      helpMenu.append(checkForUpdates);
 
       helpMenu.append(separator());
     } else if (!isMacintosh) {

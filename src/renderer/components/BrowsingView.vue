@@ -486,7 +486,6 @@ export default {
   },
   mounted() {
     this.menuService = new MenuService();
-    this.menuService.updateMenuItemEnabled('splayerx.checkForUpdates', false);
     if (this.currentPage === 'channelManager') {
       this.showChannelManager = true;
       this.showProgress = false;
@@ -691,7 +690,6 @@ export default {
         pipMode: this.pipMode,
       })
       .finally(() => {
-        this.menuService.updateMenuItemEnabled('splayerx.checkForUpdates', true);
         window.removeEventListener('beforeunload', this.beforeUnloadHandler);
         window.removeEventListener('focus', this.focusHandler);
         this.$electron.ipcRenderer.send('remove-browser');

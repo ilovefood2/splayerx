@@ -40,25 +40,6 @@
       />
     </transition>
     <transition name="bubble">
-      <ConfirmBubble
-        v-if="showUpdateBubble"
-        :content="checkForUpdatesContent"
-        :confirm-button-text="$t('checkForUpdatesBubble.needUpdate.confirm')"
-        :cancel-button-text="$t('checkForUpdatesBubble.needUpdate.cancel')"
-        :confirm="confirmUpdate"
-        :cancel="cancelUpdate"
-        class="mas-privacy-bubble"
-      />
-    </transition>
-    <transition name="bubble">
-      <AlertBubble
-        v-if="showLastestUpdateBubble"
-        :content="lastestUpdateContent"
-        :close="closeLastestUpdateBubble"
-        class="mas-privacy-bubble"
-      />
-    </transition>
-    <transition name="bubble">
       <AlertBubble
         v-if="showNotExportEmbeddedSubtitleBubble"
         :content="notExportEmbeddedSubtitleBubbleString"
@@ -155,7 +136,6 @@ import { INPUT_COMPONENT_TYPE } from '@/plugins/input';
 import {
   AudioTranslate as atActions,
 } from '@/store/actionTypes';
-import { skipCheckForUpdate } from '../libs/utils';
 
 export default {
   name: 'NotificationBubble',
@@ -179,13 +159,6 @@ export default {
       readyToShow: false, // show after video element is loaded
       showPrivacyBubble: false,
       showNSFWBubble: false,
-      showUpdateBubble: false, // show update bubble
-      checkForUpdatesContent: '',
-      checkForUpdatesDownloadUrl: '',
-      checkForUpdatesReleaseUrl: '',
-      checkForUpdatesVersion: '',
-      showLastestUpdateBubble: false, // show update bubble
-      lastestUpdateContent: '',
       showNotExportEmbeddedSubtitleBubble: false,
       notExportEmbeddedSubtitleBubbleString: '',
       showNotEditorBubble: false,
@@ -243,18 +216,6 @@ export default {
     this.$bus.$on('privacy-confirm', () => {
       this.showPrivacyBubble = true;
     });
-    this.$bus.$on('new-version', (info: { version: string, landingPage: string, url: string }) => {
-      this.checkForUpdatesContent = this.$t('checkForUpdatesBubble.needUpdate.content', { version: info.version });
-      this.checkForUpdatesDownloadUrl = info.url;
-      this.checkForUpdatesReleaseUrl = info.landingPage;
-      this.checkForUpdatesVersion = info.version;
-      this.showUpdateBubble = true;
-    });
-    // 检查当前版本是最新版本
-    this.$bus.$on('lastest-version', (info: { version: string }) => {
-      this.lastestUpdateContent = this.$t('checkForUpdatesBubble.noNeed.content', { version: info.version });
-      this.showLastestUpdateBubble = true;
-    });
     this.$bus.$on('embedded-subtitle-can-not-export', (which: string) => {
       if (which === 'image') {
         this.notExportEmbeddedSubtitleBubbleString = this.$t('forbiddenExportEmbeddedSubtitle.content');
@@ -306,9 +267,6 @@ export default {
       this.showNSFWBubble = false;
       this.$store.dispatch('nsfwProcessDone');
     },
-    closeLastestUpdateBubble() {
-      this.showLastestUpdateBubble = false;
-    },
     closeNotExportEmbeddedSubtitleBubble() {
       this.showNotExportEmbeddedSubtitleBubble = false;
     },
@@ -342,19 +300,6 @@ export default {
       if (this.$refs.nextVideo) {
         this.$refs.nextVideo.updatePlayingTime(time);
       }
-    },
-    confirmUpdate() {
-      // go to web site
-      const { checkForUpdatesDownloadUrl, checkForUpdatesReleaseUrl } = this;
-      this.$electron.shell.openExternal(checkForUpdatesDownloadUrl);
-      this.$electron.shell.openExternal(checkForUpdatesReleaseUrl);
-      this.showUpdateBubble = false;
-    },
-    cancelUpdate() {
-      // this version not auto check show
-      const { checkForUpdatesVersion } = this;
-      skipCheckForUpdate(checkForUpdatesVersion);
-      this.showUpdateBubble = false;
     },
     cancelDeleteSubtitle() {
       this.$bus.$emit('delete-modified-cancel', true);

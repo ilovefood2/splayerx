@@ -39,7 +39,6 @@ import {
   Editor as seActions,
 } from '@/store/actionTypes';
 import { log } from '@/libs/Log';
-import { checkForUpdate } from '@/libs/utils';
 import asyncStorage from '@/helpers/asyncStorage';
 import { videodata } from '@/store/video';
 import { addBubble } from '@/helpers/notificationControl';
@@ -51,7 +50,6 @@ import { channelDetails } from '@/interfaces/IBrowsingChannelManager';
 import { downloadDB } from '@/helpers/downloadDB';
 import BrowsingChannelMenu from './services/browsing/BrowsingChannelMenu';
 import MenuService from './services/menu/MenuService';
-import { isWindowsExE, isMacintoshDMG } from '../shared/common/platform';
 import {
   isSubtitle, getSystemLocale, getClientUUID, getEnvironmentName, getIP,
 } from '../shared/utils';
@@ -60,7 +58,7 @@ import {
 } from './interfaces/ISubtitle';
 import { VueDevtools } from './plugins/vueDevtools.dev';
 import {
-  CHECK_FOR_UPDATES_OFFLINE, REQUEST_TIMEOUT,
+  REQUEST_TIMEOUT,
   SNAPSHOT_FAILED, SNAPSHOT_SUCCESS, LOAD_SUBVIDEO_FAILED,
   BUG_UPLOAD_FAILED, BUG_UPLOAD_SUCCESS, BUG_UPLOADING,
   LOSSLESS_STREAMING_START, LOSSLESS_STREAMING_STOP,
@@ -788,38 +786,9 @@ new Vue({
     this.$electron.ipcRenderer.on('add-local-subtitles', (event: Event, file: string[]) => {
       this.addLocalSubtitlesWithSelect(file);
     });
-    // win32 exe || mac dmg
-    const canUseCheckForUpdates = isWindowsExE || isMacintoshDMG;
-    if (navigator.onLine && canUseCheckForUpdates) {
-      // auto check for updates
-      checkForUpdate(true).then((
-        json: { version: string, isLastest: boolean, landingPage: string, url: string }
-      ) => {
-        if (!json.isLastest && this.currentRouteName !== 'browsing-view') {
-          this.$bus.$emit('new-version', json);
-        }
-      }).catch((err: Error) => {
-        // empty
-      });
-    }
-    // manual check for updates
-    this.$electron.ipcRenderer.on('check-for-updates', (event: Event) => {
-      // if not (win32 exe || mac beta) return
-      if (!canUseCheckForUpdates) return;
-      // check online
-      if (!navigator.onLine) return addBubble(CHECK_FOR_UPDATES_OFFLINE);
-      checkForUpdate(false).then((
-        json: { version: string, isLastest: boolean, landingPage: string, url: string }
-      ) => {
-        if (!json.isLastest) {
-          this.$bus.$emit('new-version', json);
-        } else {
-          this.$bus.$emit('lastest-version', json);
-        }
-      }).catch((err: Error) => {
-        addBubble(REQUEST_TIMEOUT);
-      });
-    });
+    // Update checking is deliberately absent. It polled splayer.org's release
+    // feed and offered to replace this build with the upstream one, which would
+    // wipe the changes this fork exists for.
     // Lossless Streaming
     this.onLosslessStreamingInfoUpdate = (evt: any, info: any, prevInfo: any) => {
       if (info.enabled) {

@@ -2113,10 +2113,6 @@ app.on('add-preference', createPreferenceWindow);
 app.on('add-login', createLoginWindow);
 app.on('add-window-about', createAboutWindow);
 app.on('add-window-losslessStreaming', createLosslessStreamingWindow);
-app.on('check-for-updates', () => {
-  if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-  mainWindow.webContents.send('check-for-updates');
-});
 app.on('open-history-item', (evt, args) => {
   openHistoryItem(evt, args);
   mainWindow.send('update-current-channel', args.channel);
