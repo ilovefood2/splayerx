@@ -39,8 +39,11 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile --network-timeout 600000
 
+      # `electron` is not a real dependency: it is a module-alias onto the
+      # @chiflix fork (see `_moduleAliases` in package.json), and the npm-side
+      # export is only the path to the binary. So check the fork package itself.
       - name: Verify Electron fork is installed
-        run: node -e "const e = require('electron'); if (!e || !e.splayerx) { console.error('electron fork missing splayerx'); process.exit(1);} console.log('electron fork OK');"
+        run: node -e "const p = require('@chiflix/electron/package.json'); console.log('electron fork OK:', p.name, p.version);"
 
       - name: Rebuild native app dependencies (non-fatal)
         run: npx electron-builder install-app-deps || echo "install-app-deps failed (optional native modules); continuing unsigned build"
