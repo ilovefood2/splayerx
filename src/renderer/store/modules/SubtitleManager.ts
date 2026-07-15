@@ -386,6 +386,13 @@ function endAIProgress(): void {
   store.dispatch('removeMessages', AI_PROGRESS_ID);
 }
 
+// Quitting or reloading the window must not orphan a transcription. This fires
+// on both, and is the only hook that covers quitting mid-transcription.
+window.addEventListener('beforeunload', () => {
+  abortTranscription();
+  if (aiProgressTimer !== undefined) clearInterval(aiProgressTimer);
+});
+
 /**
  * Keep the status line current until the first translated line is ready, which
  * is the moment the wait visibly ends.
@@ -406,6 +413,21 @@ function trackAIProgress(key: string, describe: (translated: number, total: numb
 /** Guards the first chunk: without it two chunks landing close together would
  *  each create a track. */
 let creatingTranscribedTrack = false;
+/** Aborts the in-flight transcription, killing its ffmpeg/whisper children. */
+let transcribeAbort: AbortController | undefined;
+
+/**
+ * Stop transcribing and kill the child processes.
+ *
+ * ffmpeg and whisper are separate processes: they do NOT die with the renderer
+ * that spawned them, so quitting mid-transcription would otherwise leave
+ * whisper running on the GPU indefinitely.
+ */
+function abortTranscription(): void {
+  if (!transcribeAbort) return;
+  transcribeAbort.abort();
+  transcribeAbort = undefined;
+}
 let alterDelayTimeoutId: NodeJS.Timer;
 function setDelayTimeout() {
   clearTimeout(alterDelayTimeoutId);
@@ -453,6 +475,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     primarySelectionComplete = false;
     secondarySelectionComplete = false;
     // AI 翻译只属于上一个视频，registry 里存着 API key 和全部源字幕，换片时一并释放
+    abortTranscription();
     clearAllAITranslations();
     endAIProgress();
     await Promise.all(Object.keys(state.allSubtitles).map(id => dispatch(a.removeSubtitle, id)));
@@ -1170,6 +1193,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     transcribingMediaHash = mediaHash;
     // Two phases to wait through, and nothing on screen during either.
     showAIProgress(progressText('errorFile.aiProgress.transcribing', { percent: 0 }));
+    transcribeAbort = new AbortController();
+    const { signal } = transcribeAbort;
     let added: ISubtitleControlListItem | undefined;
     let key = '';
     let pending: TimedText[] = [];
@@ -1177,6 +1202,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       const { cues } = await transcribeVideo(originSrc, env, {
         tmpDir: remote.app.getPath('temp'),
         language: whisperLanguageOf(getters.aiTranscribeLanguage),
+        signal,
         // Each chunk is shown as soon as it lands: whisper runs far faster than
         // playback, so the viewer starts watching in seconds instead of waiting
         // for a three-hour file to finish.
@@ -1223,7 +1249,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
           });
         },
       });
-      if (state.mediaHash !== mediaHash) return undefined; // media changed
+      if (signal.aborted || state.mediaHash !== mediaHash) return undefined;
       if (!cues.length) {
         endAIProgress();
         addBubble(AI_TRANSCRIBE_NO_SPEECH);
@@ -1231,6 +1257,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       }
       return added;
     } catch (error) {
+      // An abort is us stopping it on purpose, not a failure to report.
+      if (signal.aborted) return undefined;
       log.warn('SubtitleManager', error);
       endAIProgress();
       addBubble(AI_TRANSCRIBE_FAILED);
@@ -1238,6 +1266,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     } finally {
       transcribingMediaHash = '';
       creatingTranscribedTrack = false;
+      transcribeAbort = undefined;
     }
   },
   /**
