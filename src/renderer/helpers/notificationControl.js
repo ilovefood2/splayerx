@@ -17,7 +17,8 @@ import {
   CANNOT_UPLOAD,
   ADD_NO_VIDEO,
   LOCAL_SUBTITLE_REMOVED,
-  AI_TRANSLATE_UNAVAILABLE,
+  AI_TRANSLATE_NO_SOURCE,
+  AI_TRANSLATE_NO_PROVIDER,
   SNAPSHOT_SUCCESS,
   SNAPSHOT_FAILED,
   LOAD_SUBVIDEO_FAILED,
@@ -217,13 +218,24 @@ export function addBubble(code, options = {}) { // eslint-disable-line complexit
         dismissAfter: 5000,
       });
       break;
-    case AI_TRANSLATE_UNAVAILABLE:
+    case AI_TRANSLATE_NO_SOURCE:
       store.dispatch('addMessages', {
         id,
         type: 'result',
-        title: i18n.t('errorFile.aiTranslateUnavailable.title', i18n.locale, i18n.messages),
-        content: i18n.t('errorFile.aiTranslateUnavailable.content', i18n.locale, i18n.messages),
-        dismissAfter: 5000,
+        title: i18n.t('errorFile.aiTranslateNoSource.title', i18n.locale, i18n.messages),
+        // `target` names the language we would have translated into, which is
+        // usually the surprise: the track is often already in that language.
+        content: i18n.t('errorFile.aiTranslateNoSource.content', i18n.locale, { target: options.target }),
+        dismissAfter: 8000,
+      });
+      break;
+    case AI_TRANSLATE_NO_PROVIDER:
+      store.dispatch('addMessages', {
+        id,
+        type: 'result',
+        title: i18n.t('errorFile.aiTranslateNoProvider.title', i18n.locale, i18n.messages),
+        content: i18n.t('errorFile.aiTranslateNoProvider.content', i18n.locale, i18n.messages),
+        dismissAfter: 8000,
       });
       break;
     case SNAPSHOT_SUCCESS:

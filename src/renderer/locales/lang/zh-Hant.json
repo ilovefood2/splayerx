@@ -80,9 +80,13 @@
       "content": "網絡延遲或雲端異常。",
       "title": "網絡請求超時"
     },
-    "aiTranslateUnavailable": {
+    "aiTranslateNoSource": {
+      "title": "沒有可翻譯的字幕",
+      "content": "這部影片沒有可以翻譯成{target}的字幕。它的字幕可能已經是{target}，也可能根本沒有字幕。可在「偏好設定 > 翻譯 > 翻譯為」中換一種語言。"
+    },
+    "aiTranslateNoProvider": {
       "title": "無法翻譯",
-      "content": "找不到本機 Ollama，也沒有填寫 API 金鑰；或者這部影片沒有可供翻譯的字幕。請查看「偏好設定 > 翻譯」。"
+      "content": "找不到本機 Ollama，也沒有填寫 API 金鑰。請從 ollama.com 安裝 Ollama 後執行：ollama pull qwen3"
     },
     "localSubtitleRemoved": {
       "title": "字幕加載失敗",

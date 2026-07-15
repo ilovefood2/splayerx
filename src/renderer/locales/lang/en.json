@@ -81,9 +81,13 @@
       "content": "Network delay or server error.",
       "title": "Request Timeout"
     },
-    "aiTranslateUnavailable": {
+    "aiTranslateNoSource": {
+      "title": "Nothing to Translate",
+      "content": "This video has no subtitle that can be translated into {target}. Its subtitles may already be in {target}, or it may have none at all. Pick a different language under Preferences > Translate > Translate Into."
+    },
+    "aiTranslateNoProvider": {
       "title": "Cannot Translate",
-      "content": "No local Ollama and no API key, or this video has no subtitle to translate from. Check Preferences > Translate."
+      "content": "No local Ollama was found and no API key is set. Install Ollama from ollama.com and run: ollama pull qwen3"
     },
     "localSubtitleRemoved": {
       "title": "Load Subtitle Failed",

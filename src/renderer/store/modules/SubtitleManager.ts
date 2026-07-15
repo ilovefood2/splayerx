@@ -53,7 +53,8 @@ import {
   SUBTITLE_UPLOAD, UPLOAD_SUCCESS, UPLOAD_FAILED,
   CANNOT_UPLOAD,
   LOCAL_SUBTITLE_REMOVED,
-  AI_TRANSLATE_UNAVAILABLE,
+  AI_TRANSLATE_NO_SOURCE,
+  AI_TRANSLATE_NO_PROVIDER,
   // APPX_EXPORT_NOT_WORK,
 } from '../../helpers/notificationcodes';
 import { addBubble } from '../../helpers/notificationControl';
@@ -1036,9 +1037,27 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
    * in the target language — the user asked for a translation, so make one and
    * show it.
    */
-  async [a.translateWithAI]({ dispatch }) {
-    const added = await dispatch(a.addAITranslatedSubtitle, { force: true });
-    if (!added) addBubble(AI_TRANSLATE_UNAVAILABLE);
+  async [a.translateWithAI]({ getters, dispatch }) {
+    const targetCode = normalizeCode(
+      getters.aiTranslateTargetLanguage || getters.displayLanguage || getters.primaryLanguage,
+    );
+    // Diagnose before translating: "it didn't work" is useless, and the two
+    // causes need completely different things from the user.
+    const reference = targetCode === LanguageCode.No || targetCode === LanguageCode.Default
+      ? undefined
+      : pickAIReference(getters.list as ISubtitleControlListItem[], targetCode,
+        getters.primarySubtitleId);
+    if (!reference) {
+      // Either the video has no subtitles at all, or every track is already in
+      // the target language — naming the language is what makes this actionable.
+      addBubble(AI_TRANSLATE_NO_SOURCE, { target: codeToLanguageName(targetCode) });
+      return undefined;
+    }
+    const added = await dispatch(a.addAITranslatedSubtitle, {
+      force: true, referenceId: reference.id,
+    });
+    // A source exists, so anything left is the provider: no Ollama and no key.
+    if (!added) addBubble(AI_TRANSLATE_NO_PROVIDER);
     return added;
   },
   async [a.ensureAITranslation]({ getters, dispatch }) {
