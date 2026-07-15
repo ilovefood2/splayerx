@@ -80,6 +80,10 @@
       "content": "网络延迟或云端异常。",
       "title": "网络请求超时"
     },
+    "aiTranslateUnavailable": {
+      "title": "无法翻译",
+      "content": "没有找到本地 Ollama，也没有填写 API 密钥；或者这个视频没有可供翻译的字幕。请查看“偏好设置 > 翻译”。"
+    },
     "localSubtitleRemoved": {
       "title": "字幕加载失败",
       "content": "本地字幕文件被删除或已改名。"
@@ -190,7 +194,7 @@
       "showAll": "全部显示"
     },
     "subtitle": {
-      "AITranslation": "重新加载翻译结果",
+      "AITranslation": "用 AI 翻译字幕",
       "decreasePrimarySubtitleDelay": "第一字幕延迟 -0.1s",
       "increasePrimarySubtitleDelay": "第一字幕延迟 +0.1s",
       "decreaseSecondarySubtitleDelay": "第二字幕延迟 -0.1s",

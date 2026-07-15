@@ -17,6 +17,7 @@ import {
   CANNOT_UPLOAD,
   ADD_NO_VIDEO,
   LOCAL_SUBTITLE_REMOVED,
+  AI_TRANSLATE_UNAVAILABLE,
   SNAPSHOT_SUCCESS,
   SNAPSHOT_FAILED,
   LOAD_SUBVIDEO_FAILED,
@@ -213,6 +214,15 @@ export function addBubble(code, options = {}) { // eslint-disable-line complexit
         type: 'result',
         title: i18n.t('errorFile.localSubtitleRemoved.title', i18n.locale, i18n.messages),
         content: i18n.t('errorFile.localSubtitleRemoved.content', i18n.locale, i18n.messages),
+        dismissAfter: 5000,
+      });
+      break;
+    case AI_TRANSLATE_UNAVAILABLE:
+      store.dispatch('addMessages', {
+        id,
+        type: 'result',
+        title: i18n.t('errorFile.aiTranslateUnavailable.title', i18n.locale, i18n.messages),
+        content: i18n.t('errorFile.aiTranslateUnavailable.content', i18n.locale, i18n.messages),
         dismissAfter: 5000,
       });
       break;

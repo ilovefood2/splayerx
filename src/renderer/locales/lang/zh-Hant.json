@@ -80,6 +80,10 @@
       "content": "網絡延遲或雲端異常。",
       "title": "網絡請求超時"
     },
+    "aiTranslateUnavailable": {
+      "title": "無法翻譯",
+      "content": "找不到本機 Ollama，也沒有填寫 API 金鑰；或者這部影片沒有可供翻譯的字幕。請查看「偏好設定 > 翻譯」。"
+    },
     "localSubtitleRemoved": {
       "title": "字幕加載失敗",
       "content": "本地字幕文件被刪除或已改名。"
@@ -190,7 +194,7 @@
       "showAll": "全部顯示"
     },
     "subtitle": {
-      "AITranslation": "重新加載翻譯結果",
+      "AITranslation": "用 AI 翻譯字幕",
       "decreasePrimarySubtitleDelay": "第一字幕延遲 -0.1s",
       "increasePrimarySubtitleDelay": "第一字幕延遲 +0.1s",
       "decreaseSecondarySubtitleDelay": "第二字幕延遲 -0.1s",

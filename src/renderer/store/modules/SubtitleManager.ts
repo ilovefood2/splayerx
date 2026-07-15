@@ -53,6 +53,7 @@ import {
   SUBTITLE_UPLOAD, UPLOAD_SUCCESS, UPLOAD_FAILED,
   CANNOT_UPLOAD,
   LOCAL_SUBTITLE_REMOVED,
+  AI_TRANSLATE_UNAVAILABLE,
   // APPX_EXPORT_NOT_WORK,
 } from '../../helpers/notificationcodes';
 import { addBubble } from '../../helpers/notificationControl';
@@ -967,9 +968,12 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
    * does nothing unless the feature is enabled and configured in Preferences.
    */
   async [a.addAITranslatedSubtitle](
-    { state, dispatch, getters }, payload: { referenceId?: string } = {},
+    { state, dispatch, getters }, payload: { referenceId?: string, force?: boolean } = {},
   ) {
-    if (!getters.canTranslateWithAI) return undefined;
+    // `force` is the explicit menu command: asking for it IS the opt-in, so it
+    // does not also require the Preferences toggle. Whether a provider is
+    // actually reachable is still settled by resolveAIProvider below.
+    if (!payload.force && !getters.canTranslateWithAI) return undefined;
     const targetCode = normalizeCode(
       getters.aiTranslateTargetLanguage || getters.displayLanguage || getters.primaryLanguage,
     );
@@ -1024,6 +1028,19 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
    * language but does have some other subtitle to translate from. Guarded so a
    * failure here never disrupts normal subtitle loading.
    */
+  /**
+   * Translate the current subtitle now, because the user asked from the menu.
+   *
+   * Unlike `ensureAITranslation` this does not wait for the feature to be
+   * enabled in Preferences, and does not bail out when a subtitle already exists
+   * in the target language — the user asked for a translation, so make one and
+   * show it.
+   */
+  async [a.translateWithAI]({ dispatch }) {
+    const added = await dispatch(a.addAITranslatedSubtitle, { force: true });
+    if (!added) addBubble(AI_TRANSLATE_UNAVAILABLE);
+    return added;
+  },
   async [a.ensureAITranslation]({ getters, dispatch }) {
     try {
       if (!getters.canTranslateWithAI) return;

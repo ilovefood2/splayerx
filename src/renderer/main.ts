@@ -839,6 +839,7 @@ new Vue({
       changeFirstSubtitle: smActions.manualChangePrimarySubtitle,
       changeSecondarySubtitle: smActions.manualChangeSecondarySubtitle,
       refreshSubtitles: smActions.refreshSubtitles,
+      translateWithAI: smActions.translateWithAI,
       addLocalSubtitlesWithSelect: smActions.addLocalSubtitlesWithSelect,
       updateSubtitleType: subtitleActions.UPDATE_SUBTITLE_TYPE,
       updateSubSettingsType: subtitleActions.UPDATE_SUBTITLE_SETTINGS_TYPE,
@@ -1063,7 +1064,7 @@ new Vue({
       })
       this.menuService.on('subtitle.AITranslation', () => {
         if (!this.isRefreshing) {
-          this.refreshSubtitles();
+          this.translateWithAI();
         }
       });
       this.menuService.on('subtitle.loadSubtitleFile', () => {
