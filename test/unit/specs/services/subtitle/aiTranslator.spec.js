@@ -1,6 +1,8 @@
 import {
   translateLines, AITranslationError,
   RealtimeSubtitleTranslator, TranslationCache,
+  probeOllama, pickChatModel, isEmbeddingModel, parseParameterSize, apiRootOf,
+  resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
 } from '@/services/subtitle/ai';
 
 const config = {
@@ -55,10 +57,13 @@ describe('services/subtitle/ai - translateLines', () => {
     expect(out).to.deep.equal(['你好']);
   });
 
-  it('falls back to originals when the count does not match (never drops cues)', async () => {
+  it('throws when the reply cannot be aligned to the input (never silently returns originals)', async () => {
     global.fetch = mockFetch(() => ({ body: { choices: [{ message: { content: '{"translations":["only-one"]}' } }] } }));
-    const out = await translateLines(['a', 'b', 'c'], config);
-    expect(out).to.deep.equal(['a', 'b', 'c']);
+    let error;
+    try { await translateLines(['a', 'b', 'c'], config); } catch (e) { error = e; }
+    // Returning ['a','b','c'] here would be indistinguishable from a successful
+    // translation, and the caller would cache the untranslated text forever.
+    expect(error).to.be.an.instanceof(AITranslationError);
   });
 
   it('throws AITranslationError with the HTTP status on failure', async () => {
@@ -73,6 +78,188 @@ describe('services/subtitle/ai - translateLines', () => {
     global.fetch = () => { throw new Error('should not be called'); };
     const out = await translateLines([], config);
     expect(out).to.deep.equal([]);
+  });
+});
+
+// Captured verbatim from a real `GET /api/tags` on a machine running Ollama.
+const TAGS_FIXTURE = {
+  models: [
+    {
+      name: 'bge-m3:latest',
+      capabilities: ['embedding'],
+      details: { family: 'bert', parameter_size: '566.70M' },
+    },
+    {
+      name: 'qwen3:14b',
+      capabilities: ['completion', 'tools', 'thinking'],
+      details: { family: 'qwen3', parameter_size: '14.8B' },
+    },
+    {
+      name: 'qwen3-coder:latest',
+      capabilities: ['completion', 'tools'],
+      details: { family: 'qwen3moe', parameter_size: '30.5B' },
+    },
+  ],
+};
+
+function mockJsonFetch(routes) {
+  return (url) => {
+    const key = Object.keys(routes).find(k => url.indexOf(k) !== -1);
+    if (key === undefined) {
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+    }
+    const body = routes[key];
+    if (body === 'error') return Promise.reject(new TypeError('Failed to fetch'));
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+  };
+}
+
+describe('services/subtitle/ai - ollama detection', () => {
+  let originalFetch;
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('parses the suffixed parameter_size string', () => {
+    // Naive parseFloat would score a 0.57B embedding model as 566B.
+    expect(parseParameterSize('14.8B')).to.equal(14.8);
+    expect(parseParameterSize('566.70M')).to.be.closeTo(0.5667, 1e-6);
+    expect(parseParameterSize('30.5B')).to.equal(30.5);
+    expect(parseParameterSize(undefined)).to.equal(undefined);
+  });
+
+  it('normalises any endpoint shape to the api root', () => {
+    expect(apiRootOf('http://127.0.0.1:11434/v1')).to.equal('http://127.0.0.1:11434');
+    expect(apiRootOf('http://127.0.0.1:11434/v1/chat/completions')).to.equal('http://127.0.0.1:11434');
+    expect(apiRootOf('http://127.0.0.1:11434/')).to.equal('http://127.0.0.1:11434');
+    expect(apiRootOf('')).to.equal('http://127.0.0.1:11434');
+  });
+
+  it('excludes embedding models, which cannot chat', () => {
+    expect(isEmbeddingModel({ id: 'bge-m3:latest', family: 'bert', capabilities: ['embedding'] })).to.equal(true);
+    expect(isEmbeddingModel({ id: 'bge-m3:latest' })).to.equal(true); // name only
+    expect(isEmbeddingModel({ id: 'x', family: 'bert' })).to.equal(true);
+    expect(isEmbeddingModel({ id: 'qwen3:14b', capabilities: ['completion', 'tools'] })).to.equal(false);
+    // declared capabilities beat the name heuristic
+    expect(isEmbeddingModel({ id: 'nomic-embed-odd', capabilities: ['completion'] })).to.equal(false);
+  });
+
+  it('prefers a non-thinking model even when it is much larger', async () => {
+    // Measured: qwen3:14b (thinking) takes ~29s for a 16-line batch while the
+    // 30.5B qwen3-coder takes ~5s. Reasoning tokens dominate; size does not.
+    global.fetch = mockJsonFetch({ '/api/tags': TAGS_FIXTURE });
+    const probe = await probeOllama();
+    expect(probe.available).to.equal(true);
+    expect(probe.recommended).to.equal('qwen3-coder:latest');
+    expect(probe.chatModels.map(m => m.id)).to.not.include('bge-m3:latest');
+    expect(probe.degraded).to.equal(false);
+  });
+
+  it('never recommends an embedding model', () => {
+    expect(pickChatModel([
+      {
+        id: 'bge-m3:latest', chatCapable: false, thinking: false,
+      },
+    ])).to.equal(undefined);
+    expect(pickChatModel([])).to.equal(undefined);
+  });
+
+  it('falls back to /v1/models when /api/tags is unavailable', async () => {
+    global.fetch = mockJsonFetch({
+      '/v1/models': { data: [{ id: 'bge-m3:latest' }, { id: 'qwen3-coder:latest' }] },
+    });
+    const probe = await probeOllama();
+    expect(probe.available).to.equal(true);
+    expect(probe.degraded).to.equal(true);
+    // bge-m3 must still be excluded, by name, without capabilities to consult.
+    expect(probe.recommended).to.equal('qwen3-coder:latest');
+  });
+
+  it('reports unreachable instead of throwing when ollama is absent', async () => {
+    global.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
+    const probe = await probeOllama();
+    expect(probe.reachable).to.equal(false);
+    expect(probe.reason).to.equal('unreachable');
+  });
+
+  it('does not hang when the endpoint never answers', async () => {
+    global.fetch = () => new Promise(() => {}); // never settles
+    const probe = await probeOllama(undefined, { timeout: 30 });
+    expect(probe.reachable).to.equal(false);
+  });
+
+  it('reports no-chat-model when only embedding models are installed', async () => {
+    global.fetch = mockJsonFetch({
+      '/api/tags': { models: [TAGS_FIXTURE.models[0]] },
+    });
+    const probe = await probeOllama();
+    expect(probe.reachable).to.equal(true);
+    expect(probe.available).to.equal(false);
+    expect(probe.reason).to.equal('no-chat-model');
+  });
+});
+
+describe('services/subtitle/ai - resolveAIProvider', () => {
+  let originalFetch;
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => { global.fetch = originalFetch; });
+
+  it('uses a local ollama when no api key is configured', async () => {
+    global.fetch = mockJsonFetch({ '/api/tags': TAGS_FIXTURE });
+    const resolved = await resolveAIProvider({});
+    expect(resolved.ok).to.equal(true);
+    expect(resolved.kind).to.equal('ollama');
+    expect(resolved.reason).to.equal('ollama-detected');
+    expect(resolved.endpoint.apiKey).to.equal('');
+    expect(resolved.endpoint.baseUrl).to.equal('http://127.0.0.1:11434/v1');
+    expect(resolved.endpoint.model).to.equal('qwen3-coder:latest');
+    // A local model is far slower than a hosted one.
+    expect(resolved.tuning.requestTimeout).to.equal(LOCAL_TUNING.requestTimeout);
+  });
+
+  it('honours a configured api key without probing at all', async () => {
+    global.fetch = () => { throw new Error('should not probe when a key is set'); };
+    const resolved = await resolveAIProvider({ aiTranslateApiKey: 'sk-test' });
+    expect(resolved.ok).to.equal(true);
+    expect(resolved.kind).to.equal('openai');
+    expect(resolved.reason).to.equal('user-key');
+    expect(resolved.endpoint.baseUrl).to.equal('https://api.openai.com/v1');
+    expect(resolved.tuning).to.deep.equal({});
+  });
+
+  it('never fires an unauthenticated request at openai', async () => {
+    // The old behaviour: no key -> request -> 401 -> translation dead for the
+    // session, after the subtitle text had already left the machine.
+    global.fetch = () => { throw new Error('should not be called'); };
+    const resolved = await resolveAIProvider({ aiTranslateProvider: 'openai' });
+    expect(resolved.ok).to.equal(false);
+    expect(resolved.reason).to.equal('missing-key');
+  });
+
+  it('reports why it could not use a local model', async () => {
+    global.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
+    const resolved = await resolveAIProvider({});
+    expect(resolved.ok).to.equal(false);
+    expect(resolved.reason).to.equal('ollama-unreachable');
+  });
+
+  it('lets an explicit model override the recommendation', async () => {
+    global.fetch = mockJsonFetch({ '/api/tags': TAGS_FIXTURE });
+    const resolved = await resolveAIProvider({ aiTranslateModel: 'llama3.2' });
+    expect(resolved.endpoint.model).to.equal('llama3.2');
+  });
+
+  it('normalises a custom ollama url so the endpoint is not doubled', async () => {
+    global.fetch = mockJsonFetch({ '/api/tags': TAGS_FIXTURE });
+    const resolved = await resolveAIProvider({
+      aiTranslateProvider: 'ollama', aiTranslateApiUrl: 'http://127.0.0.1:11434',
+    });
+    expect(resolved.endpoint.baseUrl).to.equal('http://127.0.0.1:11434/v1');
+    expect(resolved.reason).to.equal('ollama-forced');
+  });
+
+  it('treats a localhost key endpoint as local for tuning', () => {
+    expect(isLocalhostUrl('http://localhost:1234/v1')).to.equal(true);
+    expect(isLocalhostUrl('https://api.openai.com/v1')).to.equal(false);
   });
 });
 
@@ -105,13 +292,19 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
   });
 
   it('respects the lookahead window (far cues untranslated until approached)', async () => {
-    const translate = texts => Promise.resolve(texts.map(t => `Z:${t}`));
+    const sent = [];
+    const translate = (texts) => { sent.push(...texts); return Promise.resolve(texts.map(t => `Z:${t}`)); };
     const rt = new RealtimeSubtitleTranslator(cues, config, { translate, lookaheadSeconds: 10 });
     rt.getCuesAt(0);
     await delay(5);
-    // far cue at 100s has not been fetched while playing near 0s
+    // the cue at 100s is outside the 10s lookahead, so it must not be requested
+    // or translated while playing near 0s
+    expect(sent).to.not.include('far');
+    expect(rt.getAllCues()[2].text).to.equal('far');
+    // ...and once the playhead reaches it, it does get translated
     rt.getCuesAt(100);
     await delay(5);
+    expect(sent).to.include('far');
     expect(rt.getCuesAt(100)[0].text).to.equal('Z:far');
   });
 
@@ -122,6 +315,143 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
     await delay(5);
     expect(rt.getCuesAt(0)[0].text).to.equal('one');
     expect(rt.error).to.be.an.instanceof(AITranslationError);
+  });
+
+  it('retries a failed batch instead of caching the untranslated original', async () => {
+    let calls = 0;
+    const translate = (texts) => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(new AITranslationError('bad reply'));
+      return Promise.resolve(texts.map(t => `Z:${t}`));
+    };
+    const rt = new RealtimeSubtitleTranslator(cues, config, { translate, lookaheadSeconds: 10 });
+    rt.getCuesAt(0);
+    await delay(5);
+    // the failure must not be recorded as a translation
+    expect(rt.getCuesAt(0)[0].text).to.equal('one');
+    // the next poll retries and succeeds
+    rt.getCuesAt(0);
+    await delay(5);
+    expect(rt.getCuesAt(0)[0].text).to.equal('Z:one');
+  });
+
+  it('forwards the request timeout to the translate call', async () => {
+    // The client default is 30s; a cold local model can exceed that on its own.
+    let seen;
+    const translate = (texts, cfg, opts) => { seen = opts; return Promise.resolve(texts.map(t => `Z:${t}`)); };
+    const rt = new RealtimeSubtitleTranslator(cues, config, { translate, requestTimeout: 120000 });
+    rt.getCuesAt(0);
+    await delay(5);
+    expect(seen).to.deep.equal({ timeout: 120000 });
+  });
+
+  it('falls back to a local provider when the api key is rejected', async () => {
+    let calls = 0;
+    const translate = (texts, cfg) => {
+      calls += 1;
+      if (cfg.apiKey === 'bad-key') return Promise.reject(new AITranslationError('unauthorized', 401));
+      return Promise.resolve(texts.map(t => `L:${t}`));
+    };
+    const onAuthFailure = () => Promise.resolve({
+      config: { ...config, apiKey: '', model: 'qwen3-coder:latest' },
+      requestTimeout: 120000,
+    });
+    const rt = new RealtimeSubtitleTranslator(
+      cues, { ...config, apiKey: 'bad-key' },
+      { translate, onAuthFailure, lookaheadSeconds: 10 },
+    );
+    rt.getCuesAt(0);
+    await delay(10);
+    expect(rt.getCuesAt(0)[0].text).to.equal('one'); // still original, key rejected
+    // the next poll runs on the local provider
+    rt.getCuesAt(0);
+    await delay(10);
+    expect(rt.getCuesAt(0)[0].text).to.equal('L:one');
+    expect(rt.activeModel).to.equal('qwen3-coder:latest');
+    expect(rt.error).to.equal(undefined);
+    expect(calls).to.be.greaterThan(1);
+  });
+
+  it('does not let a second concurrent 401 re-kill the rescued session', async () => {
+    // Two batches are in flight by default (maxConcurrentBatches: 2). Both 401.
+    // The second must not undo the failover the first one triggered.
+    let failoverCalls = 0;
+    const translate = (texts, cfg) => (cfg.apiKey === 'bad-key'
+      ? Promise.reject(new AITranslationError('unauthorized', 401))
+      : Promise.resolve(texts.map(t => `L:${t}`)));
+    const onAuthFailure = () => {
+      failoverCalls += 1;
+      return Promise.resolve({ config: { ...config, apiKey: '', model: 'local' } });
+    };
+    const many = [];
+    for (let i = 0; i < 40; i += 1) many.push({ start: i, end: i + 1, text: `line${i}` });
+    const rt = new RealtimeSubtitleTranslator(
+      many, { ...config, apiKey: 'bad-key' },
+      {
+        translate, onAuthFailure, batchSize: 4, lookaheadSeconds: 30,
+      },
+    );
+    rt.getCuesAt(0);
+    await delay(15);
+    expect(failoverCalls).to.equal(1);
+    rt.getCuesAt(0);
+    await delay(15);
+    expect(rt.getCuesAt(0)[0].text).to.equal('L:line0');
+  });
+
+  it('carries the local look-ahead across an auth failover, not just the timeout', async () => {
+    // A rescued session runs on a local model, which needs the bigger window as
+    // much as the longer timeout: with the hosted default of 20s its
+    // translations would land after the cues had already been shown.
+    const far = [
+      { start: 0, end: 2, text: 'near' },
+      { start: 60, end: 62, text: 'far' },
+    ];
+    const requested = [];
+    const translate = (texts, cfg) => {
+      requested.push(...texts);
+      if (cfg.apiKey === 'bad-key') return Promise.reject(new AITranslationError('unauthorized', 401));
+      return Promise.resolve(texts.map(t => `L:${t}`));
+    };
+    const rt = new RealtimeSubtitleTranslator(far, { ...config, apiKey: 'bad-key' }, {
+      translate,
+      // no lookaheadSeconds: takes the hosted default of 20s
+      onAuthFailure: () => Promise.resolve({
+        config: { ...config, apiKey: '', model: 'local' },
+        requestTimeout: 120000,
+        lookaheadSeconds: 90,
+      }),
+    });
+    rt.getCuesAt(0);
+    await delay(10);
+    rt.getCuesAt(0);
+    await delay(10);
+    // the cue 60s out is outside a 20s window but inside the local 90s one
+    expect(requested).to.include('far');
+  });
+
+  it('stays disabled when there is no local fallback available', async () => {
+    const translate = () => Promise.reject(new AITranslationError('unauthorized', 401));
+    const rt = new RealtimeSubtitleTranslator(
+      cues, config, { translate, onAuthFailure: () => Promise.resolve(undefined) },
+    );
+    rt.getCuesAt(0);
+    await delay(10);
+    expect(rt.getCuesAt(0)[0].text).to.equal('one');
+    expect(rt.error).to.be.an.instanceof(AITranslationError);
+    expect(rt.error.status).to.equal(401);
+  });
+
+  it('keeps the old permanent-disable behaviour without a failover hook', async () => {
+    let calls = 0;
+    const translate = () => { calls += 1; return Promise.reject(new AITranslationError('unauthorized', 401)); };
+    const rt = new RealtimeSubtitleTranslator(cues, config, { translate });
+    rt.getCuesAt(0);
+    await delay(10);
+    const after = calls;
+    rt.getCuesAt(0);
+    await delay(10);
+    expect(calls).to.equal(after); // no further attempts
   });
 
   it('deduplicates identical source lines within a batch', async () => {

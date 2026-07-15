@@ -1,5 +1,7 @@
 import { AITranslatorConfig } from './translator';
-import { RealtimeSubtitleTranslator, TimedText } from './realtimeTranslator';
+import {
+  RealtimeSubtitleTranslator, RealtimeTranslatorOptions, TimedText,
+} from './realtimeTranslator';
 
 /**
  * In-memory link between an AI-translated subtitle entity and the source material
@@ -10,6 +12,7 @@ import { RealtimeSubtitleTranslator, TimedText } from './realtimeTranslator';
 interface RegistryEntry {
   sourceCues: TimedText[];
   config: AITranslatorConfig;
+  options?: RealtimeTranslatorOptions;
   translator?: RealtimeSubtitleTranslator;
 }
 
@@ -24,10 +27,11 @@ export function registerAITranslation(
   key: string,
   sourceCues: TimedText[],
   config: AITranslatorConfig,
+  options?: RealtimeTranslatorOptions,
 ): void {
   const existing = registry.get(key);
-  if (existing) existing.translator?.dispose();
-  registry.set(key, { sourceCues, config });
+  if (existing && existing.translator) existing.translator.dispose();
+  registry.set(key, { sourceCues, config, options });
 }
 
 export function hasAITranslation(key: string): boolean {
@@ -39,7 +43,9 @@ export function getAITranslator(key: string): RealtimeSubtitleTranslator | undef
   const entry = registry.get(key);
   if (!entry) return undefined;
   if (!entry.translator) {
-    entry.translator = new RealtimeSubtitleTranslator(entry.sourceCues, entry.config);
+    entry.translator = new RealtimeSubtitleTranslator(
+      entry.sourceCues, entry.config, entry.options,
+    );
   }
   return entry.translator;
 }
@@ -47,7 +53,19 @@ export function getAITranslator(key: string): RealtimeSubtitleTranslator | undef
 export function clearAITranslation(key: string): void {
   const entry = registry.get(key);
   if (entry) {
-    entry.translator?.dispose();
+    if (entry.translator) entry.translator.dispose();
     registry.delete(key);
   }
+}
+
+/**
+ * Drop every registered translation. Called when the player switches media: the
+ * entries hold the API key and the full source cue list, and AI subtitles are
+ * always regenerated for the new video anyway.
+ */
+export function clearAllAITranslations(): void {
+  registry.forEach((entry) => {
+    if (entry.translator) entry.translator.dispose();
+  });
+  registry.clear();
 }

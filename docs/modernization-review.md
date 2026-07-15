@@ -8,11 +8,36 @@ API) and deliberately does **not** depend on the project's discontinued
 server-side translation backend.
 
 > Note on scope: the large framework upgrades below are intentionally **not**
-> applied in this change. They cannot be validated without a working
-> build+test loop (this repo builds against a custom Electron fork and native
-> modules that do not compile on a modern Node toolchain), and applying them
-> blind would very likely break the app. They are documented here so they can be
-> done deliberately, one at a time, against a green build.
+> applied in this change. Applying them blind would very likely break the app.
+> They are documented here so they can be done deliberately, one at a time,
+> against a green build.
+
+## The build does work — on a pinned toolchain
+
+An earlier version of this document assumed the app could not be built on a
+modern machine. It can, and the loop below is green (lint + 230 unit tests +
+`build.js` + a launchable `.app`) on macOS 26 / Apple Silicon:
+
+- **Node 12.22.12 x64, run under Rosetta 2.** Node 12 has no arm64 darwin build,
+  and both `node-sass@4` (needs the `darwin-x64-72` binding) and the
+  `@chiflix/electron@7.3.3` fork are x64-only. The produced app is x64 and runs
+  under Rosetta 2.
+- **`CI=true`**, so `scripts/post-install.js` skips `install-app-deps`; the
+  native rebuild needs Python 2, which macOS no longer ships.
+- `@splayer/osx-mouse-cocoa` fails to compile for the same reason. It is an
+  **optional** dependency and the install is unaffected.
+- **DMG packaging is the one broken step**: `electron-builder`'s dmg target
+  shells out to `/usr/bin/python` (Python 2). The `.app` itself packages fine —
+  wrap it with `hdiutil` instead.
+
+Two gotchas worth knowing before touching `src/**/*.ts`:
+
+- **`?.` and `??` do not compile.** `tsconfig` targets `esnext` and `.ts` goes
+  through ts-loader alone, so the syntax reaches webpack 4 (acorn 6) untouched
+  and fails with `Module parse failed: Unexpected token`. Use explicit
+  `=== undefined` checks.
+- **`tsconfig` includes `test/**/*`** with `noImplicitAny`, so a `.ts` spec is
+  strictly typechecked. All specs are `.js` for this reason.
 
 ## Environment mismatch (highest priority)
 

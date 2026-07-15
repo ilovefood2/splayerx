@@ -124,6 +124,42 @@
         <table class="aiTranslate__table">
           <tr>
             <td class="aiTranslate__label">
+              {{ $t('preferences.translate.aiProvider') }}
+            </td>
+            <td>
+              <select
+                v-model="aiTranslateProvider"
+                :disabled="!aiTranslateEnabled"
+                class="aiTranslate__input"
+              >
+                <option value="auto">
+                  {{ $t('preferences.translate.aiProviderAuto') }}
+                </option>
+                <option value="ollama">
+                  {{ $t('preferences.translate.aiProviderOllama') }}
+                </option>
+                <option value="openai">
+                  {{ $t('preferences.translate.aiProviderOpenai') }}
+                </option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td class="aiTranslate__label" />
+            <td>
+              <div class="aiTranslate__status">
+                <span>{{ providerStatus }}</span>
+                <button
+                  :disabled="!aiTranslateEnabled || detecting"
+                  @click="detectProvider"
+                  class="aiTranslate__redetect"
+                  type="button"
+                >{{ $t('preferences.translate.aiRedetect') }}</button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="aiTranslate__label">
               {{ $t('preferences.translate.aiApiUrl') }}
             </td>
             <td>
@@ -198,7 +234,10 @@
 import { concat } from 'lodash';
 import electron from 'electron';
 import { codeToLanguageName, LanguageCode } from '@/libs/language';
-import { DEFAULT_BASE_URL, DEFAULT_MODEL } from '@/services/subtitle/ai';
+import {
+  DEFAULT_BASE_URL, DEFAULT_MODEL, resolveAIProvider, ollamaRootOf,
+  isLocalhostUrl, apiRootOf,
+} from '@/services/subtitle/ai';
 import Icon from '@/components/BaseIconContainer.vue';
 import BaseCheckBox from './BaseCheckBox.vue';
 
@@ -239,6 +278,9 @@ export default {
       showFirstSelection: false,
       showSecondSelection: false,
       noLanguage: this.$t('preferences.translate.none'),
+      detecting: false,
+      resolution: null,
+      detectToken: 0,
     };
   },
   computed: {
@@ -300,11 +342,46 @@ export default {
         });
       },
     },
+    /** The host we would actually probe, honouring a custom endpoint. */
+    ollamaHost() {
+      return ollamaRootOf({
+        aiTranslateProvider: this.aiTranslateProvider,
+        aiTranslateApiUrl: this.aiTranslateApiUrl,
+      });
+    },
     defaultApiUrl() {
-      return DEFAULT_BASE_URL;
+      // Placeholder for an empty field: show what will be used if left blank.
+      return this.aiTranslateProvider === 'ollama' ? ollamaRootOf({}) : DEFAULT_BASE_URL;
     },
     defaultModel() {
+      const detected = this.resolution && this.resolution.ok && this.resolution.endpoint;
+      if (detected && this.resolution.kind === 'ollama') return this.resolution.endpoint.model;
       return DEFAULT_MODEL;
+    },
+    /** Plain-language summary of which provider will actually be used, and why. */
+    providerStatus() {
+      if (this.detecting) return this.$t('preferences.translate.aiStatusDetecting');
+      const resolved = this.resolution;
+      if (!resolved) return '';
+      if (resolved.ok && resolved.kind === 'ollama') {
+        const { baseUrl, model } = resolved.endpoint;
+        // "Ollama" does not imply "on this machine": the endpoint field lets the
+        // user point at another host, and then the subtitle text does leave.
+        if (!isLocalhostUrl(baseUrl)) {
+          return this.$t('preferences.translate.aiStatusOllamaRemote', {
+            model, host: apiRootOf(baseUrl),
+          });
+        }
+        return this.$t('preferences.translate.aiStatusOllama', { model });
+      }
+      if (resolved.ok) return this.$t('preferences.translate.aiStatusOpenai');
+      if (resolved.reason === 'missing-key') return this.$t('preferences.translate.aiStatusMissingKey');
+      if (resolved.reason === 'ollama-no-chat-model') {
+        return this.$t('preferences.translate.aiStatusNoChatModel');
+      }
+      // Name the host we actually probed, not the default, or a user who pointed
+      // us at a remote Ollama would be told the wrong address is unreachable.
+      return this.$t('preferences.translate.aiStatusNoOllama', { url: this.ollamaHost });
     },
     aiTranslateEnabled: {
       get() {
@@ -314,12 +391,22 @@ export default {
         this.persistAI({ aiTranslateEnabled: val });
       },
     },
+    aiTranslateProvider: {
+      get() {
+        return this.$store.getters.aiTranslateProvider;
+      },
+      set(val) {
+        this.persistAI({ aiTranslateProvider: val });
+        this.detectProvider();
+      },
+    },
     aiTranslateApiUrl: {
       get() {
         return this.$store.getters.aiTranslateApiUrl;
       },
       set(val) {
         this.persistAI({ aiTranslateApiUrl: val });
+        this.detectProvider();
       },
     },
     aiTranslateApiKey: {
@@ -328,6 +415,7 @@ export default {
       },
       set(val) {
         this.persistAI({ aiTranslateApiKey: val });
+        this.detectProvider();
       },
     },
     aiTranslateModel: {
@@ -347,7 +435,15 @@ export default {
       },
     },
   },
+  mounted() {
+    this.detectProvider();
+  },
   watch: {
+    aiTranslateEnabled() {
+      // Route both directions through detectProvider: it clears the status when
+      // disabled AND invalidates any probe still in flight.
+      this.detectProvider();
+    },
     privacyAgreement(val) {
       if (!val) {
         this.showFirstSelection = this.showSecondSelection = false;
@@ -365,6 +461,36 @@ export default {
     codeToLanguageName(code) {
       if (!code) return this.noLanguage;
       return codeToLanguageName(code);
+    },
+    /** Ask the same resolver playback uses, so the status line cannot drift from reality. */
+    detectProvider() {
+      // Bump first, so any probe already in flight is invalidated. Typing in the
+      // endpoint field fires one probe per keystroke and they finish out of
+      // order; without this a stale answer can overwrite a newer one — or
+      // repopulate the status after the feature has been switched off.
+      this.detectToken += 1;
+      const token = this.detectToken;
+      if (!this.aiTranslateEnabled) {
+        this.detecting = false;
+        this.resolution = null;
+        return;
+      }
+      this.detecting = true;
+      resolveAIProvider({
+        aiTranslateProvider: this.$store.getters.aiTranslateProvider,
+        aiTranslateApiUrl: this.$store.getters.aiTranslateApiUrl,
+        aiTranslateApiKey: this.$store.getters.aiTranslateApiKey,
+        aiTranslateModel: this.$store.getters.aiTranslateModel,
+      }).then((resolution) => {
+        if (token !== this.detectToken) return;
+        this.resolution = resolution;
+      }).catch(() => {
+        if (token !== this.detectToken) return;
+        this.resolution = null;
+      }).then(() => {
+        if (token !== this.detectToken) return;
+        this.detecting = false;
+      });
     },
     persistAI(partial) {
       this.$store.dispatch('setPreference', partial).then(() => {
@@ -425,6 +551,33 @@ export default {
       white-space: nowrap;
       padding-right: 14px;
       width: 96px;
+    }
+    &__status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.4);
+      line-height: 1.4;
+    }
+    &__redetect {
+      flex-shrink: 0;
+      margin-left: 10px;
+      cursor: pointer;
+      background-color: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 11px;
+      padding: 3px 8px;
+      outline: none;
+      &:hover {
+        background-color: rgba(255, 255, 255, 0.12);
+      }
+      &:disabled {
+        cursor: not-allowed;
+        opacity: 0.4;
+      }
     }
     &__input {
       width: 100%;

@@ -22,6 +22,8 @@ const state = {
   isDarkMode: undefined,
   // LLM realtime subtitle translation (off by default; opt-in)
   aiTranslateEnabled: false,
+  // 'auto' uses the API key when set and a local Ollama otherwise.
+  aiTranslateProvider: 'auto',
   aiTranslateApiUrl: '',
   aiTranslateApiKey: '',
   aiTranslateModel: '',
@@ -51,6 +53,7 @@ const getters = {
   snapshotSavedPath: state => state.snapshotSavedPath,
   isDarkMode: state => state.isDarkMode,
   aiTranslateEnabled: state => !!state.aiTranslateEnabled,
+  aiTranslateProvider: state => state.aiTranslateProvider || 'auto',
   aiTranslateApiUrl: state => state.aiTranslateApiUrl,
   aiTranslateApiKey: state => state.aiTranslateApiKey,
   aiTranslateModel: state => state.aiTranslateModel,

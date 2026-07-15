@@ -48,7 +48,7 @@ export class AITranslationError extends Error {
 
 /** Trim trailing slashes and a trailing `/chat/completions` if the user pasted a full URL. */
 function resolveEndpoint(baseUrl: string): string {
-  let url = (baseUrl || DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
+  const url = (baseUrl || DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
   if (/\/chat\/completions$/.test(url)) return url;
   return `${url}/chat/completions`;
 }
@@ -105,7 +105,11 @@ async function requestCompletion(
   options: TranslateOptions,
 ): Promise<string> {
   const controller = new AbortController();
-  const timeout = options.timeout ?? DEFAULT_TIMEOUT;
+  // NOTE: explicit undefined checks rather than `??` throughout this module —
+  // webpack 4 cannot parse `??`/`?.`, and ts-loader passes them through untouched
+  // because tsconfig targets esnext. `||` is wrong here: it would discard a
+  // deliberate 0 (e.g. temperature: 0).
+  const timeout = options.timeout === undefined ? DEFAULT_TIMEOUT : options.timeout;
   const timer = setTimeout(() => controller.abort(), timeout);
   if (options.signal) {
     if (options.signal.aborted) controller.abort();
@@ -141,15 +145,24 @@ async function requestCompletion(
   const json = await response.json().catch(() => undefined) as
     | { choices?: { message?: { content?: string } }[] }
     | undefined;
-  const content = json?.choices?.[0]?.message?.content;
+  const choices = json && json.choices;
+  const first = choices && choices[0];
+  const message = first && first.message;
+  const content = message && message.content;
   if (typeof content !== 'string') throw new AITranslationError('Translation API returned an unexpected response shape');
   return content;
 }
 
 /**
- * Translate an array of subtitle text lines. Always resolves with an array of the
- * same length. On a recoverable formatting error it falls back to the original
- * lines rather than dropping subtitles; hard errors (network/auth) still throw.
+ * Translate an array of subtitle text lines, resolving with an array of the same
+ * length and order.
+ *
+ * Throws `AITranslationError` when the reply cannot be aligned to the input, so
+ * the caller can retry it like any other failure. It deliberately does NOT fall
+ * back to returning the source lines: to a caller that is indistinguishable from
+ * a successful translation, so the untranslated text gets cached and shown
+ * forever. Callers keep subtitles readable by displaying the source text while a
+ * translation is missing (see `RealtimeSubtitleTranslator`).
  */
 export async function translateLines(
   texts: string[],
@@ -160,7 +173,7 @@ export async function translateLines(
   const endpoint = resolveEndpoint(config.baseUrl);
   const body = {
     model: config.model || DEFAULT_MODEL,
-    temperature: config.temperature ?? DEFAULT_TEMPERATURE,
+    temperature: config.temperature === undefined ? DEFAULT_TEMPERATURE : config.temperature,
     messages: [
       { role: 'system', content: buildSystemPrompt(config) },
       { role: 'user', content: buildUserPayload(texts) },
@@ -168,7 +181,10 @@ export async function translateLines(
   };
   const content = await requestCompletion(endpoint, body, config, options);
   const translations = parseTranslations(content, texts.length);
-  // Fall back to originals when the model's output cannot be aligned, so playback
-  // keeps showing something readable instead of blank cues.
-  return translations ?? texts.slice();
+  if (!translations) {
+    throw new AITranslationError(
+      `Translation API returned ${texts.length} line(s) worth of input but a reply that could not be aligned to it`,
+    );
+  }
+  return translations;
 }

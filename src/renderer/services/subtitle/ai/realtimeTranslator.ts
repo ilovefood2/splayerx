@@ -25,9 +25,37 @@ export interface RealtimeTranslatorOptions {
   translate?: typeof translateLines;
   /** Shared cache instance. A private one is created when omitted. */
   cache?: TranslationCache;
+  /**
+   * Per-request timeout. A local model needs far longer than the client default
+   * (a cold load plus a batch can exceed a minute).
+   */
+  requestTimeout?: number;
+  /**
+   * Called once if the endpoint rejects our credentials, to obtain a different
+   * provider to continue with (in practice: fall back to a local Ollama).
+   * Resolving with undefined leaves translation disabled, as before.
+   */
+  onAuthFailure?: () => Promise<AuthFailover | undefined>;
+}
+
+/** A replacement provider supplied by `onAuthFailure`. */
+export interface AuthFailover {
+  config: AITranslatorConfig;
+  requestTimeout?: number;
+  /**
+   * The replacement's look-ahead. A local model needs a much bigger window than
+   * a hosted one, so failing over without this would leave translations landing
+   * after their cues have already been shown.
+   */
+  lookaheadSeconds?: number;
 }
 
 type TranslateFn = typeof translateLines;
+
+function isAuthError(error: Error): boolean {
+  if (!(error instanceof AITranslationError)) return false;
+  return error.status === 401 || error.status === 403;
+}
 
 /**
  * Translates a fixed list of subtitle cues into a target language lazily and in
@@ -38,7 +66,8 @@ type TranslateFn = typeof translateLines;
 export class RealtimeSubtitleTranslator {
   private readonly cues: TimedText[];
 
-  private readonly config: AITranslatorConfig;
+  /** Not readonly: `onAuthFailure` may swap in a different provider. */
+  private config: AITranslatorConfig;
 
   private readonly translated: (string | undefined)[];
 
@@ -46,17 +75,23 @@ export class RealtimeSubtitleTranslator {
 
   private readonly cache: TranslationCache;
 
-  private readonly namespace: string;
+  /** Cache namespace, recomputed whenever `config` changes. */
+  private namespace: string;
 
   private readonly translateFn: TranslateFn;
 
-  private readonly lookahead: number;
+  /** Not readonly: an auth failover may swap in a provider that needs a bigger window. */
+  private lookahead: number;
 
   private readonly behind: number;
 
   private readonly batchSize: number;
 
   private readonly maxConcurrent: number;
+
+  private requestTimeout?: number;
+
+  private readonly onAuthFailure?: () => Promise<AuthFailover | undefined>;
 
   private activeBatches = 0;
 
@@ -67,6 +102,15 @@ export class RealtimeSubtitleTranslator {
   private disposed = false;
 
   private lastError?: Error;
+
+  /**
+   * Bumped when the provider is swapped. Batches started under an older
+   * generation must not write results, poison the new cache namespace, or
+   * re-report an auth error that has already been handled.
+   */
+  private generation = 0;
+
+  private authFailoverStarted = false;
 
   public constructor(
     cues: TimedText[],
@@ -80,13 +124,22 @@ export class RealtimeSubtitleTranslator {
     this.config = config;
     this.translated = new Array(this.cues.length).fill(undefined);
     this.pending = new Array(this.cues.length).fill(false);
-    this.cache = options.cache ?? new TranslationCache();
-    this.namespace = `${config.model}|${config.sourceLanguage || 'auto'}|${config.targetLanguage}`;
-    this.translateFn = options.translate ?? translateLines;
-    this.lookahead = options.lookaheadSeconds ?? 20;
-    this.behind = options.behindSeconds ?? 3;
-    this.batchSize = options.batchSize ?? 16;
-    this.maxConcurrent = options.maxConcurrentBatches ?? 2;
+    // Explicit undefined checks rather than `??`: webpack 4 cannot parse `??`,
+    // and `||` would discard a deliberate 0 (e.g. lookaheadSeconds: 0).
+    this.cache = options.cache === undefined ? new TranslationCache() : options.cache;
+    this.namespace = RealtimeSubtitleTranslator.namespaceFor(config);
+    this.translateFn = options.translate === undefined ? translateLines : options.translate;
+    this.requestTimeout = options.requestTimeout;
+    this.onAuthFailure = options.onAuthFailure;
+    this.lookahead = options.lookaheadSeconds === undefined ? 20 : options.lookaheadSeconds;
+    this.behind = options.behindSeconds === undefined ? 3 : options.behindSeconds;
+    this.batchSize = options.batchSize === undefined ? 16 : options.batchSize;
+    this.maxConcurrent = options.maxConcurrentBatches === undefined
+      ? 2 : options.maxConcurrentBatches;
+  }
+
+  private static namespaceFor(config: AITranslatorConfig): string {
+    return `${config.model}|${config.sourceLanguage || 'auto'}|${config.targetLanguage}`;
   }
 
   /** The full ordered cue list, used by the parser to seed video segments. */
@@ -96,6 +149,11 @@ export class RealtimeSubtitleTranslator {
 
   public get error(): Error | undefined {
     return this.lastError;
+  }
+
+  /** The provider currently in use. Changes if an auth failover happened. */
+  public get activeModel(): string {
+    return this.config.model;
   }
 
   private cacheKey(text: string): string {
@@ -139,18 +197,22 @@ export class RealtimeSubtitleTranslator {
     return this.disabledUntil > now;
   }
 
+  private isInWindow(index: number, time: number): boolean {
+    const cue = this.cues[index];
+    return cue.end >= time - this.behind && cue.start <= time + this.lookahead;
+  }
+
   private collectWindowIndices(time: number): number[] {
     const indices: number[] = [];
     for (let i = 0; i < this.cues.length; i += 1) {
-      if (this.translated[i] !== undefined || this.pending[i]) continue;
-      const cue = this.cues[i];
-      const inWindow = cue.end >= time - this.behind && cue.start <= time + this.lookahead;
-      if (!inWindow) continue;
-      const cached = this.cache.get(this.cacheKey(cue.text));
-      if (cached !== undefined) {
-        this.translated[i] = cached;
-      } else {
-        indices.push(i);
+      const settled = this.translated[i] !== undefined || this.pending[i];
+      if (!settled && this.isInWindow(i, time)) {
+        const cached = this.cache.get(this.cacheKey(this.cues[i].text));
+        if (cached !== undefined) {
+          this.translated[i] = cached;
+        } else {
+          indices.push(i);
+        }
       }
     }
     return indices;
@@ -182,8 +244,14 @@ export class RealtimeSubtitleTranslator {
       return uniqueIndexOf.get(text) as number;
     });
 
-    this.translateFn(uniqueTexts, this.config)
+    const startedAt = this.generation;
+    const options = { timeout: this.requestTimeout };
+
+    this.translateFn(uniqueTexts, this.config, options)
       .then((results) => {
+        // A result from a provider we have since replaced would be written under
+        // the wrong cache namespace, so drop it and let the window reschedule.
+        if (startedAt !== this.generation) return;
         indices.forEach((cueIndex, k) => {
           const value = results[slotForIndex[k]];
           if (typeof value === 'string') {
@@ -195,6 +263,7 @@ export class RealtimeSubtitleTranslator {
         this.lastError = undefined;
       })
       .catch((e: Error) => {
+        if (startedAt !== this.generation) return;
         this.lastError = e;
         this.consecutiveFailures += 1;
         // Back off exponentially (capped) after repeated failures so a bad key or
@@ -203,14 +272,44 @@ export class RealtimeSubtitleTranslator {
           const backoff = Math.min(30000, 1000 * (2 ** this.consecutiveFailures));
           this.disabledUntil = Date.now() + backoff;
         }
-        // Do not retry auth/permission errors automatically.
-        if (e instanceof AITranslationError && (e.status === 401 || e.status === 403)) {
+        // Do not retry auth/permission errors automatically: the credentials are
+        // not going to fix themselves. Stop, then give the owner one chance to
+        // hand us a different provider (in practice, a local Ollama).
+        if (isAuthError(e)) {
           this.disabledUntil = Number.MAX_SAFE_INTEGER;
+          this.tryAuthFailover();
         }
       })
       .finally(() => {
         indices.forEach((i) => { this.pending[i] = false; });
         this.activeBatches -= 1;
+      });
+  }
+
+  /**
+   * Ask the owner for a replacement provider after an auth rejection. Runs at
+   * most once per translator: if the fallback also fails to authenticate we stop
+   * for good rather than ping-pong between providers.
+   */
+  private tryAuthFailover(): void {
+    if (this.authFailoverStarted || !this.onAuthFailure || this.disposed) return;
+    this.authFailoverStarted = true;
+    this.onAuthFailure()
+      .then((failover) => {
+        // dispose() may have won the race while we were resolving.
+        if (!failover || this.disposed) return;
+        this.generation += 1;
+        this.config = failover.config;
+        this.namespace = RealtimeSubtitleTranslator.namespaceFor(failover.config);
+        this.requestTimeout = failover.requestTimeout;
+        // Omitted means "keep the current window", not "reset to the default".
+        if (failover.lookaheadSeconds !== undefined) this.lookahead = failover.lookaheadSeconds;
+        this.consecutiveFailures = 0;
+        this.lastError = undefined;
+        this.disabledUntil = 0;
+      })
+      .catch(() => {
+        // Keep the original auth error and stay disabled.
       });
   }
 

@@ -29,8 +29,9 @@ import {
   AITranslatedGenerator,
 } from '@/services/subtitle';
 import {
-  registerAITranslation, makeAITranslationKey, DEFAULT_BASE_URL, DEFAULT_MODEL,
-  AITranslatorConfig, TimedText,
+  registerAITranslation, makeAITranslationKey, clearAllAITranslations,
+  resolveAIProvider, configFor,
+  AIProviderResolution, AIProviderTuning, TimedText,
 } from '@/services/subtitle/ai';
 import { generateHints, calculatedName } from '@/libs/utils';
 import { log } from '@/libs/Log';
@@ -89,20 +90,88 @@ function pickAIReference(
   return list.find(sub => isAITranslatable(sub, targetCode));
 }
 
-function buildAIConfig(
-  prefs: {
-    aiTranslateApiUrl?: string, aiTranslateApiKey?: string, aiTranslateModel?: string,
-  },
+function languagesFor(
   targetCode: LanguageCode,
   sourceCode?: LanguageCode,
-): AITranslatorConfig {
+): { targetLanguage: string, sourceLanguage?: string } {
+  // An untagged track (Default/No) has no meaningful language name — passing it
+  // through would put "translate from Default" in the prompt. Leave it out and
+  // let the model detect the source language itself.
+  const hasKnownSource = !!sourceCode
+    && sourceCode !== LanguageCode.Default && sourceCode !== LanguageCode.No;
   return {
-    baseUrl: prefs.aiTranslateApiUrl || DEFAULT_BASE_URL,
-    apiKey: prefs.aiTranslateApiKey || '',
-    model: prefs.aiTranslateModel || DEFAULT_MODEL,
     targetLanguage: codeToLanguageName(targetCode),
-    sourceLanguage: sourceCode ? codeToLanguageName(sourceCode) : undefined,
+    sourceLanguage: hasKnownSource ? codeToLanguageName(sourceCode as LanguageCode) : undefined,
   };
+}
+
+function aiPrefsOf(getters: {
+  aiTranslateProvider?: string, aiTranslateApiUrl?: string,
+  aiTranslateApiKey?: string, aiTranslateModel?: string,
+}) {
+  return {
+    aiTranslateProvider: getters.aiTranslateProvider as 'auto' | 'openai' | 'ollama' | undefined,
+    aiTranslateApiUrl: getters.aiTranslateApiUrl,
+    aiTranslateApiKey: getters.aiTranslateApiKey,
+    aiTranslateModel: getters.aiTranslateModel,
+  };
+}
+
+/** The reference track's text cues, or an empty list if it has none to translate. */
+async function collectSourceCues(
+  dispatch: (type: string, payload?: unknown) => Promise<{ dialogues?: Cue[] }>,
+  referenceId: string,
+): Promise<TimedText[]> {
+  let dialogues: Cue[] = [];
+  try {
+    const result = await dispatch(`${referenceId}/${subActions.getDialogues}`, undefined);
+    dialogues = (result && result.dialogues) || [];
+  } catch (error) {
+    log.warn('SubtitleManager', error);
+    return [];
+  }
+  const cues = dialogues
+    .filter((cue): cue is TextCue => !!cue && typeof (cue as TextCue).text === 'string'
+      && !!(cue as TextCue).text)
+    .map(cue => ({ start: cue.start, end: cue.end, text: cue.text }));
+  if (!cues.length) log.warn('SubtitleManager', 'AI translate: reference subtitle has no text cues');
+  return cues;
+}
+
+function tuningOptions(tuning: AIProviderTuning) {
+  return {
+    requestTimeout: tuning.requestTimeout,
+    lookaheadSeconds: tuning.lookaheadSeconds,
+  };
+}
+
+/**
+ * Translator options for a resolved provider.
+ *
+ * When we are using the user's own API key we also arm a one-shot failover: if
+ * the endpoint rejects the key, retry on a local Ollama rather than silently
+ * giving up for the rest of the session.
+ */
+function buildTranslatorOptions(
+  resolution: AIProviderResolution,
+  languages: { targetLanguage: string, sourceLanguage?: string },
+) {
+  const options = tuningOptions(resolution.tuning);
+  if (resolution.kind !== 'openai') return options;
+  return Object.assign({}, options, {
+    onAuthFailure: async () => {
+      const local = await resolveAIProvider({ aiTranslateProvider: 'ollama' });
+      const localConfig = configFor(local, languages);
+      if (!localConfig) {
+        log.warn('SubtitleManager', `AI translate: key rejected and no local fallback (${local.reason})`);
+        return undefined;
+      }
+      log.warn('SubtitleManager', `AI translate: key rejected, falling back to local ${localConfig.model}`);
+      // Reuse tuningOptions so the failover and the direct-local path cannot drift:
+      // the local model needs the bigger look-ahead as much as the longer timeout.
+      return Object.assign({ config: localConfig }, tuningOptions(local.tuning));
+    },
+  });
 }
 
 interface ISubtitleManagerState {
@@ -169,8 +238,15 @@ const getters: GetterTree<ISubtitleManagerState, {}> = {
     return !!rootGetters[`${secondarySubtitleId}/isImage`];
   },
   canTranslateWithAI(state, getters): boolean {
-    return !!getters.aiTranslateEnabled
-      && !!(getters.aiTranslateApiKey || getters.aiTranslateApiUrl);
+    if (!getters.aiTranslateEnabled) return false;
+    // 'openai' means the user explicitly wants the hosted API, which needs a key
+    // or a custom endpoint. 'auto'/'ollama' can run entirely on a local model,
+    // so they need no configuration at all — whether one is actually reachable
+    // is settled by resolveAIProvider when a translation is requested.
+    if (getters.aiTranslateProvider === 'openai') {
+      return !!(getters.aiTranslateApiKey || getters.aiTranslateApiUrl);
+    }
+    return true;
   },
 };
 const mutations: MutationTree<ISubtitleManagerState> = {
@@ -298,6 +374,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     commit(m.setIsRefreshing, false);
     primarySelectionComplete = false;
     secondarySelectionComplete = false;
+    // AI 翻译只属于上一个视频，registry 里存着 API key 和全部源字幕，换片时一并释放
+    clearAllAITranslations();
     await Promise.all(Object.keys(state.allSubtitles).map(id => dispatch(a.removeSubtitle, id)));
   },
   async [a.refreshSubtitlesInitially]({
@@ -348,6 +426,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
           dispatch(a.stopAISelection);
           retrieveEmbeddedList(originSrc)
             .then(streams => dispatch(a.addEmbeddedSubtitles, { mediaHash, source: streams }));
+          // AI 字幕不会持久化，每次打开都要重新生成，否则重看时不会再提供翻译
+          dispatch(a.ensureAITranslation);
           // 继续上次的翻译任务
           dispatch(atActions.AUDIO_TRANSLATE_CONTINUE);
         });
@@ -912,25 +992,25 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     }
     if (!store.hasModule(reference.id)) return undefined;
 
-    let dialogues: Cue[] = [];
-    try {
-      const result = await dispatch(`${reference.id}/${subActions.getDialogues}`, undefined);
-      dialogues = (result && result.dialogues) || [];
-    } catch (error) {
-      log.warn('SubtitleManager', error);
-      return undefined;
-    }
-    const sourceCues: TimedText[] = dialogues
-      .filter((cue): cue is TextCue => !!cue && typeof (cue as TextCue).text === 'string'
-        && !!(cue as TextCue).text)
-      .map(cue => ({ start: cue.start, end: cue.end, text: cue.text }));
-    if (!sourceCues.length) {
-      log.warn('SubtitleManager', 'AI translate: reference subtitle has no text cues');
-      return undefined;
-    }
+    const sourceCues = await collectSourceCues(dispatch, reference.id);
+    if (!sourceCues.length) return undefined;
 
-    const config = buildAIConfig(getters, targetCode, normalizeCode(reference.language));
-    registerAITranslation(makeAITranslationKey(reference.hash, targetCode), sourceCues, config);
+    const languages = languagesFor(targetCode, normalizeCode(reference.language));
+    // Work out where to send the requests BEFORE creating the translator: with no
+    // API key this finds a local Ollama, so a key-less user gets translation
+    // instead of an unauthenticated 401 against api.openai.com.
+    const resolution = await resolveAIProvider(aiPrefsOf(getters));
+    const config = configFor(resolution, languages);
+    if (!config) {
+      log.warn('SubtitleManager', `AI translate: no provider available (${resolution.reason})`);
+      return undefined;
+    }
+    registerAITranslation(
+      makeAITranslationKey(reference.hash, targetCode),
+      sourceCues,
+      config,
+      buildTranslatorOptions(resolution, languages),
+    );
     await dispatch(a.addSubtitle, {
       generator: new AITranslatedGenerator(reference.hash, targetCode),
       mediaHash: state.mediaHash,
@@ -1003,15 +1083,18 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
   },
   async [a.storeSelectedSubtitles]({ state }, ids: string[]) {
     const { allSubtitles, mediaHash } = state;
+    // 位置有意义：[0] 是主字幕，[1] 是副字幕，所以不能用 filter 压缩数组，
+    // 否则主字幕被跳过时副字幕会被提升成主字幕。
     const subtitles = ids
-      .filter(id => state.allSubtitles[id])
-      .filter((id) => {
-        const source = state.allSubtitles[id].displaySource;
-        return source && source.source;
-      })
       .map((id) => {
-        const { hash, displaySource } = allSubtitles[id];
-        return { hash, source: displaySource };
+        const subtitle = allSubtitles[id];
+        if (!subtitle) return undefined;
+        const source = subtitle.displaySource;
+        if (!source || !source.source) return undefined;
+        // AI 字幕只存在于当前会话（见 services/subtitle/ai/registry），不在 preference.list 里。
+        // 存下来的话下次打开会因为在列表里找不到对应条目而选不中任何字幕。
+        if (source.type === Type.AITranslated) return undefined;
+        return { hash: subtitle.hash, source };
       });
     storeSelectedSubtitles(subtitles as SelectedSubtitle[], mediaHash);
   },
