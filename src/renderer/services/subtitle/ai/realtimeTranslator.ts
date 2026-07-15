@@ -36,6 +36,12 @@ export interface RealtimeTranslatorOptions {
    * Resolving with undefined leaves translation disabled, as before.
    */
   onAuthFailure?: () => Promise<AuthFailover | undefined>;
+  /**
+   * Show nothing until a cue is translated, rather than falling back to its
+   * source text. The AI track is the target-language track: briefly flashing the
+   * original and swapping it out reads as a glitch.
+   */
+  hideUntranslated?: boolean;
 }
 
 /** A replacement provider supplied by `onAuthFailure`. */
@@ -91,6 +97,8 @@ export class RealtimeSubtitleTranslator {
 
   private requestTimeout?: number;
 
+  private readonly hideUntranslated: boolean;
+
   private readonly onAuthFailure?: () => Promise<AuthFailover | undefined>;
 
   private activeBatches = 0;
@@ -131,6 +139,7 @@ export class RealtimeSubtitleTranslator {
     this.translateFn = options.translate === undefined ? translateLines : options.translate;
     this.requestTimeout = options.requestTimeout;
     this.onAuthFailure = options.onAuthFailure;
+    this.hideUntranslated = options.hideUntranslated === true;
     this.lookahead = options.lookaheadSeconds === undefined ? 20 : options.lookaheadSeconds;
     this.behind = options.behindSeconds === undefined ? 3 : options.behindSeconds;
     this.batchSize = options.batchSize === undefined ? 16 : options.batchSize;
@@ -178,15 +187,30 @@ export class RealtimeSubtitleTranslator {
     return TranslationCache.keyFor(this.namespace, text);
   }
 
-  private textFor(index: number): string {
-    const cue = this.cues[index];
-    if (this.translated[index] !== undefined) return this.translated[index] as string;
-    const cached = this.cache.get(this.cacheKey(cue.text));
+  /** The translation, or undefined while it is still pending. */
+  private translationFor(index: number): string | undefined {
+    if (this.translated[index] !== undefined) return this.translated[index];
+    const cached = this.cache.get(this.cacheKey(this.cues[index].text));
     if (cached !== undefined) {
       this.translated[index] = cached;
       return cached;
     }
-    return cue.text; // graceful fallback until translated
+    return undefined;
+  }
+
+  private textFor(index: number): string {
+    const translation = this.translationFor(index);
+    if (translation !== undefined) return translation;
+    return this.cues[index].text; // graceful fallback until translated
+  }
+
+  /** How much of the track is translated, for a progress display. */
+  public get progress(): { translated: number, total: number } {
+    let done = 0;
+    for (let i = 0; i < this.cues.length; i += 1) {
+      if (this.translationFor(i) !== undefined) done += 1;
+    }
+    return { translated: done, total: this.cues.length };
   }
 
   /** All cues with their best currently-known text (translated where available). */
@@ -205,7 +229,10 @@ export class RealtimeSubtitleTranslator {
     for (let i = 0; i < this.cues.length; i += 1) {
       const cue = this.cues[i];
       if (cue.start <= time && cue.end >= time && cue.text) {
-        result.push({ start: cue.start, end: cue.end, text: this.textFor(i) });
+        // When hiding untranslated cues, a pending one is simply not shown yet:
+        // showing the source text and swapping it a moment later looks broken.
+        const text = this.hideUntranslated ? this.translationFor(i) : this.textFor(i);
+        if (text !== undefined) result.push({ start: cue.start, end: cue.end, text });
       }
     }
     return result;

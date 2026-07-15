@@ -30,7 +30,7 @@ import {
 } from '@/services/subtitle';
 import {
   registerAITranslation, makeAITranslationKey, clearAllAITranslations,
-  appendAITranslationCues, resolveAIProvider, configFor,
+  appendAITranslationCues, getAITranslator, resolveAIProvider, configFor,
   checkTranscribeEnvironment, transcribeVideo,
   AIProviderResolution, AIProviderTuning, TimedText,
 } from '@/services/subtitle/ai';
@@ -57,7 +57,6 @@ import {
   AI_TRANSLATE_NO_SOURCE,
   AI_TRANSLATE_NO_PROVIDER,
   AI_TRANSLATE_NO_WHISPER,
-  AI_TRANSCRIBE_STARTED,
   AI_TRANSCRIBE_FAILED,
   AI_TRANSCRIBE_NO_SPEECH,
   // APPX_EXPORT_NOT_WORK,
@@ -161,6 +160,9 @@ function tuningOptions(tuning: AIProviderTuning) {
   return {
     requestTimeout: tuning.requestTimeout,
     lookaheadSeconds: tuning.lookaheadSeconds,
+    // The AI track is the target-language track: never flash the source text and
+    // swap it out a moment later.
+    hideUntranslated: true,
   };
 }
 
@@ -350,6 +352,57 @@ let secondarySelectionComplete = false;
 /** Media currently being transcribed, so a second menu click cannot start a
  *  duplicate multi-minute job for the same video. */
 let transcribingMediaHash = '';
+
+/**
+ * A single live status line while subtitles are being prepared.
+ *
+ * Nothing is shown until a line is translated, so without this the screen just
+ * sits empty and the app looks broken. The bubble is updated in place rather
+ * than re-added, so it does not flicker.
+ */
+const AI_PROGRESS_ID = 'ai-subtitle-progress';
+let aiProgressTimer: number | undefined;
+
+/** i18n lives on the store here, the same way notificationControl reaches it. */
+function progressText(key: string, values: object): string {
+  const i18n = (store as { $i18n?: { t: Function, locale: string } }).$i18n;
+  if (!i18n) return '';
+  return i18n.t(key, i18n.locale, values) as string;
+}
+
+function showAIProgress(content: string): void {
+  store.dispatch('addMessages', { id: AI_PROGRESS_ID, content });
+}
+
+function updateAIProgress(content: string): void {
+  store.dispatch('changeMessageState', { id: AI_PROGRESS_ID, property: 'content', value: content });
+}
+
+function endAIProgress(): void {
+  if (aiProgressTimer !== undefined) {
+    clearInterval(aiProgressTimer);
+    aiProgressTimer = undefined;
+  }
+  store.dispatch('removeMessages', AI_PROGRESS_ID);
+}
+
+/**
+ * Keep the status line current until the first translated line is ready, which
+ * is the moment the wait visibly ends.
+ */
+function trackAIProgress(key: string, describe: (translated: number, total: number) => string) {
+  if (aiProgressTimer !== undefined) clearInterval(aiProgressTimer);
+  aiProgressTimer = window.setInterval(() => {
+    const translator = getAITranslator(key);
+    if (!translator) return;
+    const { translated, total } = translator.progress;
+    if (translated > 0) {
+      endAIProgress();
+      return;
+    }
+    updateAIProgress(describe(translated, total));
+  }, 500);
+}
 /** Guards the first chunk: without it two chunks landing close together would
  *  each create a track. */
 let creatingTranscribedTrack = false;
@@ -401,6 +454,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     secondarySelectionComplete = false;
     // AI 翻译只属于上一个视频，registry 里存着 API key 和全部源字幕，换片时一并释放
     clearAllAITranslations();
+    endAIProgress();
     await Promise.all(Object.keys(state.allSubtitles).map(id => dispatch(a.removeSubtitle, id)));
   },
   async [a.refreshSubtitlesInitially]({
@@ -1075,11 +1129,21 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     // This is the whole point for a video that ships with no subtitles.
     if (!reference) return dispatch(a.transcribeAndTranslate, { targetCode });
 
+    // Nothing shows until a line is translated, so say so while it happens.
+    showAIProgress(progressText('errorFile.aiProgress.translating', { done: 0, total: '?' }));
     const added = await dispatch(a.addAITranslatedSubtitle, {
       force: true, referenceId: reference.id,
     });
-    // A source exists, so anything left is the provider: no Ollama and no key.
-    if (!added) addBubble(AI_TRANSLATE_NO_PROVIDER);
+    if (!added) {
+      endAIProgress();
+      // A source exists, so anything left is the provider: no Ollama and no key.
+      addBubble(AI_TRANSLATE_NO_PROVIDER);
+      return undefined;
+    }
+    trackAIProgress(
+      makeAITranslationKey(reference.hash, targetCode),
+      (done, total) => progressText('errorFile.aiProgress.translating', { done, total }),
+    );
     return added;
   },
   /**
@@ -1104,7 +1168,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     if (transcribingMediaHash === state.mediaHash) return undefined; // already running
     const mediaHash = state.mediaHash;
     transcribingMediaHash = mediaHash;
-    addBubble(AI_TRANSCRIBE_STARTED);
+    // Two phases to wait through, and nothing on screen during either.
+    showAIProgress(progressText('errorFile.aiProgress.transcribing', { percent: 0 }));
     let added: ISubtitleControlListItem | undefined;
     let key = '';
     let pending: TimedText[] = [];
@@ -1116,7 +1181,15 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         // playback, so the viewer starts watching in seconds instead of waiting
         // for a three-hour file to finish.
         onCues: (chunk, info) => {
-          if (state.mediaHash !== mediaHash || !chunk.length) return;
+          if (state.mediaHash !== mediaHash) return;
+          // Report transcription progress even for a silent chunk, otherwise a
+          // long musical opening looks like a hang.
+          if (aiProgressTimer === undefined) {
+            updateAIProgress(progressText('errorFile.aiProgress.transcribing', {
+              percent: Math.round((info.done / info.total) * 100),
+            }));
+          }
+          if (!chunk.length) return;
           if (added && key) {
             appendAITranslationCues(key, chunk);
             return;
@@ -1132,7 +1205,13 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
             targetCode, language: info.language, cues: first,
           }).then((entity) => {
             added = entity;
-            if (entity) key = makeAITranslationKey(`whisper-${mediaHash}`, targetCode);
+            if (entity) {
+              key = makeAITranslationKey(`whisper-${mediaHash}`, targetCode);
+              // Speech is found; from here the wait is the translation.
+              trackAIProgress(key, (done, total) => progressText(
+                'errorFile.aiProgress.translating', { done, total },
+              ));
+            }
             if (key && pending.length) {
               appendAITranslationCues(key, pending);
               pending = [];
@@ -1146,12 +1225,14 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       });
       if (state.mediaHash !== mediaHash) return undefined; // media changed
       if (!cues.length) {
+        endAIProgress();
         addBubble(AI_TRANSCRIBE_NO_SPEECH);
         return undefined;
       }
       return added;
     } catch (error) {
       log.warn('SubtitleManager', error);
+      endAIProgress();
       addBubble(AI_TRANSCRIBE_FAILED);
       return undefined;
     } finally {

@@ -449,6 +449,40 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
     expect(rt.getCuesAt(0)[0].text).to.equal('Z:one');
   });
 
+  it('shows nothing until a cue is translated when hiding untranslated text', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const translate = texts => gate.then(() => texts.map(t => `Z:${t}`));
+    const rt = new RealtimeSubtitleTranslator(cues, config, {
+      translate, hideUntranslated: true, lookaheadSeconds: 10,
+    });
+    // The AI track is the target-language track: showing 'one' here and swapping
+    // it to Chinese a moment later is the flicker this option exists to stop.
+    expect(rt.getCuesAt(0)).to.deep.equal([]);
+    release();
+    await delay(5);
+    expect(rt.getCuesAt(0)[0].text).to.equal('Z:one');
+  });
+
+  it('still falls back to the source text when not hiding', async () => {
+    const translate = () => new Promise(() => {}); // never resolves
+    const rt = new RealtimeSubtitleTranslator(cues, config, { translate });
+    expect(rt.getCuesAt(0)[0].text).to.equal('one');
+  });
+
+  it('reports translation progress for the status line', async () => {
+    const translate = texts => Promise.resolve(texts.map(t => `Z:${t}`));
+    const rt = new RealtimeSubtitleTranslator(cues, config, {
+      translate, hideUntranslated: true, lookaheadSeconds: 10,
+    });
+    expect(rt.progress).to.deep.equal({ translated: 0, total: 3 });
+    rt.getCuesAt(0);
+    await delay(5);
+    // the two cues inside the 10s window are done; the one at 100s is not
+    expect(rt.progress.translated).to.equal(2);
+    expect(rt.progress.total).to.equal(3);
+  });
+
   it('forwards the request timeout to the translate call', async () => {
     // The client default is 30s; a cold local model can exceed that on its own.
     let seen;

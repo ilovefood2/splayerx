@@ -20,7 +20,6 @@ import {
   AI_TRANSLATE_NO_SOURCE,
   AI_TRANSLATE_NO_PROVIDER,
   AI_TRANSLATE_NO_WHISPER,
-  AI_TRANSCRIBE_STARTED,
   AI_TRANSCRIBE_FAILED,
   AI_TRANSCRIBE_NO_SPEECH,
   SNAPSHOT_SUCCESS,
@@ -251,15 +250,6 @@ export function addBubble(code, options = {}) { // eslint-disable-line complexit
         // which half of the toolchain is absent.
         content: i18n.t('errorFile.aiTranslateNoWhisper.content', i18n.locale, { missing: options.missing }),
         dismissAfter: 12000,
-      });
-      break;
-    case AI_TRANSCRIBE_STARTED:
-      store.dispatch('addMessages', {
-        id,
-        type: 'loading',
-        title: i18n.t('errorFile.aiTranscribeStarted.title', i18n.locale, i18n.messages),
-        content: i18n.t('errorFile.aiTranscribeStarted.content', i18n.locale, i18n.messages),
-        dismissAfter: 8000,
       });
       break;
     case AI_TRANSCRIBE_NO_SPEECH:

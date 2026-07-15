@@ -85,6 +85,10 @@
       "title": "Nothing to Translate",
       "content": "This video has no subtitle that can be translated into {target}. Its subtitles may already be in {target}, or it may have none at all. Pick a different language under Preferences > Translate > Translate Into."
     },
+    "aiProgress": {
+      "transcribing": "Preparing subtitles — recognising speech {percent}%",
+      "translating": "Preparing subtitles — translated {done}/{total} lines"
+    },
     "aiTranslateNoWhisper": {
       "title": "Speech Recognition Not Set Up",
       "content": "This video has no subtitle, so its audio must be transcribed first. Missing: {missing}. Install with: brew install whisper-cpp ffmpeg — and put a ggml model in Application Support/SPlayer/whisper."
