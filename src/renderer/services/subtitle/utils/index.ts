@@ -17,10 +17,12 @@ import {
 import { SUBTITLE_FULL_DIRNAME } from '@/constants';
 import { assFragmentLanguageLoader, srtFragmentLanguageLoader, vttFragmentLanguageLoader } from './languageLoader';
 import {
-  IEmbeddedOrigin,
+  IEmbeddedOrigin, IAITranslatedLoaderOrigin,
   EmbeddedStreamLoader, LocalTextLoader, SagiLoader, LocalBinaryLoader, ModifiedLoader,
+  AITranslatedLoader,
 } from './loaders';
 import { SagiImageParser } from '../parsers/sagiImage';
+import { AITranslatedParser } from '../parsers/aiTranslated';
 
 /**
  * TextCue tags getter for SubRip, SubStation Alpha and Online Transcript subtitles.
@@ -215,6 +217,8 @@ export function getLoader(source: IOrigin, format: Format): ILoader {
       return new SagiLoader(source.source as string);
     case Type.Modified:
       return new ModifiedLoader((source.source as { source: string }).source);
+    case Type.AITranslated:
+      return new AITranslatedLoader(source as IAITranslatedLoaderOrigin);
   }
 }
 
@@ -225,6 +229,9 @@ export function getParser(
 ): IParser {
   if (loader.source.type === Type.Modified) {
     return new ModifiedParser(loader as ModifiedLoader, videoSegments);
+  }
+  if (loader.source.type === Type.AITranslated) {
+    return new AITranslatedParser(loader as AITranslatedLoader, videoSegments);
   }
   switch (format) {
     default:

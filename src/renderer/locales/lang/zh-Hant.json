@@ -425,7 +425,14 @@
       "translateSetting": "智能字幕",
       "secondary": "次要語言",
       "setAsDefault": "將SPlayer設為默認播放器",
-      "settings": "設置"
+      "settings": "設置",
+      "aiTranslateEnable": "AI 即時字幕翻譯",
+      "aiTranslateDescription": "當影片沒有你所用語言的字幕時，使用大型語言模型（LLM）即時翻譯現有字幕軌。使用你自己的 OpenAI 相容 API 金鑰，請求會直接傳送到你設定的端點。預設關閉。",
+      "aiApiUrl": "API 端點",
+      "aiApiKey": "API 金鑰",
+      "aiModel": "模型",
+      "aiTargetLanguage": "翻譯為",
+      "aiTargetAuto": "自動（跟隨應用語言）"
     },
     "video": {
       "videoSetting": "視頻設置"

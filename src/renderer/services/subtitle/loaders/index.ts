@@ -3,3 +3,4 @@ export * from './local';
 export * from './online';
 export * from './preTranslated';
 export * from './translated';
+export * from './aiTranslated';

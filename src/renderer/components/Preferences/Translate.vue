@@ -110,6 +110,87 @@
         {{ $t('preferences.translationEdit.quickEditDescription') }}
       </div>
     </div>
+    <div class="settingItem aiTranslate">
+      <BaseCheckBox v-model="aiTranslateEnabled">
+        {{ $t('preferences.translate.aiTranslateEnable') }}
+      </BaseCheckBox>
+      <div
+        :style="{ opacity: aiTranslateEnabled ? 1 : 0.3 }"
+        class="settingItem__attached"
+      >
+        <div class="settingItem__description">
+          {{ $t('preferences.translate.aiTranslateDescription') }}
+        </div>
+        <table class="aiTranslate__table">
+          <tr>
+            <td class="aiTranslate__label">
+              {{ $t('preferences.translate.aiApiUrl') }}
+            </td>
+            <td>
+              <input
+                v-model.trim="aiTranslateApiUrl"
+                :disabled="!aiTranslateEnabled"
+                :placeholder="defaultApiUrl"
+                class="aiTranslate__input"
+                spellcheck="false"
+              >
+            </td>
+          </tr>
+          <tr>
+            <td class="aiTranslate__label">
+              {{ $t('preferences.translate.aiApiKey') }}
+            </td>
+            <td>
+              <input
+                v-model.trim="aiTranslateApiKey"
+                :disabled="!aiTranslateEnabled"
+                type="password"
+                class="aiTranslate__input"
+                spellcheck="false"
+                autocomplete="off"
+              >
+            </td>
+          </tr>
+          <tr>
+            <td class="aiTranslate__label">
+              {{ $t('preferences.translate.aiModel') }}
+            </td>
+            <td>
+              <input
+                v-model.trim="aiTranslateModel"
+                :disabled="!aiTranslateEnabled"
+                :placeholder="defaultModel"
+                class="aiTranslate__input"
+                spellcheck="false"
+              >
+            </td>
+          </tr>
+          <tr>
+            <td class="aiTranslate__label">
+              {{ $t('preferences.translate.aiTargetLanguage') }}
+            </td>
+            <td>
+              <select
+                v-model="aiTranslateTargetLanguage"
+                :disabled="!aiTranslateEnabled"
+                class="aiTranslate__input"
+              >
+                <option value="">
+                  {{ $t('preferences.translate.aiTargetAuto') }}
+                </option>
+                <option
+                  v-for="code in supportedLanguageCodes"
+                  :key="code"
+                  :value="code"
+                >
+                  {{ codeToLanguageName(code) }}
+                </option>
+              </select>
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -117,6 +198,7 @@
 import { concat } from 'lodash';
 import electron from 'electron';
 import { codeToLanguageName, LanguageCode } from '@/libs/language';
+import { DEFAULT_BASE_URL, DEFAULT_MODEL } from '@/services/subtitle/ai';
 import Icon from '@/components/BaseIconContainer.vue';
 import BaseCheckBox from './BaseCheckBox.vue';
 
@@ -218,6 +300,52 @@ export default {
         });
       },
     },
+    defaultApiUrl() {
+      return DEFAULT_BASE_URL;
+    },
+    defaultModel() {
+      return DEFAULT_MODEL;
+    },
+    aiTranslateEnabled: {
+      get() {
+        return this.$store.getters.aiTranslateEnabled;
+      },
+      set(val) {
+        this.persistAI({ aiTranslateEnabled: val });
+      },
+    },
+    aiTranslateApiUrl: {
+      get() {
+        return this.$store.getters.aiTranslateApiUrl;
+      },
+      set(val) {
+        this.persistAI({ aiTranslateApiUrl: val });
+      },
+    },
+    aiTranslateApiKey: {
+      get() {
+        return this.$store.getters.aiTranslateApiKey;
+      },
+      set(val) {
+        this.persistAI({ aiTranslateApiKey: val });
+      },
+    },
+    aiTranslateModel: {
+      get() {
+        return this.$store.getters.aiTranslateModel;
+      },
+      set(val) {
+        this.persistAI({ aiTranslateModel: val });
+      },
+    },
+    aiTranslateTargetLanguage: {
+      get() {
+        return this.$store.getters.aiTranslateTargetLanguage;
+      },
+      set(val) {
+        this.persistAI({ aiTranslateTargetLanguage: val });
+      },
+    },
   },
   watch: {
     privacyAgreement(val) {
@@ -237,6 +365,11 @@ export default {
     codeToLanguageName(code) {
       if (!code) return this.noLanguage;
       return codeToLanguageName(code);
+    },
+    persistAI(partial) {
+      this.$store.dispatch('setPreference', partial).then(() => {
+        electron.ipcRenderer.send('preference-to-main', this.preferenceData);
+      });
     },
     handleFirstSelection(selection) {
       if (selection === this.secondaryLanguage) this.secondaryLanguage = '';
@@ -279,6 +412,41 @@ export default {
   }
   .quick_edit {
     margin-top: 30px;
+  }
+  .aiTranslate {
+    margin-top: 30px;
+    &__table {
+      width: 100%;
+    }
+    &__label {
+      font-family: $font-medium;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.7);
+      white-space: nowrap;
+      padding-right: 14px;
+      width: 96px;
+    }
+    &__input {
+      width: 100%;
+      box-sizing: border-box;
+      background-color: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 12px;
+      padding: 6px 10px;
+      outline: none;
+      transition: border-color 200ms;
+      &:focus {
+        border-color: rgba(255, 255, 255, 0.3);
+      }
+      &:disabled {
+        cursor: not-allowed;
+      }
+      option {
+        color: #000;
+      }
+    }
   }
 }
 .tabcontent {

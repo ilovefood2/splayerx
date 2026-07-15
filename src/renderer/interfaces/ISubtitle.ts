@@ -10,6 +10,8 @@ export enum Type {
   Translated = 'translated',
   PreTranslated = 'preTranslated',
   Modified = 'modified',
+  /** subtitle translated on the fly from another track by an LLM */
+  AITranslated = 'aiTranslated',
 }
 export enum Format {
   AdvancedSubStationAplha = 'ass',
@@ -21,6 +23,7 @@ export enum Format {
   SubStationAlpha = 'ssa',
   VobSub = 'dvd_subtitle',
   WebVTT = 'webvtt',
+  AITranslated = 'ai_translated',
   Unknown = 'unknown',
 }
 

@@ -425,3 +425,46 @@ export class ModifiedLoader extends EventEmitter implements ILoader {
     }
   }
 }
+
+export interface IAITranslatedLoaderOrigin extends IOrigin {
+  type: Type.AITranslated,
+  source: {
+    referenceHash: string,
+    targetLanguage: string,
+  },
+}
+
+/**
+ * Loader for on-the-fly LLM translations. It does not fetch anything itself: the
+ * source cues and API config live in the AI translation registry (keyed by the
+ * origin), and the parser performs the realtime translation. This loader merely
+ * surfaces the origin so the parser can locate that registry entry.
+ */
+export class AITranslatedLoader extends EventEmitter implements ILoader {
+  public readonly canPreload = false;
+
+  public readonly canCache = false;
+
+  public readonly canUpload = false;
+
+  public readonly fullyRead = true;
+
+  public readonly source: IAITranslatedLoaderOrigin;
+
+  public constructor(source: IAITranslatedLoaderOrigin) {
+    super();
+    this.source = source;
+  }
+
+  public async getMetadata() { return ''; }
+
+  public async getPayload() { return this.source.source; }
+
+  public pause() {}
+
+  public async cache(): Promise<IOrigin> {
+    throw new Error('AI-translated subtitles cannot be cached.');
+  }
+
+  public async destroy() {}
+}

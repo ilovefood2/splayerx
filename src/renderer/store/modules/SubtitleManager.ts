@@ -20,13 +20,18 @@ import {
   // UserInfo as usActions,
 } from '@/store/actionTypes';
 import {
-  ISubtitleControlListItem, Type, IEntityGenerator, IEntity, NOT_SELECTED_SUBTITLE, Cue,
+  ISubtitleControlListItem, Type, IEntityGenerator, IEntity, NOT_SELECTED_SUBTITLE, Cue, TextCue,
 } from '@/interfaces/ISubtitle';
 import {
   TranscriptInfo,
   searchForLocalList, retrieveEmbeddedList, fetchOnlineList,
   OnlineGenerator, LocalGenerator, EmbeddedGenerator, TranslatedGenerator, PreTranslatedGenerator,
+  AITranslatedGenerator,
 } from '@/services/subtitle';
+import {
+  registerAITranslation, makeAITranslationKey, DEFAULT_BASE_URL, DEFAULT_MODEL,
+  AITranslatorConfig, TimedText,
+} from '@/services/subtitle/ai';
 import { generateHints, calculatedName } from '@/libs/utils';
 import { log } from '@/libs/Log';
 import { IStoredSubtitleItem, SelectedSubtitle } from '@/interfaces/ISubtitleStorage';
@@ -35,7 +40,7 @@ import {
   storeSubtitleLanguage, addSubtitleItemsToList, removeSubtitleItemsFromList,
   storeSelectedSubtitles, updateSubtitleList,
 } from '@/services/storage/subtitle';
-import { LanguageCode, codeToLanguageName } from '@/libs/language';
+import { LanguageCode, codeToLanguageName, normalizeCode } from '@/libs/language';
 import { ISubtitleStream } from '@/plugins/mediaTasks';
 import { isAIEnabled } from '@/../shared/config';
 import { IEmbeddedOrigin } from '@/services/subtitle/utils/loaders';
@@ -58,10 +63,47 @@ const sortOfTypes = {
   online: 2,
   translated: 3,
   preTranslated: 3,
+  aiTranslated: 3,
   modified: 4,
 };
 
 let unwatch: Function;
+
+/** A list item is a candidate source for AI translation when it is not itself an
+ *  AI translation and is not already in the target language. */
+function isAITranslatable(item: ISubtitleControlListItem, targetCode: LanguageCode): boolean {
+  return !!item && item.type !== Type.AITranslated && normalizeCode(item.language) !== targetCode;
+}
+
+/** Prefer an explicitly requested / currently-selected track, else the first
+ *  translatable one in the list. */
+function pickAIReference(
+  list: ISubtitleControlListItem[],
+  targetCode: LanguageCode,
+  preferredId?: string,
+): ISubtitleControlListItem | undefined {
+  if (preferredId) {
+    const preferred = list.find(sub => sub.id === preferredId);
+    if (preferred && isAITranslatable(preferred, targetCode)) return preferred;
+  }
+  return list.find(sub => isAITranslatable(sub, targetCode));
+}
+
+function buildAIConfig(
+  prefs: {
+    aiTranslateApiUrl?: string, aiTranslateApiKey?: string, aiTranslateModel?: string,
+  },
+  targetCode: LanguageCode,
+  sourceCode?: LanguageCode,
+): AITranslatorConfig {
+  return {
+    baseUrl: prefs.aiTranslateApiUrl || DEFAULT_BASE_URL,
+    apiKey: prefs.aiTranslateApiKey || '',
+    model: prefs.aiTranslateModel || DEFAULT_MODEL,
+    targetLanguage: codeToLanguageName(targetCode),
+    sourceLanguage: sourceCode ? codeToLanguageName(sourceCode) : undefined,
+  };
+}
 
 interface ISubtitleManagerState {
   mediaHash: string,
@@ -125,6 +167,10 @@ const getters: GetterTree<ISubtitleManagerState, {}> = {
   },
   isSecondarySubtitleIsImage({ secondarySubtitleId }, getters, rootState, rootGetters): boolean {
     return !!rootGetters[`${secondarySubtitleId}/isImage`];
+  },
+  canTranslateWithAI(state, getters): boolean {
+    return !!getters.aiTranslateEnabled
+      && !!(getters.aiTranslateApiKey || getters.aiTranslateApiUrl);
   },
 };
 const mutations: MutationTree<ISubtitleManagerState> = {
@@ -343,6 +389,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         storeSubtitleLanguage([primaryLanguage, secondaryLanguage], state.mediaHash);
         dispatch(a.checkLocalSubtitles);
         dispatch(a.checkSubtitleList);
+        dispatch(a.ensureAITranslation);
         commit(m.setIsRefreshing, false);
         dispatch(legacyActions.UPDATE_SUBTITLE_TYPE, true);
         // 继续上次的翻译任务
@@ -388,6 +435,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         storeSubtitleLanguage([primaryLanguage, secondaryLanguage], mediaHash);
         dispatch(a.checkLocalSubtitles);
         dispatch(a.checkSubtitleList);
+        dispatch(a.ensureAITranslation);
         commit(m.setIsRefreshing, false);
         dispatch(legacyActions.UPDATE_SUBTITLE_TYPE, true);
       });
@@ -832,6 +880,86 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     if (!id) dispatch(a.autoChangeSecondarySubtitle, '');
     else if (!state.secondarySubtitleId) commit(m.setNotSelectedSubtitle, 'secondary');
     dispatch(a.autoChangePrimarySubtitle, id);
+  },
+  /**
+   * Create (or re-select) an LLM realtime translation of an existing subtitle
+   * track into the user's language, and make it the primary subtitle. Opt-in:
+   * does nothing unless the feature is enabled and configured in Preferences.
+   */
+  async [a.addAITranslatedSubtitle](
+    { state, dispatch, getters }, payload: { referenceId?: string } = {},
+  ) {
+    if (!getters.canTranslateWithAI) return undefined;
+    const targetCode = normalizeCode(
+      getters.aiTranslateTargetLanguage || getters.displayLanguage || getters.primaryLanguage,
+    );
+    if (targetCode === LanguageCode.No || targetCode === LanguageCode.Default) return undefined;
+
+    const list = getters.list as ISubtitleControlListItem[];
+    const reference = pickAIReference(
+      list, targetCode, payload.referenceId || getters.primarySubtitleId,
+    );
+    if (!reference) {
+      log.warn('SubtitleManager', 'AI translate: no translatable source subtitle available');
+      return undefined;
+    }
+
+    const targetHash = `ai-${reference.hash}-${targetCode}`;
+    const existing = list.find(sub => sub.hash === targetHash);
+    if (existing) {
+      dispatch(a.manualChangePrimarySubtitle, existing.id);
+      return existing;
+    }
+    if (!store.hasModule(reference.id)) return undefined;
+
+    let dialogues: Cue[] = [];
+    try {
+      const result = await dispatch(`${reference.id}/${subActions.getDialogues}`, undefined);
+      dialogues = (result && result.dialogues) || [];
+    } catch (error) {
+      log.warn('SubtitleManager', error);
+      return undefined;
+    }
+    const sourceCues: TimedText[] = dialogues
+      .filter((cue): cue is TextCue => !!cue && typeof (cue as TextCue).text === 'string'
+        && !!(cue as TextCue).text)
+      .map(cue => ({ start: cue.start, end: cue.end, text: cue.text }));
+    if (!sourceCues.length) {
+      log.warn('SubtitleManager', 'AI translate: reference subtitle has no text cues');
+      return undefined;
+    }
+
+    const config = buildAIConfig(getters, targetCode, normalizeCode(reference.language));
+    registerAITranslation(makeAITranslationKey(reference.hash, targetCode), sourceCues, config);
+    await dispatch(a.addSubtitle, {
+      generator: new AITranslatedGenerator(reference.hash, targetCode),
+      mediaHash: state.mediaHash,
+    });
+    const added = (getters.list as ISubtitleControlListItem[]).find(sub => sub.hash === targetHash);
+    if (added) dispatch(a.manualChangePrimarySubtitle, added.id);
+    return added;
+  },
+  /**
+   * Auto-offer AI translation when the video has no subtitle in the user's
+   * language but does have some other subtitle to translate from. Guarded so a
+   * failure here never disrupts normal subtitle loading.
+   */
+  async [a.ensureAITranslation]({ getters, dispatch }) {
+    try {
+      if (!getters.canTranslateWithAI) return;
+      const targetCode = normalizeCode(
+        getters.aiTranslateTargetLanguage || getters.displayLanguage || getters.primaryLanguage,
+      );
+      if (targetCode === LanguageCode.No || targetCode === LanguageCode.Default) return;
+      const list = getters.list as ISubtitleControlListItem[];
+      const hasTargetLanguage = list.some(sub => sub.type !== Type.AITranslated
+        && normalizeCode(sub.language) === targetCode);
+      if (hasTargetLanguage) return;
+      if (!pickAIReference(list, targetCode, getters.primarySubtitleId)) return;
+      await dispatch(a.addAITranslatedSubtitle, {});
+    } catch (error) {
+      log.warn('SubtitleManager', error);
+    }
   },
   async [a.autoChangeSecondarySubtitle]({
     dispatch, commit, getters, state,

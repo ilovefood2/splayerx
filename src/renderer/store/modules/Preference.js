@@ -20,6 +20,12 @@ const state = {
   hwhevc: true, // 默认开启硬解
   snapshotSavedPath: '',
   isDarkMode: undefined,
+  // LLM realtime subtitle translation (off by default; opt-in)
+  aiTranslateEnabled: false,
+  aiTranslateApiUrl: '',
+  aiTranslateApiKey: '',
+  aiTranslateModel: '',
+  aiTranslateTargetLanguage: '',
 };
 const getters = {
   nsfwProcessDone: state => state.nsfwProcessDone,
@@ -44,6 +50,11 @@ const getters = {
   hwhevc: state => state.hwhevc,
   snapshotSavedPath: state => state.snapshotSavedPath,
   isDarkMode: state => state.isDarkMode,
+  aiTranslateEnabled: state => !!state.aiTranslateEnabled,
+  aiTranslateApiUrl: state => state.aiTranslateApiUrl,
+  aiTranslateApiKey: state => state.aiTranslateApiKey,
+  aiTranslateModel: state => state.aiTranslateModel,
+  aiTranslateTargetLanguage: state => state.aiTranslateTargetLanguage,
 };
 
 const mutations = {

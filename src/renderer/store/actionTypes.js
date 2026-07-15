@@ -81,6 +81,8 @@ export const SubtitleManager = {
   deleteSubtitlesByHash: 'DELETE_SUBTITLES_BY_HASH',
   autoChangePrimarySubtitle: 'AUTO_CHANGE_PRIMARY_SUBTITLE',
   manualChangePrimarySubtitle: 'MANUAL_CHANGE_PRIMARY_SUBTITLE',
+  addAITranslatedSubtitle: 'ADD_AI_TRANSLATED_SUBTITLE',
+  ensureAITranslation: 'ENSURE_AI_TRANSLATION',
   autoChangeSecondarySubtitle: 'AUTO_CHANGE_SECONDARY_SUBTITLE',
   manualChangeSecondarySubtitle: 'MANUAL_CHANGE_SECONDARY_SUBTITLE',
   storeSelectedSubtitles: 'STORE_SELECTED_SUBTITLES',
