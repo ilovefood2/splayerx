@@ -3,6 +3,7 @@ import {
   RealtimeSubtitleTranslator, TranslationCache,
   probeOllama, pickChatModel, isEmbeddingModel, parseParameterSize, apiRootOf,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
+  parseWhisperCues, checkTranscribeEnvironment,
 } from '@/services/subtitle/ai';
 
 const config = {
@@ -260,6 +261,55 @@ describe('services/subtitle/ai - resolveAIProvider', () => {
   it('treats a localhost key endpoint as local for tuning', () => {
     expect(isLocalhostUrl('http://localhost:1234/v1')).to.equal(true);
     expect(isLocalhostUrl('https://api.openai.com/v1')).to.equal(false);
+  });
+});
+
+describe('services/subtitle/ai - whisper transcription', () => {
+  // Captured from a real `whisper-cli -oj` run (whisper.cpp 1.9).
+  const WHISPER_JSON = {
+    result: { language: 'en' },
+    transcription: [
+      {
+        offsets: { from: 0, to: 10400 },
+        text: ' And so, my fellow Americans, ask not what your country can do for you.',
+      },
+    ],
+  };
+
+  it('converts whisper millisecond offsets into second-based cues', () => {
+    const cues = parseWhisperCues(WHISPER_JSON);
+    expect(cues.length).to.equal(1);
+    // 10400ms is 10.4s, not 10400s — getting this wrong puts every cue hours away
+    expect(cues[0].start).to.equal(0);
+    expect(cues[0].end).to.equal(10.4);
+    expect(cues[0].text).to.equal('And so, my fellow Americans, ask not what your country can do for you.');
+  });
+
+  it('drops non-speech markers and empty segments', () => {
+    const cues = parseWhisperCues({
+      transcription: [
+        { offsets: { from: 0, to: 1000 }, text: '[Music]' },
+        { offsets: { from: 1000, to: 2000 }, text: '(applause)' },
+        { offsets: { from: 2000, to: 3000 }, text: '   ' },
+        { offsets: { from: 3000, to: 4000 }, text: 'real speech' },
+      ],
+    });
+    // translating "[Music]" would waste a call and show junk as a subtitle
+    expect(cues.map(c => c.text)).to.deep.equal(['real speech']);
+  });
+
+  it('survives a reply with no transcription at all', () => {
+    expect(parseWhisperCues({})).to.deep.equal([]);
+    expect(parseWhisperCues({ transcription: [] })).to.deep.equal([]);
+    expect(parseWhisperCues({ transcription: [{ text: 'no offsets' }] })).to.deep.equal([]);
+  });
+
+  it('reports exactly which tools are missing', () => {
+    // Nothing is installed under a bogus prefix, so every piece is missing and
+    // the UI can name them instead of saying "it didn't work".
+    const env = checkTranscribeEnvironment('/nonexistent/userdata', '/nonexistent/home');
+    expect(env.missing).to.include('model');
+    expect(env.ok).to.equal(false);
   });
 });
 

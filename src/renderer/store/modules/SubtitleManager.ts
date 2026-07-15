@@ -31,6 +31,7 @@ import {
 import {
   registerAITranslation, makeAITranslationKey, clearAllAITranslations,
   resolveAIProvider, configFor,
+  checkTranscribeEnvironment, transcribeVideo,
   AIProviderResolution, AIProviderTuning, TimedText,
 } from '@/services/subtitle/ai';
 import { generateHints, calculatedName } from '@/libs/utils';
@@ -55,6 +56,10 @@ import {
   LOCAL_SUBTITLE_REMOVED,
   AI_TRANSLATE_NO_SOURCE,
   AI_TRANSLATE_NO_PROVIDER,
+  AI_TRANSLATE_NO_WHISPER,
+  AI_TRANSCRIBE_STARTED,
+  AI_TRANSCRIBE_FAILED,
+  AI_TRANSCRIBE_NO_SPEECH,
   // APPX_EXPORT_NOT_WORK,
 } from '../../helpers/notificationcodes';
 import { addBubble } from '../../helpers/notificationControl';
@@ -330,6 +335,9 @@ function deleteModifiedConfirm(): Promise<boolean> {
 
 let primarySelectionComplete = false;
 let secondarySelectionComplete = false;
+/** Media currently being transcribed, so a second menu click cannot start a
+ *  duplicate multi-minute job for the same video. */
+let transcribingMediaHash = '';
 let alterDelayTimeoutId: NodeJS.Timer;
 function setDelayTimeout() {
   clearTimeout(alterDelayTimeoutId);
@@ -1041,23 +1049,96 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     const targetCode = normalizeCode(
       getters.aiTranslateTargetLanguage || getters.displayLanguage || getters.primaryLanguage,
     );
-    // Diagnose before translating: "it didn't work" is useless, and the two
-    // causes need completely different things from the user.
-    const reference = targetCode === LanguageCode.No || targetCode === LanguageCode.Default
-      ? undefined
-      : pickAIReference(getters.list as ISubtitleControlListItem[], targetCode,
-        getters.primarySubtitleId);
-    if (!reference) {
-      // Either the video has no subtitles at all, or every track is already in
-      // the target language — naming the language is what makes this actionable.
+    if (targetCode === LanguageCode.No || targetCode === LanguageCode.Default) {
       addBubble(AI_TRANSLATE_NO_SOURCE, { target: codeToLanguageName(targetCode) });
       return undefined;
     }
+    const reference = pickAIReference(
+      getters.list as ISubtitleControlListItem[], targetCode, getters.primarySubtitleId,
+    );
+    // Nothing to translate from: transcribe the audio and translate that instead.
+    // This is the whole point for a video that ships with no subtitles.
+    if (!reference) return dispatch(a.transcribeAndTranslate, { targetCode });
+
     const added = await dispatch(a.addAITranslatedSubtitle, {
       force: true, referenceId: reference.id,
     });
     // A source exists, so anything left is the provider: no Ollama and no key.
     if (!added) addBubble(AI_TRANSLATE_NO_PROVIDER);
+    return added;
+  },
+  /**
+   * Generate a subtitle from the video's own audio with whisper.cpp, then run it
+   * through the normal AI translation so it comes out in the target language.
+   *
+   * Transcription is minutes of GPU work, so it is only ever started by an
+   * explicit menu command, never automatically.
+   */
+  async [a.transcribeAndTranslate]({ state, getters, dispatch }, { targetCode }) {
+    const { originSrc } = getters;
+    if (!originSrc) return undefined;
+    const env = checkTranscribeEnvironment(
+      remote.app.getPath('userData'), remote.app.getPath('home'),
+    );
+    if (!env.ok) {
+      // Name exactly what is missing: "it didn't work" sends people hunting.
+      addBubble(AI_TRANSLATE_NO_WHISPER, { missing: env.missing.join(', ') });
+      log.warn('SubtitleManager', `AI transcribe: missing ${env.missing.join(', ')}`);
+      return undefined;
+    }
+    if (transcribingMediaHash === state.mediaHash) return undefined; // already running
+    transcribingMediaHash = state.mediaHash;
+    addBubble(AI_TRANSCRIBE_STARTED);
+    try {
+      const { language, cues } = await transcribeVideo(originSrc, env, {
+        tmpDir: remote.app.getPath('temp'),
+      });
+      if (state.mediaHash !== transcribingMediaHash) return undefined; // media changed
+      if (!cues.length) {
+        addBubble(AI_TRANSCRIBE_NO_SPEECH);
+        return undefined;
+      }
+      return await dispatch(a.addTranscribedSubtitle, { targetCode, language, cues });
+    } catch (error) {
+      log.warn('SubtitleManager', error);
+      addBubble(AI_TRANSCRIBE_FAILED);
+      return undefined;
+    } finally {
+      transcribingMediaHash = '';
+    }
+  },
+  /**
+   * Register whisper's cues as the source for an AI-translated track, so the
+   * existing translator, cache and cue rendering are reused as-is.
+   */
+  async [a.addTranscribedSubtitle]({ state, getters, dispatch }, {
+    targetCode, language, cues,
+  }: { targetCode: LanguageCode, language: string, cues: TimedText[] }) {
+    const sourceCode = normalizeCode(language);
+    const languages = languagesFor(targetCode, sourceCode);
+    const resolution = await resolveAIProvider(aiPrefsOf(getters));
+    const config = configFor(resolution, languages);
+    if (!config) {
+      addBubble(AI_TRANSLATE_NO_PROVIDER);
+      log.warn('SubtitleManager', `AI transcribe: no provider (${resolution.reason})`);
+      return undefined;
+    }
+    // A distinct reference hash per media, so a transcript is never confused
+    // with a translation of a real subtitle track.
+    const referenceHash = `whisper-${state.mediaHash}`;
+    registerAITranslation(
+      makeAITranslationKey(referenceHash, targetCode),
+      cues,
+      config,
+      buildTranslatorOptions(resolution, languages),
+    );
+    await dispatch(a.addSubtitle, {
+      generator: new AITranslatedGenerator(referenceHash, targetCode),
+      mediaHash: state.mediaHash,
+    });
+    const targetHash = `ai-${referenceHash}-${targetCode}`;
+    const added = (getters.list as ISubtitleControlListItem[]).find(sub => sub.hash === targetHash);
+    if (added) dispatch(a.manualChangePrimarySubtitle, added.id);
     return added;
   },
   async [a.ensureAITranslation]({ getters, dispatch }) {

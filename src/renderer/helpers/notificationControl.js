@@ -19,6 +19,10 @@ import {
   LOCAL_SUBTITLE_REMOVED,
   AI_TRANSLATE_NO_SOURCE,
   AI_TRANSLATE_NO_PROVIDER,
+  AI_TRANSLATE_NO_WHISPER,
+  AI_TRANSCRIBE_STARTED,
+  AI_TRANSCRIBE_FAILED,
+  AI_TRANSCRIBE_NO_SPEECH,
   SNAPSHOT_SUCCESS,
   SNAPSHOT_FAILED,
   LOAD_SUBVIDEO_FAILED,
@@ -235,6 +239,44 @@ export function addBubble(code, options = {}) { // eslint-disable-line complexit
         type: 'result',
         title: i18n.t('errorFile.aiTranslateNoProvider.title', i18n.locale, i18n.messages),
         content: i18n.t('errorFile.aiTranslateNoProvider.content', i18n.locale, i18n.messages),
+        dismissAfter: 8000,
+      });
+      break;
+    case AI_TRANSLATE_NO_WHISPER:
+      store.dispatch('addMessages', {
+        id,
+        type: 'result',
+        title: i18n.t('errorFile.aiTranslateNoWhisper.title', i18n.locale, i18n.messages),
+        // `missing` names the exact pieces, so the user is not left guessing
+        // which half of the toolchain is absent.
+        content: i18n.t('errorFile.aiTranslateNoWhisper.content', i18n.locale, { missing: options.missing }),
+        dismissAfter: 12000,
+      });
+      break;
+    case AI_TRANSCRIBE_STARTED:
+      store.dispatch('addMessages', {
+        id,
+        type: 'loading',
+        title: i18n.t('errorFile.aiTranscribeStarted.title', i18n.locale, i18n.messages),
+        content: i18n.t('errorFile.aiTranscribeStarted.content', i18n.locale, i18n.messages),
+        dismissAfter: 8000,
+      });
+      break;
+    case AI_TRANSCRIBE_NO_SPEECH:
+      store.dispatch('addMessages', {
+        id,
+        type: 'result',
+        title: i18n.t('errorFile.aiTranscribeNoSpeech.title', i18n.locale, i18n.messages),
+        content: i18n.t('errorFile.aiTranscribeNoSpeech.content', i18n.locale, i18n.messages),
+        dismissAfter: 8000,
+      });
+      break;
+    case AI_TRANSCRIBE_FAILED:
+      store.dispatch('addMessages', {
+        id,
+        type: 'result',
+        title: i18n.t('errorFile.aiTranscribeFailed.title', i18n.locale, i18n.messages),
+        content: i18n.t('errorFile.aiTranscribeFailed.content', i18n.locale, i18n.messages),
         dismissAfter: 8000,
       });
       break;

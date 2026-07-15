@@ -84,6 +84,22 @@
       "title": "沒有可翻譯的字幕",
       "content": "這部影片沒有可以翻譯成{target}的字幕。它的字幕可能已經是{target}，也可能根本沒有字幕。可在「偏好設定 > 翻譯 > 翻譯為」中換一種語言。"
     },
+    "aiTranslateNoWhisper": {
+      "title": "語音辨識未就緒",
+      "content": "這部影片沒有字幕，需要先辨識它的語音。缺少：{missing}。請執行 brew install whisper-cpp ffmpeg 安裝，並把 ggml 模型放到 Application Support/SPlayer/whisper 目錄。"
+    },
+    "aiTranscribeStarted": {
+      "title": "正在辨識語音",
+      "content": "這部影片沒有字幕，正在本機辨識它的語音。需要幾分鐘，完成後字幕會自動出現。"
+    },
+    "aiTranscribeNoSpeech": {
+      "title": "沒有辨識到語音",
+      "content": "在這部影片的音訊裡沒有辨識到可用的語音。"
+    },
+    "aiTranscribeFailed": {
+      "title": "語音辨識失敗",
+      "content": "無法辨識這部影片的語音，詳情請查看日誌。"
+    },
     "aiTranslateNoProvider": {
       "title": "無法翻譯",
       "content": "找不到本機 Ollama，也沒有填寫 API 金鑰。請從 ollama.com 安裝 Ollama 後執行：ollama pull qwen3"

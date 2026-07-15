@@ -25,6 +25,15 @@ export {
   probeOllama,
 } from './ollama';
 export {
+  TranscribeTool,
+  TranscribeEnvironment,
+  TranscribeResult,
+  WhisperJson,
+  checkTranscribeEnvironment,
+  parseWhisperCues,
+  transcribeVideo,
+} from './transcribe';
+export {
   AIProviderPreference,
   AIProviderKind,
   AIProviderReason,
