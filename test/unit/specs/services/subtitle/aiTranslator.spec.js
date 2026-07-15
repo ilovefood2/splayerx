@@ -285,6 +285,31 @@ describe('services/subtitle/ai - whisper transcription', () => {
     expect(cues[0].text).to.equal('And so, my fellow Americans, ask not what your country can do for you.');
   });
 
+  it('drops the text whisper invents when it hears no speech', () => {
+    // Both of these were produced by whisper from audio that was music only:
+    // the Chinese one appeared on screen, the Japanese one was reproduced from
+    // the same file's opening minute. They are memorised training data, emitted
+    // with confident timestamps, and must never reach a subtitle.
+    const cues = parseWhisperCues({
+      transcription: [
+        {
+          offsets: { from: 0, to: 29980 },
+          text: 'ご視聴ありがとうございました',
+        },
+        {
+          offsets: { from: 30000, to: 59980 },
+          text: '请不吝点赞、订阅、转发、打赏，支持明镜与点点栏目',
+        },
+        { offsets: { from: 60000, to: 61000 }, text: 'Thanks for watching!' },
+        { offsets: { from: 62000, to: 63000 }, text: 'Subtitles by the Amara.org community' },
+        { offsets: { from: 64000, to: 65000 }, text: '本当にありがとうございました' },
+      ],
+    });
+    // the last line is ordinary speech that merely resembles the sign-off, and
+    // must survive: the filter matches whole cues, not substrings
+    expect(cues.map(c => c.text)).to.deep.equal(['本当にありがとうございました']);
+  });
+
   it('drops non-speech markers and empty segments', () => {
     const cues = parseWhisperCues({
       transcription: [

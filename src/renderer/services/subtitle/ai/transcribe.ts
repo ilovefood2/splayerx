@@ -25,6 +25,11 @@ export interface TranscribeEnvironment {
   ffmpegPath?: string;
   ffprobePath?: string;
   modelPath?: string;
+  /**
+   * Silero VAD model. Optional, but without it whisper invents dialogue over
+   * music and silence — see VAD_THRESHOLD.
+   */
+  vadModelPath?: string;
   /** Which pieces are missing, so the UI can name them exactly. */
   missing: TranscribeTool[];
 }
@@ -61,10 +66,12 @@ const MODEL_NAMES = [
   'ggml-base.bin',
 ];
 
-function findModel(searchDirs: string[]): string | undefined {
+const VAD_MODEL_NAMES = ['ggml-silero-v5.1.2.bin', 'ggml-silero.bin'];
+
+function findFile(searchDirs: string[], names: string[]): string | undefined {
   for (let i = 0; i < searchDirs.length; i += 1) {
-    for (let j = 0; j < MODEL_NAMES.length; j += 1) {
-      const candidate = join(searchDirs[i], MODEL_NAMES[j]);
+    for (let j = 0; j < names.length; j += 1) {
+      const candidate = join(searchDirs[i], names[j]);
       if (existsSync(candidate)) return candidate;
     }
   }
@@ -92,7 +99,8 @@ export function checkTranscribeEnvironment(
   const ffmpegPath = findBinary(['ffmpeg']);
   // ffprobe ships with ffmpeg; we need it to know how long the video is.
   const ffprobePath = findBinary(['ffprobe']);
-  const modelPath = findModel(modelDirs);
+  const modelPath = findFile(modelDirs, MODEL_NAMES);
+  const vadModelPath = findFile(modelDirs, VAD_MODEL_NAMES);
 
   const missing: TranscribeTool[] = [];
   if (!whisperPath) missing.push('whisper');
@@ -105,6 +113,7 @@ export function checkTranscribeEnvironment(
     ffmpegPath,
     ffprobePath,
     modelPath,
+    vadModelPath,
     missing,
   };
 }
@@ -173,6 +182,31 @@ export interface WhisperJson {
   }[];
 }
 
+/**
+ * Text whisper is known to invent when it hears no speech.
+ *
+ * These are memorised from its training data — channel outros, sign-offs and
+ * subtitle credits — and it emits them over music and silence with high
+ * confidence. VAD is the real defence; this is the backstop for when the VAD
+ * model is not installed, and it only matches a whole cue, never a substring of
+ * genuine dialogue.
+ */
+const HALLUCINATIONS = [
+  /^ご(?:清|視)聴ありがとうございま(?:した|す)[。.!！]*$/,
+  /^おだいじに[。.!！]*$/,
+  /^请不吝(?:点赞|點贊)[、,].*$/,
+  /^(?:明镜|明鏡)与(?:点点|點點)(?:栏目|欄目)$/,
+  /^字幕(?:由|提供).*(?:Amara|amara).*$/,
+  /^Subtitles by the Amara\.org community$/i,
+  /^(?:Thanks|Thank you) for watching[.!]*$/i,
+  /^Please subscribe to (?:my|our) channel[.!]*$/i,
+  /^字幕志愿者.*$/,
+];
+
+function isHallucination(text: string): boolean {
+  return HALLUCINATIONS.some(pattern => pattern.test(text));
+}
+
 /** Exported for tests: whisper's offsets are milliseconds, cues want seconds. */
 export function parseWhisperCues(json: WhisperJson): TimedText[] {
   const segments = json.transcription;
@@ -185,6 +219,7 @@ export function parseWhisperCues(json: WhisperJson): TimedText[] {
     // whisper emits [_BEG_]/[Music]-style markers for non-speech; they are noise
     // as subtitles and would waste translation calls.
     if (/^[[(][^)\]]*[)\]]$/.test(text)) return;
+    if (isHallucination(text)) return;
     cues.push({ start: offsets.from / 1000, end: offsets.to / 1000, text });
   });
   return cues;
@@ -209,6 +244,26 @@ export interface TranscribeOptions {
 
 const DEFAULT_CHUNK_SECONDS = 120;
 const DEFAULT_THREADS = 8;
+
+/**
+ * Voice-activity threshold.
+ *
+ * Whisper does not stay quiet when handed music or silence: it emits text it
+ * memorised in training, confidently and with plausible timestamps. Measured on
+ * a real file whose first minute is music, it invented "thank you for watching"
+ * across the whole 60s. VAD removes non-speech audio before whisper ever sees
+ * it, which is the only reliable cure.
+ *
+ * 0.6 rather than the 0.5 default: on that same minute 0.5 still let one
+ * fabricated line through, 0.6 produced nothing at all, and 0.6 still
+ * transcribes real speech correctly.
+ */
+const VAD_THRESHOLD = '0.6';
+
+function vadArgs(env: TranscribeEnvironment): string[] {
+  if (!env.vadModelPath) return [];
+  return ['--vad', '--vad-model', env.vadModelPath, '--vad-threshold', VAD_THRESHOLD];
+}
 
 /**
  * Split a duration into chunks. A duration of 0 means ffprobe could not tell us,
@@ -263,7 +318,9 @@ async function transcribeChunk(
       '-oj', // JSON output, with millisecond offsets
       '-of', outPrefix,
       '-t', String(threads),
-    ], { signal: options.signal });
+      // Suppress non-speech tokens ([Music] and friends).
+      '-sns',
+    ].concat(vadArgs(env)), { signal: options.signal });
 
     if (!existsSync(jsonPath)) return { cues: [], language };
     const json = JSON.parse(readFileSync(jsonPath, 'utf8')) as WhisperJson;
