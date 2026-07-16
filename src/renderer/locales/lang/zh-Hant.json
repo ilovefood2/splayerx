@@ -107,6 +107,22 @@
     "localSubtitleRemoved": {
       "title": "字幕加載失敗",
       "content": "本地字幕文件被刪除或已改名。"
+    },
+    "castNoDevice": {
+      "title": "找不到 Chromecast",
+      "content": "在這個網路上找不到 Chromecast。請確認電視已開機，並連接在同一個 Wi-Fi 上。"
+    },
+    "castNotLocal": {
+      "title": "無法投放",
+      "content": "只能投放本機影片檔案：電視需要從這台電腦下載檔案。"
+    },
+    "castUnsupported": {
+      "title": "格式不支援",
+      "content": "Chromecast 無法播放這種封裝格式。它支援 H.264/AAC 的 mp4、mkv、webm 和 ts。"
+    },
+    "castFailed": {
+      "title": "投放失敗",
+      "content": "無法在電視上開始播放，詳情請查看日誌。"
     }
   },
   "loading": {
@@ -197,7 +213,9 @@
       "snapShot": "截圖",
       "generateThumbnails": "生成縮略圖",
       "generate3*3": "3 x 3 格",
-      "generate4*4": "4 x 4 格"
+      "generate4*4": "4 x 4 格",
+      "castTo": "投放到電視…",
+      "castCancel": "取消"
     },
     "splayerx": {
       "about": "關於射手影音",

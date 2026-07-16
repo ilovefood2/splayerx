@@ -22,6 +22,10 @@ import {
   AI_TRANSLATE_NO_WHISPER,
   AI_TRANSCRIBE_FAILED,
   AI_TRANSCRIBE_NO_SPEECH,
+  CAST_NO_DEVICE,
+  CAST_NOT_LOCAL,
+  CAST_UNSUPPORTED,
+  CAST_FAILED,
   SNAPSHOT_SUCCESS,
   SNAPSHOT_FAILED,
   LOAD_SUBVIDEO_FAILED,
@@ -250,6 +254,42 @@ export function addBubble(code, options = {}) { // eslint-disable-line complexit
         // which half of the toolchain is absent.
         content: i18n.t('errorFile.aiTranslateNoWhisper.content', i18n.locale, { missing: options.missing }),
         dismissAfter: 12000,
+      });
+      break;
+    case CAST_NO_DEVICE:
+      store.dispatch('addMessages', {
+        id,
+        type: 'result',
+        title: i18n.t('errorFile.castNoDevice.title', i18n.locale, i18n.messages),
+        content: i18n.t('errorFile.castNoDevice.content', i18n.locale, i18n.messages),
+        dismissAfter: 8000,
+      });
+      break;
+    case CAST_NOT_LOCAL:
+      store.dispatch('addMessages', {
+        id,
+        type: 'result',
+        title: i18n.t('errorFile.castNotLocal.title', i18n.locale, i18n.messages),
+        content: i18n.t('errorFile.castNotLocal.content', i18n.locale, i18n.messages),
+        dismissAfter: 8000,
+      });
+      break;
+    case CAST_UNSUPPORTED:
+      store.dispatch('addMessages', {
+        id,
+        type: 'result',
+        title: i18n.t('errorFile.castUnsupported.title', i18n.locale, i18n.messages),
+        content: i18n.t('errorFile.castUnsupported.content', i18n.locale, i18n.messages),
+        dismissAfter: 8000,
+      });
+      break;
+    case CAST_FAILED:
+      store.dispatch('addMessages', {
+        id,
+        type: 'result',
+        title: i18n.t('errorFile.castFailed.title', i18n.locale, i18n.messages),
+        content: i18n.t('errorFile.castFailed.content', i18n.locale, i18n.messages),
+        dismissAfter: 8000,
       });
       break;
     case AI_TRANSCRIBE_NO_SPEECH:

@@ -14,6 +14,7 @@ import fs from 'fs';
 import qs from 'querystring';
 import rimraf from 'rimraf';
 import mkdirp from 'mkdirp';
+import { castService } from './helpers/cast/CastService';
 import { audioGrabService } from './helpers/AudioGrabService';
 import { applePayVerify } from './helpers/ApplePayVerify';
 import './helpers/electronPrototypes';
@@ -1813,6 +1814,8 @@ function createMainWindow(openDialog, playlistId) {
 });
 
 app.on('before-quit', () => {
+  // Do not leave the TV playing and the HTTP server bound after we exit.
+  castService.stop();
   losslessStreamingInstance.dispose();
   if (downloadWindow) downloadWindow.webContents.send('quit');
   if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
@@ -2264,3 +2267,27 @@ if (process.platform === 'darwin') {
     });
   };
 }
+
+/** Casting: the renderer owns the file path and the AI cues, main owns the
+ *  device session, so the menu asks the renderer and the renderer calls back. */
+app.on('cast-to-device', () => {
+  if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send('cast-request');
+  }
+});
+
+ipcMain.handle('cast-list-devices', async () => castService.listDevices());
+
+ipcMain.handle('cast-start', async (e, { device, filePath, cues }) => {
+  try {
+    await castService.cast(device, filePath, cues || []);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: error.message };
+  }
+});
+
+ipcMain.on('cast-stop', () => castService.stop());
+ipcMain.on('cast-pause', () => castService.pause());
+ipcMain.on('cast-play', () => castService.play());
+ipcMain.on('cast-seek', (e, seconds) => castService.seek(seconds));

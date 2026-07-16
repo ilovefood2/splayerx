@@ -44,7 +44,6 @@
       "content": "File not found.",
       "title": "Open Failed"
     },
-
     "addNoVideo": {
       "content": "Cannot find playable file.",
       "title": "Add File Failed"
@@ -108,6 +107,22 @@
     "localSubtitleRemoved": {
       "title": "Load Subtitle Failed",
       "content": "Local subtitle removed or renamed."
+    },
+    "castNoDevice": {
+      "title": "No Chromecast Found",
+      "content": "No Chromecast was found on this network. Make sure the TV is on and on the same Wi-Fi."
+    },
+    "castNotLocal": {
+      "title": "Cannot Cast This",
+      "content": "Only local video files can be cast: the TV downloads the file from this computer."
+    },
+    "castUnsupported": {
+      "title": "Format Not Supported",
+      "content": "Chromecast cannot play this container. It supports mp4, mkv, webm and ts with H.264/AAC."
+    },
+    "castFailed": {
+      "title": "Cast Failed",
+      "content": "Could not start playback on the TV. See the log for details."
     }
   },
   "loading": {
@@ -198,7 +213,9 @@
       "snapShot": "Snapshot",
       "generateThumbnails": "Thumbnails",
       "generate3*3": "Generate 3 x 3",
-      "generate4*4": "Generate 4 x 4"
+      "generate4*4": "Generate 4 x 4",
+      "castTo": "Cast to TV…",
+      "castCancel": "Cancel"
     },
     "splayerx": {
       "about": "About SPlayer",
@@ -666,7 +683,7 @@
   },
   "subtitle": {
     "embedded": "Embed",
-		"modified": "My Subtitle",
+    "modified": "My Subtitle",
     "generate": "Generate",
     "language": {
       "ar": "Arabic",

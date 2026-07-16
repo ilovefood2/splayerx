@@ -42,6 +42,7 @@ import { log } from '@/libs/Log';
 import asyncStorage from '@/helpers/asyncStorage';
 import { videodata } from '@/store/video';
 import { addBubble } from '@/helpers/notificationControl';
+import { getAITranslator, makeAITranslationKey } from '@/services/subtitle/ai';
 import { EVENT_BUS_COLLECTIONS as bus, MAX_VOLUME, MAX_AMPLIFY_VOLUME } from '@/constants';
 import InputPlugin, { getterTypes as iGT } from '@/plugins/input';
 import { browsingHistory } from '@/services/browsing/BrowsingHistoryService';
@@ -58,6 +59,7 @@ import {
 import { VueDevtools } from './plugins/vueDevtools.dev';
 import {
   REQUEST_TIMEOUT,
+  CAST_NO_DEVICE, CAST_NOT_LOCAL, CAST_UNSUPPORTED, CAST_FAILED,
   SNAPSHOT_FAILED, SNAPSHOT_SUCCESS, LOAD_SUBVIDEO_FAILED,
   BUG_UPLOAD_FAILED, BUG_UPLOAD_SUCCESS, BUG_UPLOADING,
   LOSSLESS_STREAMING_START, LOSSLESS_STREAMING_STOP,
@@ -901,6 +903,9 @@ new Vue({
       this.menuService.on('history.clearHistory', () => {
         browsingHistory.clearAllHistorys();
       });
+      this.menuService.on('playback.castTo', () => {
+        this.castToDevice();
+      });
       this.menuService.on('playback.playOrPause', () => {
         if (!(this.isEditable || this.isProfessional)) {
           this.$bus.$emit('toggle-playback');
@@ -1429,6 +1434,62 @@ new Vue({
       windowRectService.calculateWindowRect(videoSize, false, oldRect);
     },
     // eslint-disable-next-line complexity
+    /**
+     * Cast the playing file to a Chromecast.
+     *
+     * The device fetches the file from us over the LAN, so this only works for
+     * local files, and only for containers the receiver can decode. The AI
+     * subtitle cues (translated so far) go along as a WebVTT track.
+     */
+    async castToDevice() {
+      const src = this.originSrc;
+      if (!src || /^https?:/.test(src)) {
+        addBubble(CAST_NOT_LOCAL);
+        return;
+      }
+      const devices = await ipcRenderer.invoke('cast-list-devices');
+      if (!devices || !devices.length) {
+        addBubble(CAST_NO_DEVICE);
+        return;
+      }
+      const { remote } = this.$electron;
+      const names = devices.map((d: { name: string }) => d.name);
+      const cancelId = names.length;
+      const { response } = await remote.dialog.showMessageBox({
+        type: 'question',
+        message: this.$t('msg.playback.castTo'),
+        buttons: names.concat([this.$t('msg.playback.castCancel')]),
+        cancelId,
+        defaultId: 0,
+      });
+      if (response === cancelId) return;
+      const result = await ipcRenderer.invoke('cast-start', {
+        device: devices[response],
+        filePath: src,
+        cues: this.aiSubtitleCues(),
+      });
+      if (!result.ok) {
+        addBubble(result.reason && result.reason.indexOf('unsupported-container') === 0
+          ? CAST_UNSUPPORTED : CAST_FAILED);
+      }
+    },
+    /** Whatever the AI translator has produced for the current track, if any. */
+    aiSubtitleCues() {
+      try {
+        const id = this.primarySubtitleId;
+        const item = (this.list as ISubtitleControlListItem[]).find(s => s.id === id);
+        if (!item || item.type !== Type.AITranslated) return [];
+        const source = item.source.source as { referenceHash: string, targetLanguage: string };
+        const translator = getAITranslator(
+          makeAITranslationKey(source.referenceHash, source.targetLanguage),
+        );
+        if (!translator) return [];
+        return translator.getAllCues();
+      } catch (error) {
+        log.warn('cast', error);
+        return [];
+      }
+    },
     wheelEventHandler({ x }: { x: number }) {
       if (this.duration && this.wheelDirection === 'horizontal' && !this.playlistDisplayState) {
         const eventName = x < 0 ? 'seek-forward' : 'seek-backward';

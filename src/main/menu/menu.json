@@ -94,12 +94,16 @@
       },
       {
         "id": "menubar.separator",
-        "hideOn": ["mas"]
+        "hideOn": [
+          "mas"
+        ]
       },
       {
         "id": "file.download",
         "label": "browsing.download.downloadMenu",
-        "hideOn": ["mas"]
+        "hideOn": [
+          "mas"
+        ]
       },
       {
         "id": "menubar.separator"
@@ -168,19 +172,19 @@
         "id": "menubar.separator"
       },
       {
-        "id":"playback.increasePlaybackSpeed",
+        "id": "playback.increasePlaybackSpeed",
         "label": "msg.playback.increasePlaybackSpeed",
         "accelerator": "]",
         "enabled": true
       },
       {
-        "id":"playback.decreasePlaybackSpeed",
+        "id": "playback.decreasePlaybackSpeed",
         "label": "msg.playback.decreasePlaybackSpeed",
         "accelerator": "[",
         "enabled": true
       },
       {
-        "id":"playback.resetSpeed",
+        "id": "playback.resetSpeed",
         "label": "msg.playback.resetSpeed",
         "accelerator": "\\",
         "enabled": true
@@ -189,18 +193,18 @@
         "id": "menubar.separator"
       },
       {
-        "id":"playback.playlist",
+        "id": "playback.playlist",
         "label": "msg.playback.showPlaylist",
         "accelerator": "L"
       },
       {
-        "id":"playback.previousVideo",
+        "id": "playback.previousVideo",
         "label": "msg.playback.previousVideo",
         "accelerator": "CmdOrCtrl+Left",
         "enabled": true
       },
       {
-        "id":"playback.nextVideo",
+        "id": "playback.nextVideo",
         "label": "msg.playback.nextVideo",
         "accelerator": "CmdOrCtrl+Right",
         "enabled": true
@@ -248,6 +252,14 @@
             }
           ]
         }
+      },
+      {
+        "id": "menubar.separator"
+      },
+      {
+        "id": "playback.castTo",
+        "label": "msg.playback.castTo",
+        "enabled": true
       }
     ]
   },
@@ -370,19 +382,19 @@
         "id": "menubar.separator"
       },
       {
-        "id":"playback.increasePlaybackSpeed",
+        "id": "playback.increasePlaybackSpeed",
         "label": "msg.playback.increasePlaybackSpeed",
         "accelerator": "]",
         "enabled": true
       },
       {
-        "id":"playback.decreasePlaybackSpeed",
+        "id": "playback.decreasePlaybackSpeed",
         "label": "msg.playback.decreasePlaybackSpeed",
         "accelerator": "[",
         "enabled": true
       },
       {
-        "id":"playback.resetSpeed",
+        "id": "playback.resetSpeed",
         "label": "msg.playback.resetSpeed",
         "accelerator": "\\",
         "enabled": true
@@ -679,4 +691,3 @@
     ]
   }
 }
-
