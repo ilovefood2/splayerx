@@ -74,7 +74,7 @@
       :class="{ active: casting }"
       class="no-drag cast-top"
     >
-      <Icon type="stream" />
+      <Icon type="cast" />
     </div>
     <transition name="fade">
       <div
@@ -1175,8 +1175,16 @@ export default {
   opacity: 0.9;
   &:hover { opacity: 1; }
   &:active { transform: scale(0.92); }
-  &.active { filter: drop-shadow(0 0 4px #4da3ff); opacity: 1; }
-  svg { width: 100%; height: 100%; }
+  &.active { opacity: 1; }
+  svg {
+    width: 100%;
+    height: 100%;
+    // Unlike the bottom controls, this button sits above the masking gradient,
+    // so a light-on-light video would wash it out. A soft shadow gives it
+    // contrast on bright backgrounds without dimming it on dark ones.
+    filter: drop-shadow(0 0 2.5px rgba(0, 0, 0, 0.55));
+  }
+  &.active svg { filter: drop-shadow(0 0 4px #4da3ff); }
 }
 @media
   screen and (max-aspect-ratio: 1/1) and (max-width: 288px),
