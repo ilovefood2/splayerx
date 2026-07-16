@@ -41,7 +41,7 @@ describe('Component - TheVideoController Unit Test', () => {
       localVue,
       // The control bar renders $t() titles; without i18n the render throws and
       // mounted() never sees its $refs.
-      mocks: { $t: (key) => key },
+      mocks: { $t: key => key },
     });
     sandbox = sinon.createSandbox();
   });

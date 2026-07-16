@@ -28,7 +28,8 @@
     "pack:web": "rimraf ./dist/web/* && cross-env NODE_ENV=production webpack --progress --colors --config .electron-vue/webpack.web.config.js",
     "test": "npm run unit",
     "unit": "karma start test/unit/karma.conf.js",
-    "postinstall": "node ./scripts/post-install.js"
+    "postinstall": "node ./scripts/post-install.js",
+    "pack:mac": "cross-env USE_HARD_LINKS=false CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --arm64 -p never -c.mac.hardenedRuntime=false"
   },
   "_moduleAliases": {
     "electron": "node_modules/electron",
