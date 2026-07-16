@@ -1,5 +1,8 @@
-import { ipcMain, IpcMainEvent } from 'electron';
-import { existsSync, readFile } from 'fs';
+import { createHash } from 'crypto';
+import { app, ipcMain, IpcMainEvent } from 'electron';
+import {
+  existsSync, mkdirSync, readFile, renameSync, statSync, unlinkSync,
+} from 'fs';
 import path from 'path';
 import { runMediaBinary } from './ffmpeg';
 
@@ -23,6 +26,47 @@ interface ExtractedSubtitle {
 }
 
 const extractedSubtitles = new Map<string, ExtractedSubtitle>();
+const compatibilityTasks = new Map<string, Promise<string>>();
+
+function compatibilityOutputPath(videoPath: string): string {
+  const stat = statSync(videoPath);
+  const key = createHash('sha1')
+    .update(`${videoPath}\u0000${stat.size}\u0000${stat.mtimeMs}`)
+    .digest('hex');
+  const directory = path.join(app.getPath('temp'), 'splayer-compat-media');
+  mkdirSync(directory, { recursive: true });
+  return path.join(directory, `${key}.mp4`);
+}
+
+async function preparePlaybackSource(videoPath: string): Promise<string> {
+  if (path.extname(videoPath).toLowerCase() !== '.ts') return videoPath;
+  if (!existsSync(videoPath)) throw new Error('File does not exist.');
+
+  const outputPath = compatibilityOutputPath(videoPath);
+  if (existsSync(outputPath)) return outputPath;
+  const runningTask = compatibilityTasks.get(outputPath);
+  if (runningTask) return runningTask;
+
+  const partialPath = `${outputPath}.${process.pid}.partial.mp4`;
+  const task = (async () => {
+    try {
+      await runMediaBinary('ffmpeg', [
+        '-y', '-v', 'error', '-i', videoPath,
+        '-map', '0:v:0', '-map', '0:a?',
+        '-c', 'copy', '-movflags', '+faststart', partialPath,
+      ]);
+      renameSync(partialPath, outputPath);
+      return outputPath;
+    } catch (error) {
+      if (existsSync(partialPath)) unlinkSync(partialPath);
+      throw error;
+    } finally {
+      compatibilityTasks.delete(outputPath);
+    }
+  })();
+  compatibilityTasks.set(outputPath, task);
+  return task;
+}
 
 function subtitleKey(videoPath: string, streamIndex: number) {
   return `${videoPath}\u0000${streamIndex}`;
@@ -54,6 +98,11 @@ async function extractTextSubtitle(
 }
 
 export default function registerMediaTasks() {
+  ipcMain.removeHandler('prepare-playback-source');
+  ipcMain.handle('prepare-playback-source', (event, videoPath: string) => (
+    preparePlaybackSource(videoPath)
+  ));
+
   ipcMain.on('media-info-request', async (event, videoPath) => {
     if (!existsSync(videoPath)) {
       reply(event, 'media-info-reply', 'File does not exist.');

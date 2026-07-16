@@ -1,4 +1,5 @@
 import Vue from 'vue';
+import { ipcRenderer } from 'electron';
 
 import romanize from 'romanize';
 import isEqual from 'lodash/isEqual';
@@ -66,8 +67,9 @@ const getters = {
   // network state
   originSrc: state => state.src,
   convertedSrc: (state) => {
-    const converted = process.platform === 'win32' ? encodeURIComponent(state.src).replace(/%3A/g, ':').replace(/(%5C)|(%2F)/g, '/')
-      : encodeURIComponent(state.src).replace(/%3A/g, ':').replace(/%2F/g, '/');
+    const playbackSrc = state.currentSrc || state.src;
+    const converted = process.platform === 'win32' ? encodeURIComponent(playbackSrc).replace(/%3A/g, ':').replace(/(%5C)|(%2F)/g, '/')
+      : encodeURIComponent(playbackSrc).replace(/%3A/g, ':').replace(/%2F/g, '/');
     return process.platform === 'win32' ? converted : `file://${converted}`;
   },
   // playback state
@@ -200,20 +202,22 @@ function generateRate(rateInfo, nowRate, oldRateGroup) {
 const mutations = mutationsGenerator(videoMutations);
 
 const actions = {
-  [videoActions.SRC_SET]({ commit, dispatch }, { src, mediaHash, id }) {
+  async [videoActions.SRC_SET]({ commit, dispatch }, { src, mediaHash, id }) {
     const srcRegexes = {
       unix: RegExp(/^[^\0]+$/),
       windows: RegExp(/^[a-zA-Z]:\/(((?![<>:"//|?*]).)+((?<![ .])\/)?)*$/),
     };
-    Object.keys(srcRegexes).forEach(async (type) => {
-      if (!srcRegexes[type].test(src)) return;
-      mediaHash = mediaHash || await mediaQuickHash.try(src);
-      if (!mediaHash) return;
-      commit(videoMutations.SRC_UPDATE, src);
-      commit(videoMutations.MEDIA_HASH_UPDATE, mediaHash);
-      commit(videoMutations.ID_UPDATE, id);
-      dispatch(subtitleActions.INITIALIZE_VIDEO_SUBTITLE_MAP, { videoSrc: src });
-    });
+    const isValid = Object.keys(srcRegexes).some(type => srcRegexes[type].test(src));
+    if (!isValid) return;
+    mediaHash = mediaHash || await mediaQuickHash.try(src);
+    if (!mediaHash) return;
+    const playbackSrc = process.env.NODE_ENV === 'testing'
+      ? src : await ipcRenderer.invoke('prepare-playback-source', src);
+    commit(videoMutations.SRC_UPDATE, src);
+    commit(videoMutations.CURRENT_SRC_UPDATE, playbackSrc);
+    commit(videoMutations.MEDIA_HASH_UPDATE, mediaHash);
+    commit(videoMutations.ID_UPDATE, id);
+    dispatch(subtitleActions.INITIALIZE_VIDEO_SUBTITLE_MAP, { videoSrc: src });
   },
   [videoActions.INITIALIZE]({ commit }, config) {
     Object.keys(config).forEach((item) => {
