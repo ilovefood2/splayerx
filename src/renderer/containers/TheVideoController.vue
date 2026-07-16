@@ -66,6 +66,16 @@
       :handle-update-muted="updateMuted"
       @update:volume-state="updateVolumeState"
     />
+    <div
+      v-show="!isEditable && !isProfessional"
+      v-fade-in="showAllWidgets"
+      :title="$t('msg.playback.castTo')"
+      @mouseup.left.stop="$electron.remote.app.emit('cast-request')"
+      :class="{ active: casting }"
+      class="no-drag cast-top"
+    >
+      <Icon type="stream" />
+    </div>
     <transition name="fade">
       <div
         v-show="!isEditable && !isProfessional"
@@ -84,14 +94,6 @@
           class="button no-drag ai-translate"
         >
           <span>AI</span>
-        </div>
-        <div
-          :title="$t('msg.playback.castTo')"
-          @mouseup.left.stop="$electron.remote.app.emit('cast-request')"
-          :class="{ active: casting }"
-          class="button no-drag cast"
-        >
-          <Icon type="stream" />
         </div>
         <advance-control
           ref="advance"
@@ -1087,14 +1089,6 @@ export default {
     &:hover { opacity: 1; }
     &:active { transform: scale(0.92); }
   }
-  .cast {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0.9;
-    &.active { filter: drop-shadow(0 0 4px #4da3ff); opacity: 1; }
-    svg { width: 100%; height: 100%; }
-  }
   img {
     width: 100%;
     height: 100%;
@@ -1170,6 +1164,39 @@ export default {
     width: 129px;
     height: 129px;
   }
+}
+.cast-top {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.9;
+  &:hover { opacity: 1; }
+  &:active { transform: scale(0.92); }
+  &.active { filter: drop-shadow(0 0 4px #4da3ff); opacity: 1; }
+  svg { width: 100%; height: 100%; }
+}
+@media
+  screen and (max-aspect-ratio: 1/1) and (max-width: 288px),
+  screen and (min-aspect-ratio: 1/1) and (max-height: 288px) {
+  .cast-top { display: none; }
+}
+@media
+  screen and (max-aspect-ratio: 1/1) and (min-width: 289px) and (max-width: 480px),
+  screen and (min-aspect-ratio: 1/1) and (min-height: 289px) and (max-height: 480px) {
+  .cast-top { width: 26.4px; height: 22px; right: 25px; top: 25px; }
+}
+@media
+  screen and (max-aspect-ratio: 1/1) and (min-width: 481px) and (max-width: 1080px),
+  screen and (min-aspect-ratio: 1/1) and (min-height: 481px) and (max-height: 1080px) {
+  .cast-top { width: 38.4px; height: 32px; right: 30px; top: 29px; }
+}
+@media
+  screen and (max-aspect-ratio: 1/1) and (min-width: 1080px),
+  screen and (min-aspect-ratio: 1/1) and (min-height: 1080px) {
+  .cast-top { width: 60px; height: 50px; right: 45px; top: 37px; }
 }
 .fade-in {
   visibility: visible;
