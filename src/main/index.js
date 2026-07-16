@@ -2289,9 +2289,20 @@ app.on('ready', () => castService.startBackgroundDiscovery());
 
 ipcMain.handle('cast-list-devices', async () => castService.listDevices());
 
-ipcMain.handle('cast-start', async (e, { device, filePath, cues }) => {
+castService.on('status', (status) => {
+  if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send('cast-status', status);
+  }
+});
+
+ipcMain.handle('cast-start', async (e, {
+  device, filePath, cues, currentTime, volume,
+}) => {
   try {
-    await castService.cast(device, filePath, cues || []);
+    await castService.cast(
+      device, filePath, cues || [], currentTime || 0,
+      typeof volume === 'number' ? volume : 1,
+    );
     return { ok: true };
   } catch (error) {
     return { ok: false, reason: error.message };
@@ -2302,3 +2313,4 @@ ipcMain.on('cast-stop', () => castService.stop());
 ipcMain.on('cast-pause', () => castService.pause());
 ipcMain.on('cast-play', () => castService.play());
 ipcMain.on('cast-seek', (e, seconds) => castService.seek(seconds));
+ipcMain.on('cast-volume', (e, level) => castService.setVolume(level));

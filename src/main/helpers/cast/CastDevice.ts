@@ -32,6 +32,14 @@ export interface CastMedia {
   /** Optional sidecar WebVTT track. */
   subtitleUrl?: string;
   subtitleLanguage?: string;
+  /** Continue from the local player's current position. */
+  currentTime?: number;
+}
+
+export interface CastPlaybackStatus {
+  currentTime: number;
+  duration: number;
+  paused: boolean;
 }
 
 export class CastDevice extends EventEmitter {
@@ -166,7 +174,7 @@ export class CastDevice extends EventEmitter {
     const reply = await this.request(NS_MEDIA, {
       type: 'LOAD',
       autoplay: true,
-      currentTime: 0,
+      currentTime: media.currentTime || 0,
       media: {
         contentId: media.url,
         streamType: 'BUFFERED',
@@ -203,6 +211,27 @@ export class CastDevice extends EventEmitter {
   public pause(): void { this.mediaCommand('PAUSE'); }
 
   public seek(seconds: number): void { this.mediaCommand('SEEK', { currentTime: seconds }); }
+
+  /** Ask the receiver for its authoritative playback position and state. */
+  public async getStatus(): Promise<CastPlaybackStatus | undefined> {
+    if (!this.transportId || this.mediaSessionId === undefined) return undefined;
+    const reply = await this.request(NS_MEDIA, {
+      type: 'GET_STATUS', mediaSessionId: this.mediaSessionId,
+    }, this.transportId) as {
+      status?: {
+        currentTime?: number,
+        playerState?: string,
+        media?: { duration?: number },
+      }[],
+    };
+    const status = reply.status && reply.status[0];
+    if (!status) return undefined;
+    return {
+      currentTime: status.currentTime || 0,
+      duration: status.media && status.media.duration ? status.media.duration : 0,
+      paused: status.playerState !== 'PLAYING' && status.playerState !== 'BUFFERING',
+    };
+  }
 
   public setVolume(level: number): void {
     this.send(NS_RECEIVER, { type: 'SET_VOLUME', volume: { level }, requestId: this.requestId += 1 });

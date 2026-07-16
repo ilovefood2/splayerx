@@ -41,6 +41,8 @@ const state = {
   played: '',
   seekable: '',
   currentTime: 0,
+  casting: false,
+  castPaused: true,
   autoplay: false,
   loop: false,
   // controls
@@ -76,6 +78,8 @@ const getters = {
     return state.duration - time;
   },
   currentTime: state => state.currentTime,
+  casting: state => state.casting,
+  castPaused: state => state.castPaused,
   paused: state => state.paused,
   roundedCurrentTime: state => Math.round(state.currentTime),
   // controls

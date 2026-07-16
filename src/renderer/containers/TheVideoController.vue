@@ -22,7 +22,7 @@
       :display-state="displayState.RecentPlaylist"
       :mousemove-client-position="mousemoveClientPosition"
       :is-dragging="isDragging"
-      :paused="paused"
+      :paused="controllerPaused"
       :last-dragging.sync="lastDragging"
       v-bind.sync="widgetsStatus.RecentPlaylist"
       @can-hover-item="cancelPlayListTimeout"
@@ -85,6 +85,21 @@
           @conflict-resolve="conflictResolve"
           class="button no-drag subtitle"
         />
+        <div
+          :title="$t('msg.subtitle.AITranslation')"
+          @mouseup.left.stop="startAITranslation"
+          class="button no-drag ai-translate"
+        >
+          <span>AI</span>
+        </div>
+        <div
+          :title="$t('msg.playback.castTo')"
+          @mouseup.left.stop="$electron.remote.app.emit('cast-request')"
+          :class="{ active: casting }"
+          class="button no-drag cast"
+        >
+          <Icon type="stream" />
+        </div>
         <advance-control
           ref="advance"
           v-fade-in="displayState.AdvanceControl"
@@ -93,13 +108,6 @@
           @conflict-resolve="conflictResolve"
           class="button no-drag advance"
         />
-        <div
-          :title="$t('msg.playback.castTo')"
-          @mouseup.left.stop="$electron.remote.app.emit('cast-request')"
-          class="button no-drag cast"
-        >
-          <Icon type="stream" />
-        </div>
       </div>
     </transition>
     <div
@@ -152,6 +160,7 @@ import {
   Input as inputActions,
   Video as videoActions,
   Subtitle as legacySubtitleActions,
+  SubtitleManager as smActions,
   AudioTranslate as atActions,
   UIStates as uiActions,
 } from '@/store/actionTypes';
@@ -267,7 +276,7 @@ export default {
       wheelTime: ({ Input }) => Input.wheelTimestamp,
     }),
     ...mapGetters([
-      'originSrc', 'paused', 'ratio', 'duration', 'intrinsicWidth', 'intrinsicHeight', 'singleCycle', 'rate', 'muted', 'volume', 'playlistLoop',
+      'originSrc', 'paused', 'casting', 'castPaused', 'ratio', 'duration', 'intrinsicWidth', 'intrinsicHeight', 'singleCycle', 'rate', 'muted', 'volume', 'playlistLoop',
       'winWidth',
       'playingList', 'isFolderList',
       'isFullScreen', 'isFocused', 'isMinimized',
@@ -282,6 +291,9 @@ export default {
     }),
     playlistState() {
       return this.displayState.RecentPlaylist;
+    },
+    controllerPaused() {
+      return this.casting ? this.castPaused : this.paused;
     },
     showAllWidgets() {
       if (this.isTranslateModalVisible) return false;
@@ -614,11 +626,13 @@ export default {
         this.changeVolumeByMenu = false;
       });
     });
+    this.$bus.$on('cast-tick', this.onTickUpdate);
     document.addEventListener('keydown', this.handleKeydown);
     document.addEventListener('keyup', this.handleKeyup);
     document.addEventListener('wheel', this.handleWheel);
   },
   destroyed() {
+    this.$bus.$off('cast-tick', this.onTickUpdate);
     document.removeEventListener('keydown', this.handleKeydown);
     document.removeEventListener('keyup', this.handleKeyup);
     document.removeEventListener('wheel', this.handleWheel);
@@ -637,6 +651,7 @@ export default {
       updateShowAllWidgets: uiActions.UPDATE_SHOW_ALLWIDGETS,
       updatePlaylistState: uiActions.UPDATE_PLAYLIST,
       updateShowSidebar: uiActions.UPDATE_SHOW_SIDEBAR,
+      translateWithAI: smActions.translateWithAI,
     }),
     onTimeCodeClick() {
       this.$store.dispatch('showFullTimeCode', !this.showFullTimeCode);
@@ -1025,6 +1040,9 @@ export default {
     togglePlay() {
       this.$bus.$emit('toggle-playback');
     },
+    startAITranslation() {
+      this.translateWithAI();
+    },
     updateVolume(val: number) {
       this.$store.dispatch(videoActions.VOLUME_UPDATE, val);
     },
@@ -1130,40 +1148,29 @@ export default {
   .button {
     cursor: pointer;
     position: relative;
+    flex: 0 0 auto;
   }
-  .subtitle {
-    @media
-      screen and (max-aspect-ratio: 1/1) and (min-width: 289px) and (max-width: 480px),
-      screen and (min-aspect-ratio: 1/1) and (min-height: 289px) and (max-height: 480px) {
-      margin-right: 17.6px;
-    }
-    @media
-      screen and (max-aspect-ratio: 1/1) and (min-width: 481px) and (max-width: 1080px),
-      screen and (min-aspect-ratio: 1/1) and (min-height: 481px) and (max-height: 1080px) {
-      margin-right: 25.6px;
-    }
-    @media
-      screen and (max-aspect-ratio: 1/1) and (min-width: 1080px),
-      screen and (min-aspect-ratio: 1/1) and (min-height: 1080px) {
-      margin-right: 40px;
-    }
+  .ai-translate {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    border-radius: 22%;
+    box-sizing: border-box;
+    opacity: 0.9;
+    &:hover { opacity: 1; }
+    &:active { transform: scale(0.92); }
   }
-  .playlist {
-    @media
-      screen and (max-aspect-ratio: 1/1) and (min-width: 289px) and (max-width: 480px),
-      screen and (min-aspect-ratio: 1/1) and (min-height: 289px) and (max-height: 480px) {
-      margin-right: 17.6px;
-    }
-    @media
-      screen and (max-aspect-ratio: 1/1) and (min-width: 481px) and (max-width: 1080px),
-      screen and (min-aspect-ratio: 1/1) and (min-height: 481px) and (max-height: 1080px) {
-      margin-right: 25.6px;
-    }
-    @media
-      screen and (max-aspect-ratio: 1/1) and (min-width: 1080px),
-      screen and (min-aspect-ratio: 1/1) and (min-height: 1080px) {
-      margin-right: 40px;
-    }
+  .cast {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.9;
+    &.active { filter: drop-shadow(0 0 4px #4da3ff); opacity: 1; }
+    svg { width: 100%; height: 100%; }
   }
   img {
     width: 100%;
@@ -1185,14 +1192,16 @@ export default {
   screen and (max-aspect-ratio: 1/1) and (min-width: 289px) and (max-width: 480px),
   screen and (min-aspect-ratio: 1/1) and (min-height: 289px) and (max-height: 480px) {
   .control-buttons {
-    width: 115px;
+    width: auto;
     height: 22px;
     right: 25px;
     bottom: 25px;
     .button {
       width: 26.4px;
       height: 22px;
+      &:not(:last-child) { margin-right: 14px; }
     }
+    .ai-translate { font-size: 11px; }
   }
   .play-button {
     width: 67px;
@@ -1203,14 +1212,16 @@ export default {
   screen and (max-aspect-ratio: 1/1) and (min-width: 481px) and (max-width: 1080px),
   screen and (min-aspect-ratio: 1/1) and (min-height: 481px) and (max-height: 1080px) {
   .control-buttons {
-    width: 167px;
+    width: auto;
     height: 32px;
     right: 30px;
     bottom: 29px;
     .button {
       width: 38.4px;
       height: 32px;
+      &:not(:last-child) { margin-right: 20px; }
     }
+    .ai-translate { font-size: 16px; }
   }
   .play-button {
     width: 93px;
@@ -1221,14 +1232,16 @@ export default {
   screen and (max-aspect-ratio: 1/1) and (min-width: 1080px),
   screen and (min-aspect-ratio: 1/1) and (min-height: 1080px) {
   .control-buttons {
-    width: 260px;
+    width: auto;
     height: 50px;
     right: 45px;
     bottom: 37px;
     .button {
       width: 60px;
       height: 50px;
+      &:not(:last-child) { margin-right: 30px; }
     }
+    .ai-translate { font-size: 24px; }
   }
   .play-button {
     width: 129px;

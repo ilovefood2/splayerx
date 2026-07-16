@@ -260,6 +260,7 @@
         "id": "playback.castTo",
         "label": "msg.playback.castTo",
         "enabled": true,
+        "event": "cast-to-device",
         "accelerator": "CmdOrCtrl+Shift+C"
       }
     ]

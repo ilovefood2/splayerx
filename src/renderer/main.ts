@@ -38,6 +38,7 @@ import {
   Download as downloadActions,
   Editor as seActions,
 } from '@/store/actionTypes';
+import { Video as videoMutations } from '@/store/mutationTypes';
 import { log } from '@/libs/Log';
 import asyncStorage from '@/helpers/asyncStorage';
 import { videodata } from '@/store/video';
@@ -173,7 +174,7 @@ new Vue({
   },
   computed: {
     ...mapGetters(['volume', 'muted', 'intrinsicWidth', 'intrinsicHeight', 'ratio', 'winAngle', 'winWidth', 'winHeight', 'winPos', 'winSize', 'chosenStyle', 'chosenSize', 'mediaHash', 'list', 'enabledSecondarySub', 'isRefreshing', 'browsingSize', 'pipSize', 'pipPos', 'barrageOpen', 'isPip', 'pipAlwaysOnTop', 'isMaximized', 'pipMode',
-      'primarySubtitleId', 'secondarySubtitleId', 'audioTrackList', 'isFullScreen', 'paused', 'singleCycle', 'playlistLoop', 'isHiddenByBossKey', 'isMinimized', 'isFocused', 'originSrc', 'defaultDir', 'ableToPushCurrentSubtitle', 'displayLanguage', 'calculatedNoSub', 'sizePercent', 'snapshotSavedPath', 'duration', 'reverseScrolling', 'pipSize', 'pipPos',
+      'primarySubtitleId', 'secondarySubtitleId', 'audioTrackList', 'isFullScreen', 'paused', 'casting', 'castPaused', 'singleCycle', 'playlistLoop', 'isHiddenByBossKey', 'isMinimized', 'isFocused', 'originSrc', 'defaultDir', 'ableToPushCurrentSubtitle', 'displayLanguage', 'calculatedNoSub', 'sizePercent', 'snapshotSavedPath', 'duration', 'reverseScrolling', 'pipSize', 'pipPos',
       'showSidebar', 'volumeWheelTriggered', 'preferenceData', 'userInfo', 'canTryToUploadCurrentSubtitle', 'gettingTemporaryViewInfo', 'isDarkMode',
       'isEditable', 'isProfessional', 'referenceSubtitle', 'subtitleEditMenuPrevEnable', 'subtitleEditMenuNextEnable', 'subtitleEditMenuEnterEnable', 'editorHistory', 'editorCurrentIndex',
     ]),
@@ -288,9 +289,11 @@ new Vue({
     volume(val: number) {
       if (val < 1) this.maxVolume = MAX_VOLUME;
       this.menuService.resolveMute(val <= 0);
+      if (this.casting) ipcRenderer.send('cast-volume', this.muted ? 0 : Math.min(1, val));
     },
     muted(val: boolean) {
       this.menuService.resolveMute(val);
+      if (this.casting) ipcRenderer.send('cast-volume', val ? 0 : Math.min(1, this.volume));
     },
     list() {
       this.menuService.addPrimarySub(this.recentSubMenu());
@@ -351,10 +354,13 @@ new Vue({
       } else if (!val && this.playingViewTop) {
         this.topOnWindow = true;
       }
-      this.menuService.updateMenuItemLabel(
-        'playback.playOrPause',
-        val ? 'msg.playback.play' : 'msg.playback.pause',
-      );
+      this.updatePlaybackMenuLabel();
+    },
+    casting() {
+      this.updatePlaybackMenuLabel();
+    },
+    castPaused() {
+      this.updatePlaybackMenuLabel();
     },
     canTryToUploadCurrentSubtitle(val) {
       this.menuService.updateMenuItemEnabled('subtitle.uploadSelectedSubtitle', val);
@@ -478,6 +484,7 @@ new Vue({
     this.menuService = new MenuService();
     this.menuService.updateRouteName(this.currentRouteName);
     this.registeMenuActions();
+    ipcRenderer.on('cast-status', this.onCastStatus);
     this.initializeMenuSettings();
     this.$bus.$on('new-file-open', () => {
       this.menuService.addRecentPlayItems();
@@ -823,6 +830,25 @@ new Vue({
     }),
     setMaxVolume() {
       this.maxVolume = this.volume < 1 ? MAX_VOLUME : MAX_AMPLIFY_VOLUME;
+    },
+    updatePlaybackMenuLabel() {
+      if (!this.menuService) return;
+      const paused = this.casting ? this.castPaused : this.paused;
+      this.menuService.updateMenuItemLabel(
+        'playback.playOrPause',
+        paused ? 'msg.playback.play' : 'msg.playback.pause',
+      );
+    },
+    onCastStatus(e: Event, status: {
+      casting: boolean, paused: boolean, currentTime: number,
+    }) {
+      this.$store.commit(videoMutations.CASTING_UPDATE, !!status.casting);
+      this.$store.commit(videoMutations.CAST_PAUSED_UPDATE, !!status.paused);
+      if (Number.isFinite(status.currentTime)) {
+        videodata.time = status.currentTime;
+        this.$store.commit(videoMutations.CURRENT_TIME_UPDATE, status.currentTime);
+        this.$bus.$emit('cast-tick');
+      }
     },
     async initializeMenuSettings() {
       if (this.currentRouteName !== 'welcome-privacy' && this.currentRouteName !== 'language-setting') {
@@ -1472,11 +1498,19 @@ new Vue({
         device: devices[response],
         filePath: src,
         cues: this.aiSubtitleCues(),
+        currentTime: videodata.time,
+        volume: this.muted ? 0 : Math.min(1, this.volume),
       });
       if (!result.ok) {
         addBubble(result.reason && result.reason.indexOf('unsupported-container') === 0
           ? CAST_UNSUPPORTED : CAST_FAILED);
+        return;
       }
+      // The television owns playback now. Keep the local element paused while
+      // its controls and timeline continue driving the receiver.
+      this.$store.commit(videoMutations.CASTING_UPDATE, true);
+      this.$store.commit(videoMutations.CAST_PAUSED_UPDATE, false);
+      this.$store.dispatch(videoActions.PAUSE_VIDEO);
     },
     /** Whatever the AI translator has produced for the current track, if any. */
     aiSubtitleCues() {
@@ -1518,6 +1552,7 @@ new Vue({
   },
   destroyed() {
     this.$electron.ipcRenderer.off('losslessStreaming-info-update', this.onLosslessStreamingInfoUpdate);
+    ipcRenderer.off('cast-status', this.onCastStatus);
   },
   template: '<App/>',
 }).$mount('#app');

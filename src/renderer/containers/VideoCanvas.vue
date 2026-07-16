@@ -85,7 +85,7 @@ export default {
   },
   computed: {
     ...mapGetters([
-      'videoId', 'nextVideoId', 'originSrc', 'convertedSrc', 'volume', 'muted', 'rate', 'paused', 'duration', 'ratio', 'currentAudioTrackId', 'enabledSecondarySub', 'subToTop',
+      'videoId', 'nextVideoId', 'originSrc', 'convertedSrc', 'volume', 'muted', 'rate', 'paused', 'casting', 'castPaused', 'duration', 'ratio', 'currentAudioTrackId', 'enabledSecondarySub', 'subToTop',
       'winSize', 'winPos', 'winAngle', 'isFullScreen', 'winWidth', 'winHeight', 'chosenStyle', 'chosenSize', 'nextVideo', 'loop', 'playinglistRate', 'isFolderList', 'playingList', 'playingIndex', 'playListId', 'items',
       'previousVideo', 'previousVideoId', 'incognitoMode', 'isTranslating', 'nsfwProcessDone', 'hwhevc',
     ]),
@@ -190,6 +190,11 @@ export default {
       this.toggleMute();
     });
     this.$bus.$on('toggle-playback', debounce(() => {
+      if (this.casting) {
+        this.$electron.ipcRenderer.send(this.castPaused ? 'cast-play' : 'cast-pause');
+        this.updateCastPaused(!this.castPaused);
+        return;
+      }
       this[this.paused ? 'play' : 'pause']();
       // this.$ga.event('app', 'toggle-playback');
     }, 50, { leading: true }));
@@ -230,6 +235,7 @@ export default {
       }
     });
     this.$bus.$on('seek', (e: number) => {
+      if (this.casting) this.$electron.ipcRenderer.send('cast-seek', e);
       // update vuex currentTime to use some where
       this.seekTime = [e];
       this.updateVideoCurrentTime(e);
@@ -255,6 +261,7 @@ export default {
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
   },
   beforeDestroy() {
+    if (this.casting) this.$electron.ipcRenderer.send('cast-stop');
     this.audioCtx.close();
     if (process.mas) this.$bus.$emit(`stop-accessing-${this.originSrc}`, this.originSrc);
     window.removeEventListener('beforeunload', this.beforeUnloadHandler);
@@ -262,6 +269,7 @@ export default {
   methods: {
     ...mapMutations({
       updateVideoCurrentTime: videoMutations.CURRENT_TIME_UPDATE,
+      updateCastPaused: videoMutations.CAST_PAUSED_UPDATE,
     }),
     ...mapActions({
       videoConfigInitialize: videoActions.INITIALIZE,

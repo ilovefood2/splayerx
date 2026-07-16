@@ -25,6 +25,7 @@ export interface IMenubarMenuItemAction {
   checked?: boolean, // Assumed false if missing
   enabled?: boolean, // Assumed true if missing
   icon?: string,
+  event?: string,
   hideOn?: string[],
 }
 

@@ -14,6 +14,7 @@
 import http from 'http';
 import fs from 'fs';
 import os from 'os';
+import { EventEmitter } from 'events';
 import { extname, basename } from 'path';
 import { CastDevice, CastMedia } from './CastDevice';
 import { discoverWithKnown, CastDeviceInfo } from './CastDiscovery';
@@ -64,7 +65,14 @@ export function contentTypeOf(filePath: string): string | undefined {
   return CONTENT_TYPES[extname(filePath).slice(1).toLowerCase()];
 }
 
-export class CastService {
+export interface CastStatus {
+  casting: boolean;
+  currentTime: number;
+  duration: number;
+  paused: boolean;
+}
+
+export class CastService extends EventEmitter {
   private server?: http.Server;
 
   private device?: CastDevice;
@@ -80,6 +88,14 @@ export class CastService {
   private refreshing?: Promise<CastDeviceInfo[]>;
 
   private refreshTimer?: NodeJS.Timeout;
+
+  private statusTimer?: NodeJS.Timeout;
+
+  private statusBusy = false;
+
+  private lastStatus: CastStatus = {
+    casting: false, currentTime: 0, duration: 0, paused: true,
+  };
 
   /** One scan at a time; callers share the in-flight one. */
   private refresh(timeout?: number): Promise<CastDeviceInfo[]> {
@@ -205,6 +221,8 @@ export class CastService {
     target: CastDeviceInfo,
     filePath: string,
     cues: CastCue[] = [],
+    currentTime = 0,
+    volume = 1,
   ): Promise<void> {
     const contentType = contentTypeOf(filePath);
     if (!contentType) {
@@ -221,30 +239,107 @@ export class CastService {
     this.stopDevice();
     const device = new CastDevice(target.ip || target.host, target.port);
     this.device = device;
-    await device.connect();
+    // CastDevice reports socket failures through both its promise and its
+    // EventEmitter. Keep the latter from becoming an uncaught process error.
+    device.on('error', () => {});
+    device.on('close', () => {
+      if (this.device !== device) return;
+      this.device = undefined;
+      this.stopStatusPolling();
+      this.publishStatus({
+        casting: false,
+        currentTime: this.lastStatus.currentTime,
+        duration: this.lastStatus.duration,
+        paused: true,
+      });
+    });
     const media: CastMedia = {
       url: `${base}/video${extname(filePath)}`,
       contentType,
       title: basename(filePath),
+      currentTime,
     };
     if (this.vtt) {
       media.subtitleUrl = `${base}/subtitle.vtt`;
       media.subtitleLanguage = 'zh-CN';
     }
-    await device.load(media);
+    try {
+      await device.connect();
+      await device.load(media);
+      device.setVolume(Math.max(0, Math.min(1, volume)));
+    } catch (error) {
+      this.stopDevice();
+      throw error;
+    }
+    this.publishStatus({
+      casting: true, currentTime, duration: 0, paused: false,
+    });
+    this.startStatusPolling();
   }
 
-  public play(): void { if (this.device) this.device.play(); }
+  private publishStatus(status: CastStatus): void {
+    this.lastStatus = status;
+    this.emit('status', status);
+  }
 
-  public pause(): void { if (this.device) this.device.pause(); }
+  private startStatusPolling(): void {
+    this.stopStatusPolling();
+    const poll = async () => {
+      if (!this.device || this.statusBusy) return;
+      const device = this.device;
+      this.statusBusy = true;
+      try {
+        const status = await device.getStatus();
+        if (this.device === device && status) {
+          this.publishStatus(Object.assign({ casting: true }, status));
+        }
+      } catch (error) {
+        // A transient status timeout must not tear down an otherwise live cast.
+      } finally {
+        this.statusBusy = false;
+      }
+    };
+    poll();
+    this.statusTimer = setInterval(poll, 1000);
+  }
 
-  public seek(seconds: number): void { if (this.device) this.device.seek(seconds); }
+  private stopStatusPolling(): void {
+    if (this.statusTimer) {
+      clearInterval(this.statusTimer);
+      this.statusTimer = undefined;
+    }
+    this.statusBusy = false;
+  }
+
+  public play(): void {
+    if (!this.device) return;
+    this.device.play();
+    this.publishStatus(Object.assign({}, this.lastStatus, { casting: true, paused: false }));
+  }
+
+  public pause(): void {
+    if (!this.device) return;
+    this.device.pause();
+    this.publishStatus(Object.assign({}, this.lastStatus, { casting: true, paused: true }));
+  }
+
+  public seek(seconds: number): void {
+    if (!this.device) return;
+    this.device.seek(seconds);
+    this.publishStatus(Object.assign({}, this.lastStatus, { casting: true, currentTime: seconds }));
+  }
+
+  public setVolume(level: number): void {
+    if (this.device) this.device.setVolume(Math.max(0, Math.min(1, level)));
+  }
 
   private stopDevice(): void {
     if (this.device) {
-      this.device.stop();
+      const device = this.device;
       this.device = undefined;
+      device.stop();
     }
+    this.stopStatusPolling();
   }
 
   /** Stop casting and release the port. */
@@ -255,6 +350,12 @@ export class CastService {
       this.server = undefined;
       this.port = 0;
     }
+    this.publishStatus({
+      casting: false,
+      currentTime: this.lastStatus.currentTime,
+      duration: this.lastStatus.duration,
+      paused: true,
+    });
   }
 
   public get casting(): boolean { return !!this.device; }
