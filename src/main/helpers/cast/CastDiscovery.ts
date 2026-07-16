@@ -8,6 +8,8 @@
  */
 
 import dgram from 'dgram';
+import net from 'net';
+import { spawn, ChildProcess } from 'child_process';
 
 const MDNS_ADDRESS = '224.0.0.251';
 const MDNS_PORT = 5353;
@@ -146,6 +148,22 @@ export function discoverCastDevices(timeout = 4000): Promise<CastDeviceInfo[]> {
     const ipByHost = new Map<string, string>();
     const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     let done = false;
+    const asked = new Set<string>();
+
+    /**
+     * Browsing only yields PTRs. Some devices volunteer SRV/TXT alongside them,
+     * but others do not, so anything we learn about has to be resolved
+     * explicitly or it is invisible for want of a host and port.
+     */
+    const askFor = (name: string, type: number) => {
+      const key = `${type}:${name}`;
+      if (done || asked.has(key)) return;
+      asked.add(key);
+      const packet = buildQuery(name, type);
+      try {
+        socket.send(packet, 0, packet.length, MDNS_PORT, MDNS_ADDRESS);
+      } catch (e) { /* interface went away mid-scan */ }
+    };
 
     const finish = () => {
       if (done) return;
@@ -180,8 +198,12 @@ export function discoverCastDevices(timeout = 4000): Promise<CastDeviceInfo[]> {
         // everything else is just indexed for later.
         if (record.type === TYPE_PTR && record.name === SERVICE && record.ptr) {
           castInstances.add(record.ptr);
+          // Ask for the details rather than waiting to be told.
+          askFor(record.ptr, TYPE_SRV);
+          askFor(record.ptr, TYPE_TXT);
         } else if (record.type === TYPE_SRV && record.target && record.port) {
           srvByInstance.set(record.name, { host: record.target, port: record.port });
+          if (!ipByHost.has(record.target)) askFor(record.target, TYPE_A);
         } else if (record.type === TYPE_TXT && record.txt) {
           const friendly = record.txt.find(t => t.indexOf('fn=') === 0);
           if (friendly) nameByInstance.set(record.name, friendly.slice(3));
@@ -214,4 +236,113 @@ export function discoverCastDevices(timeout = 4000): Promise<CastDeviceInfo[]> {
 
     setTimeout(finish, timeout);
   });
+}
+
+/**
+ * Is a device actually castable right now?
+ *
+ * A TV with Chromecast built-in stops answering mDNS once it goes idle, but
+ * keeps :8009 open so it can be woken by casting. Such a device is invisible to
+ * a cold browse yet perfectly usable, which is why Chrome still lists it: it
+ * remembers. A TCP connect is the honest test.
+ */
+export function isCastReachable(host: string, port = 8009, timeout = 700): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let settled = false;
+    const done = (result: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(timeout);
+    socket.once('connect', () => done(true));
+    socket.once('timeout', () => done(false));
+    socket.once('error', () => done(false));
+    socket.connect(port, host);
+  });
+}
+
+/**
+ * Devices seen now, plus any remembered device that still answers on :8009.
+ *
+ * `known` survives across runs, so a TV that has gone quiet stays castable
+ * instead of vanishing from the menu.
+ */
+export async function discoverWithKnown(
+  known: CastDeviceInfo[] = [],
+  timeout?: number,
+): Promise<CastDeviceInfo[]> {
+  const [live, cached] = await Promise.all([
+    discoverCastDevices(timeout),
+    devicesFromSystemCache(),
+  ]);
+  const byId = new Map<string, CastDeviceInfo>();
+  live.forEach(device => byId.set(device.id, device));
+
+  // Anything the OS or a previous run knows about, if it still answers.
+  const candidates = cached.concat(known);
+  const extras = candidates.filter(device => !byId.has(device.id) && !!(device.ip || device.host));
+  const reachable = await Promise.all(
+    extras.map(device => isCastReachable((device.ip || device.host) as string, device.port)),
+  );
+  extras.forEach((device, i) => {
+    if (reachable[i]) byId.set(device.id, device);
+  });
+  return Array.from(byId.values());
+}
+
+/**
+ * Ask macOS what it already knows about Chromecasts.
+ *
+ * Some TVs with Chromecast built-in answer no mDNS query and send no
+ * announcement once idle, yet keep :8009 open and cast fine — they are simply
+ * invisible to a cold browse. mDNSResponder still has them from when they were
+ * awake, which is why Chrome and `dns-sd` list them and we do not. Reading its
+ * cache is the only way to match that without waiting for the TV to speak.
+ *
+ * Best effort: any failure just yields nothing, and live discovery still runs.
+ */
+function dnssd(args: string[], ms: number): Promise<string> {
+  return new Promise((resolve) => {
+    let out = '';
+    let child: ChildProcess;
+    try {
+      child = spawn('/usr/bin/dns-sd', args);
+    } catch (e) {
+      resolve('');
+      return;
+    }
+    if (child.stdout) child.stdout.on('data', (d: Buffer) => { out += d.toString(); });
+    child.on('error', () => resolve(''));
+    // dns-sd never exits on its own: it browses until killed.
+    setTimeout(() => {
+      try { child.kill(); } catch (e) { /* already gone */ }
+      resolve(out);
+    }, ms);
+  });
+}
+
+export async function devicesFromSystemCache(): Promise<CastDeviceInfo[]> {
+  if (process.platform !== 'darwin') return [];
+  const browsed = await dnssd(['-B', '_googlecast._tcp'], 1500);
+  const instances = Array.from(new Set(
+    (browsed.match(/_googlecast\._tcp\.\s+(\S+)/g) || [])
+      .map(line => line.split(/\s+/).pop() as string)
+      .filter(Boolean),
+  ));
+  const devices = await Promise.all(instances.map(async (instance) => {
+    const detail = await dnssd(['-L', instance, '_googlecast._tcp', 'local'], 1200);
+    const reached = /can be reached at\s+(\S+?):(\d+)/.exec(detail);
+    if (!reached) return undefined;
+    const friendly = /fn=([^\s]+(?:\\ [^\s]+)*)/.exec(detail);
+    return {
+      id: `${instance}._googlecast._tcp.local`,
+      name: friendly ? friendly[1].replace(/\\ /g, ' ') : instance,
+      host: reached[1].replace(/\.$/, ''),
+      port: parseInt(reached[2], 10),
+    } as CastDeviceInfo;
+  }));
+  return devices.filter(Boolean) as CastDeviceInfo[];
 }

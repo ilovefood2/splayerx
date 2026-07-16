@@ -16,7 +16,7 @@ import fs from 'fs';
 import os from 'os';
 import { extname, basename } from 'path';
 import { CastDevice, CastMedia } from './CastDevice';
-import { discoverCastDevices, CastDeviceInfo } from './CastDiscovery';
+import { discoverWithKnown, CastDeviceInfo } from './CastDiscovery';
 
 /** Containers the Default Media Receiver will accept. */
 const CONTENT_TYPES: { [ext: string]: string } = {
@@ -75,8 +75,19 @@ export class CastService {
 
   private port = 0;
 
+  private knownDevices: CastDeviceInfo[] = [];
+
+  /**
+   * Devices to offer the user.
+   *
+   * Remembers what it has seen: a TV that has stopped answering mDNS is still
+   * listed as long as it answers on :8009, which is how it stays castable after
+   * going idle.
+   */
   public async listDevices(timeout?: number): Promise<CastDeviceInfo[]> {
-    return discoverCastDevices(timeout);
+    const devices = await discoverWithKnown(this.knownDevices, timeout);
+    this.knownDevices = devices;
+    return devices;
   }
 
   private serve(): Promise<number> {
