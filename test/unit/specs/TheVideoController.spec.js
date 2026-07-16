@@ -36,7 +36,13 @@ describe('Component - TheVideoController Unit Test', () => {
         },
       },
     });
-    wrapper = shallowMount(TheVideoController, { store, localVue });
+    wrapper = shallowMount(TheVideoController, {
+      store,
+      localVue,
+      // The control bar renders $t() titles; without i18n the render throws and
+      // mounted() never sees its $refs.
+      mocks: { $t: (key) => key },
+    });
     sandbox = sinon.createSandbox();
   });
   afterEach(() => {

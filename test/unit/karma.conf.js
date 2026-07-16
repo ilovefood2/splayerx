@@ -65,7 +65,8 @@ module.exports = config => {
         ],
         browserWindowOptions: {
           webPreferences: {
-            nodeIntegration: true
+            nodeIntegration: true,
+            enableRemoteModule: true
           }
         },
       },
@@ -77,7 +78,8 @@ module.exports = config => {
         ],
         browserWindowOptions: {
           webPreferences: {
-            nodeIntegration: true
+            nodeIntegration: true,
+            enableRemoteModule: true
           }
         },
       },
