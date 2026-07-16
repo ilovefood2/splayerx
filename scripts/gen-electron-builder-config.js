@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const mediaBinaries = require('ffmpeg-ffprobe-static');
 const { videos, audios, subtitles } = require('../config/fileAssociations');
 
 function generateFileAssociations(platform) {
@@ -41,7 +42,6 @@ function generateFileAssociations(platform) {
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
 );
-const mediaBinaries = require('ffmpeg-ffprobe-static');
 const electronVersion = packageJson.devDependencies.electron.split('-')[0];
 const win = {
   icon: 'build/icons/icon.ico',

@@ -2,12 +2,12 @@ import { app } from 'electron';
 import { execFile, ExecFileOptions } from 'child_process';
 import path from 'path';
 
-const staticBinaries = require('ffmpeg-ffprobe-static'); // eslint-disable-line
-
 export type MediaBinary = 'ffmpeg' | 'ffprobe';
 
 export function mediaBinaryPath(binary: MediaBinary): string {
   if (app.isPackaged) return path.join(process.resourcesPath, 'bin', binary);
+  // Build-only dependency: production packages use the copied Resources/bin files.
+  const staticBinaries = require('ffmpeg-ffprobe-static'); // eslint-disable-line
   return binary === 'ffmpeg' ? staticBinaries.ffmpegPath : staticBinaries.ffprobePath;
 }
 
