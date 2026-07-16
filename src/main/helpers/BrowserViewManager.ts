@@ -18,6 +18,7 @@ type BrowserViewHistoryItem = {
 function createBrowserView(): BrowserView {
   const view = new BrowserView({
     webPreferences: {
+      enableRemoteModule: true,
       preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
       nativeWindowOpen: true,
       // disableHtmlFullscreenWindowResize: true, // Electron 6 required
@@ -169,6 +170,7 @@ export class BrowserViewManager implements IBrowserViewManager {
         url,
         view: new BrowserView({
           webPreferences: {
+            enableRemoteModule: true,
             preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
             nativeWindowOpen: true,
             // disableHtmlFullscreenWindowResize: true, // Electron 6 required
@@ -248,6 +250,7 @@ export class BrowserViewManager implements IBrowserViewManager {
           url: list[currentIndex].url,
           view: new BrowserView({
             webPreferences: {
+              enableRemoteModule: true,
               preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
               nativeWindowOpen: true,
             },

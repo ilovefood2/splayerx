@@ -205,6 +205,7 @@ function createPipControlView() {
   if (pipControlView && !pipControlView.isDestroyed()) pipControlView.destroy();
   pipControlView = new BrowserView({
     webPreferences: {
+      enableRemoteModule: true,
       preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
     },
   });
@@ -224,6 +225,7 @@ function createDownloadListView(title, list, url, isVip, resolution, path) {
   if (downloadListView && !downloadListView.isDestroyed()) downloadListView.destroy();
   downloadListView = new BrowserView({
     webPreferences: {
+      enableRemoteModule: true,
       nodeIntegration: true,
       preload: `${require('path').resolve(__static, 'download/preload.js')}`,
     },
@@ -291,6 +293,7 @@ function createTitlebarView() {
   if (titlebarView) titlebarView.destroy();
   titlebarView = new BrowserView({
     webPreferences: {
+      enableRemoteModule: true,
       preload: `${require('path').resolve(__static, 'pip/titlebarPreload.js')}`,
     },
   });
@@ -414,6 +417,7 @@ function createOpenUrlWindow() {
     resizable: false,
     show: false,
     webPreferences: {
+      enableRemoteModule: true,
       webSecurity: false,
       nodeIntegration: true,
       experimentalFeatures: true,
@@ -453,6 +457,7 @@ function createPremiumView(e, route) {
   if (!premiumView) {
     premiumView = new BrowserView({
       webPreferences: {
+        enableRemoteModule: true,
         preload: `${require('path').resolve(__static, 'premium/preload.js')}`,
         webSecurity: false,
         nativeWindowOpen: true,
@@ -490,6 +495,7 @@ function createPreferenceWindow(e, route) {
     resizable: false,
     show: false,
     webPreferences: {
+      enableRemoteModule: true,
       webSecurity: false,
       nodeIntegration: true,
       experimentalFeatures: true,
@@ -549,6 +555,7 @@ function createAboutWindow() {
     resizable: false,
     show: false,
     webPreferences: {
+      enableRemoteModule: true,
       webSecurity: false,
       nodeIntegration: true,
       experimentalFeatures: true,
@@ -589,6 +596,7 @@ function createDownloadWindow(args) {
     minHeight: 500,
     resizable: true,
     webPreferences: {
+      enableRemoteModule: true,
       webSecurity: false,
       nodeIntegration: true,
       experimentalFeatures: true,
@@ -624,6 +632,7 @@ function createBrowsingWindow(args) {
     frame: false,
     titleBarStyle: 'none',
     webPreferences: {
+      enableRemoteModule: true,
       webSecurity: false,
       nodeIntegration: true,
       experimentalFeatures: true,
@@ -693,6 +702,7 @@ function createPaymentWindow(url, orderID, channel) {
     resizable: false,
     show: false,
     webPreferences: {
+      enableRemoteModule: true,
       webSecurity: false,
       nodeIntegration: true,
       experimentalFeatures: true,
@@ -758,6 +768,7 @@ function createLosslessStreamingWindow() {
     resizable: true,
     show: false,
     webPreferences: {
+      enableRemoteModule: true,
       webSecurity: false,
       nodeIntegration: true,
       experimentalFeatures: true,
@@ -1718,6 +1729,7 @@ function createMainWindow(openDialog, playlistId) {
     // it can be set true here and be changed during player starting
     transparent: false, // set to false to solve the backdrop-filter bug
     webPreferences: {
+      enableRemoteModule: true,
       webSecurity: false,
       nodeIntegration: true,
       experimentalFeatures: true,
