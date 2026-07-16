@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - claude/legacy-modernize-subtitle-translation-w5r38e
+      - main
 
 jobs:
   build-mac:
