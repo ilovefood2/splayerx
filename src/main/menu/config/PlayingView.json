@@ -168,7 +168,8 @@
         {
           "id": "playback.castTo",
           "label": "msg.playback.castTo",
-          "enabled": true
+          "enabled": true,
+          "accelerator": "CmdOrCtrl+Shift+C"
         }
       ]
     },
