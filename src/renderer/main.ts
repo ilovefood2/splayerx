@@ -1188,8 +1188,6 @@ new Vue({
         const Report = Parse.Object.extend('SPlayerBugReport');
         let report = new Report();
         // @ts-ignore
-        const splayerx = electron.remote.splayerx;
-        // @ts-ignore
         let location = electron.crashReporter.getCrashesDirectory();
         if (!location) location = path.join(app.getPath('temp'), `${app.name} Crashes`);
         const crashReportPath = path.join(location, 'completed');
@@ -1211,7 +1209,7 @@ new Vue({
           version: app.getVersion(),
           ip: await getIP(),
           electronVersion: process.versions.electron,
-          electronHash: splayerx.getVersionHash().trim(),
+          electronHash: process.versions.electron,
         });
         report.set('userInfo', {
           uuid: await getClientUUID(),

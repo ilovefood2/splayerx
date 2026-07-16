@@ -2,7 +2,6 @@ import {
   app,
   ipcMain,
   dialog,
-  splayerx,
 } from 'electron';
 import path from 'path';
 import http from 'http';
@@ -283,8 +282,6 @@ class LosslessStreaming {
       // the ip need translate to code
       const code = ipToInt(host);
       console.info('enable shared service for file: ', host, code);
-      const url = `http://${host}:${port}/`;
-      splayerx.startBluetoothService(`s${code}p`, url);
       return {
         filePath,
         host,
@@ -301,7 +298,6 @@ class LosslessStreaming {
     if (this.httpServer) {
       this.httpServer.close();
     }
-    splayerx.stopBluetoothService();
   }
 
   private getValidIP(): string|null {

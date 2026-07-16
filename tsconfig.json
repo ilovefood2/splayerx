@@ -14,7 +14,7 @@
     "noImplicitAny": true,
     "outDir": "dist/typescript",
     "paths": {
-      "electron": ["../node_modules/@chiflix/electron"],
+      "electron": ["../node_modules/electron"],
       "grpc": ["../node_modules/@grpc/grpc-js"],
       "@/*": ["renderer/*"]
     },
@@ -22,7 +22,8 @@
     "skipLibCheck": true,
     "strictNullChecks": true,
     "strictFunctionTypes": true,
-    "suppressImplicitAnyIndexErrors": true
+    "suppressImplicitAnyIndexErrors": true,
+    "types": ["node", "mocha", "chai"]
   },
   "include": ["src/**/*", "test/**/*"],
   "exclude": ["node_modules"]

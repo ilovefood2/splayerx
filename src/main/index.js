@@ -2,7 +2,7 @@ import './helpers/setUserDataDir';
 // Be sure to call Sentry function as early as possible in the main process
 import '../shared/sentry';
 
-import { app, BrowserWindow, session, Tray, ipcMain, globalShortcut, nativeImage, splayerx, systemPreferences, BrowserView, webContents, inAppPurchase, screen, dialog, Notification, shell } from 'electron' // eslint-disable-line
+import { app, BrowserWindow, session, Tray, ipcMain, globalShortcut, nativeImage, systemPreferences, BrowserView, webContents, inAppPurchase, screen, dialog, Notification, shell } from 'electron' // eslint-disable-line
 import {
   throttle, debounce, uniq, uniqBy,
 } from 'lodash';

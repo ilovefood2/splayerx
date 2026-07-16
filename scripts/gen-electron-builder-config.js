@@ -41,7 +41,8 @@ function generateFileAssociations(platform) {
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8'),
 );
-const electronVersion = packageJson.devDependencies['@chiflix/electron'].split('-')[0];
+const mediaBinaries = require('ffmpeg-ffprobe-static');
+const electronVersion = packageJson.devDependencies.electron.split('-')[0];
 const win = {
   icon: 'build/icons/icon.ico',
   fileAssociations: generateFileAssociations('win'),
@@ -72,18 +73,21 @@ const config = {
     output: 'build',
   },
   electronVersion,
-  electronDist: 'node_modules/@chiflix/electron/dist',
-  electronDownload: {
-    mirror: 'https://github.com/chiflix/electron/releases/download/v',
-    isVerifyChecksum: false,
-    version: electronVersion,
-  },
+  electronDist: 'node_modules/electron/dist',
   files: ['dist/electron/**/*'],
   extraResources: [
     {
       from: 'node_modules/regedit/vbs',
       to: 'regedit/vbs',
       filter: ['**/*'],
+    },
+    {
+      from: mediaBinaries.ffmpegPath,
+      to: 'bin/ffmpeg',
+    },
+    {
+      from: mediaBinaries.ffprobePath,
+      to: 'bin/ffprobe',
     },
   ],
   win,

@@ -27,6 +27,9 @@ module.exports = {
     'no-unused-vars': 1,
     'global-require': 0,
     'import/no-unresolved': 0,
+    // Electron is a build-time dependency but is imported throughout the app;
+    // the runtime module is provided by the packaged Electron executable.
+    'import/no-extraneous-dependencies': ['error', { devDependencies: true }],
     'no-param-reassign': 0,
     'no-shadow': 0,
     'dot-notation': 0,

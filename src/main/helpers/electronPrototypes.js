@@ -1,9 +1,20 @@
-import { BrowserWindow, screen } from 'electron';
+import { BrowserView, BrowserWindow, screen } from 'electron'; // eslint-disable-line import/no-extraneous-dependencies
 import { mouse } from './mouse';
 
 function near(a, b) {
   return Math.abs(b - a) < 5;
 }
+
+// The old SPlayer Electron fork exposed BrowserView lifecycle helpers that are
+// not part of Electron's public API. Keep the call sites compatible while using
+// the official webContents lifecycle underneath.
+BrowserView.prototype.isDestroyed = function isDestroyed() {
+  return !this.webContents || this.webContents.isDestroyed();
+};
+
+BrowserView.prototype.destroy = function destroy() {
+  if (!this.isDestroyed()) this.webContents.destroy();
+};
 
 /**
  * Determine which point to resize relative to

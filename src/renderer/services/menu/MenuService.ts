@@ -67,11 +67,11 @@ export default class MenuService {
   }
 
   public isMenuItemChecked(id: string): boolean {
-    if (this.getMenuItemById(id)) return this.getMenuItemById(id).checked;
-    return false;
+    const item = this.getMenuItemById(id);
+    return item ? item.checked : false;
   }
 
-  private getMenuItemById(id: string): Electron.MenuItem {
+  private getMenuItemById(id: string): Electron.MenuItem | null {
     if (!this.menu) this.menu = remote.Menu.getApplicationMenu() as Electron.Menu;
     return this.menu.getMenuItemById(id);
   }

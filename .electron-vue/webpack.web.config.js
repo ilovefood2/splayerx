@@ -69,7 +69,7 @@ let webConfig = {
     ...Object.keys(Object.assign({}, dependencies, optionalDependencies)).filter(
       d => !whiteListedModules.includes(d),
     ),
-    'eletron',
+    'electron',
   ],
   module: {
     rules: [

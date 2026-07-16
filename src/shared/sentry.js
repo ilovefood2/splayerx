@@ -3,7 +3,7 @@ import { Vue as VueIntegration } from '@sentry/integrations/esm/vue';
 import Vue from 'vue';
 
 // Be sure to call Sentry function as early as possible in the renderer process
-import { crashReporter } from 'electron';
+import { crashReporter } from 'electron'; // eslint-disable-line import/no-extraneous-dependencies
 
 const eventCounter = {};
 

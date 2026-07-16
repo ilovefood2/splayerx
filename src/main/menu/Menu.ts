@@ -247,9 +247,8 @@ export default class Menubar {
     // @ts-ignore
     if (result) result.checked = checked;
 
-    if (this.menubar.getMenuItemById(id)) {
-      this.menubar.getMenuItemById(id).checked = checked;
-    }
+    const item = this.menubar.getMenuItemById(id);
+    if (item) item.checked = checked;
   }
 
   public updatePipIcon() {
@@ -261,9 +260,8 @@ export default class Menubar {
     // @ts-ignore
     if (result) result.enabled = enabled;
 
-    if (this.menubar.getMenuItemById(id)) {
-      this.menubar.getMenuItemById(id).enabled = enabled;
-    }
+    const item = this.menubar.getMenuItemById(id);
+    if (item) item.enabled = enabled;
   }
 
   public updateBrowsingHistory(items?: IBrowsingHistoryMenuInfo[]) {

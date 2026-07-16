@@ -226,7 +226,7 @@ let rendererConfig = {
     alias: {
       '@': path.join(__dirname, '../src/renderer'),
       vue$: 'vue/dist/vue.esm.js',
-      electron: '@chiflix/electron',
+      electron: 'electron',
       grpc: '@grpc/grpc-js',
     },
     extensions: ['.ts', '.tsx', '.js', '.json', '.node'],
