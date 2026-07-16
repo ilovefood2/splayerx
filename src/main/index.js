@@ -1815,6 +1815,7 @@ function createMainWindow(openDialog, playlistId) {
 
 app.on('before-quit', () => {
   // Do not leave the TV playing and the HTTP server bound after we exit.
+  castService.stopBackgroundDiscovery();
   castService.stop();
   losslessStreamingInstance.dispose();
   if (downloadWindow) downloadWindow.webContents.send('quit');
@@ -2275,6 +2276,16 @@ app.on('cast-to-device', () => {
     mainWindow.webContents.send('cast-request');
   }
 });
+
+// The on-screen cast button emits this on the app; forward it to the window.
+app.on('cast-request', () => {
+  if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send('cast-request');
+  }
+});
+
+// Warm the list in the background so the picker opens instantly.
+app.on('ready', () => castService.startBackgroundDiscovery());
 
 ipcMain.handle('cast-list-devices', async () => castService.listDevices());
 

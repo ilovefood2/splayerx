@@ -906,6 +906,11 @@ new Vue({
       this.menuService.on('playback.castTo', () => {
         this.castToDevice();
       });
+      // The on-screen cast button routes through main and back, so it shares
+      // the menu item's flow exactly.
+      ipcRenderer.on('cast-request', () => {
+        this.castToDevice();
+      });
       this.menuService.on('playback.playOrPause', () => {
         if (!(this.isEditable || this.isProfessional)) {
           this.$bus.$emit('toggle-playback');

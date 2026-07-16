@@ -93,6 +93,13 @@
           @conflict-resolve="conflictResolve"
           class="button no-drag advance"
         />
+        <div
+          :title="$t('msg.playback.castTo')"
+          @mouseup.left.stop="$electron.remote.app.emit('cast-request')"
+          class="button no-drag cast"
+        >
+          <Icon type="stream" />
+        </div>
       </div>
     </transition>
     <div
@@ -152,6 +159,7 @@ import { INPUT_COMPONENT_TYPE, getterTypes as iGT } from '@/plugins/input';
 import PlayButton from '@/components/PlayingView/PlayButton.vue';
 import VolumeIndicator from '@/components/PlayingView/VolumeIndicator.vue';
 import AdvanceControl from '@/components/PlayingView/AdvanceControl.vue';
+import Icon from '@/components/BaseIconContainer.vue';
 import SubtitleControl from '@/components/PlayingView/SubtitleControl.vue';
 import PlaylistControl from '@/components/PlayingView/PlaylistControl.vue';
 import TheTimeCodes from '@/components/PlayingView/TheTimeCodes.vue';
@@ -179,6 +187,7 @@ export default {
   components: {
     'play-button': PlayButton,
     'volume-indicator': VolumeIndicator,
+    Icon,
     'subtitle-control': SubtitleControl,
     'advance-control': AdvanceControl,
     'playlist-control': PlaylistControl,

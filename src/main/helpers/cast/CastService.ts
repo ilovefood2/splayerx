@@ -77,17 +77,57 @@ export class CastService {
 
   private knownDevices: CastDeviceInfo[] = [];
 
+  private refreshing?: Promise<CastDeviceInfo[]>;
+
+  private refreshTimer?: NodeJS.Timeout;
+
+  /** One scan at a time; callers share the in-flight one. */
+  private refresh(timeout?: number): Promise<CastDeviceInfo[]> {
+    if (this.refreshing) return this.refreshing;
+    this.refreshing = discoverWithKnown(this.knownDevices, timeout)
+      .then((devices) => {
+        this.knownDevices = devices;
+        this.refreshing = undefined;
+        return devices;
+      })
+      .catch(() => {
+        this.refreshing = undefined;
+        return this.knownDevices;
+      });
+    return this.refreshing;
+  }
+
   /**
-   * Devices to offer the user.
+   * Devices to offer the user, without making them wait.
    *
-   * Remembers what it has seen: a TV that has stopped answering mDNS is still
-   * listed as long as it answers on :8009, which is how it stays castable after
-   * going idle.
+   * A scan has to sit out the whole mDNS window -- seconds -- so blocking on one
+   * per click means the picker takes seconds to appear every single time. Answer
+   * from what we already know and refresh behind the scenes; only the very first
+   * call, before anything is known, has to wait.
    */
   public async listDevices(timeout?: number): Promise<CastDeviceInfo[]> {
-    const devices = await discoverWithKnown(this.knownDevices, timeout);
-    this.knownDevices = devices;
-    return devices;
+    if (this.knownDevices.length) {
+      this.refresh(timeout); // deliberately not awaited
+      return this.knownDevices;
+    }
+    return this.refresh(timeout);
+  }
+
+  /**
+   * Keep the device list warm so the picker opens instantly. Started once the
+   * app is up; a scan is cheap and mostly idle waiting.
+   */
+  public startBackgroundDiscovery(intervalMs = 30000): void {
+    if (this.refreshTimer) return;
+    this.refresh();
+    this.refreshTimer = setInterval(() => this.refresh(), intervalMs);
+  }
+
+  public stopBackgroundDiscovery(): void {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = undefined;
+    }
   }
 
   private serve(): Promise<number> {
