@@ -151,11 +151,6 @@
         "tipWnB": "請確保您的設備連接到 Wi-Fi ，並且藍牙已開啟。"
       }
     },
-    "account": {
-      "name": "账号",
-      "login": "登入",
-      "logout": "登出"
-    },
     "advanced": {
       "name": "字幕工具",
       "save": "保存",

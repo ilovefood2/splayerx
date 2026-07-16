@@ -35,7 +35,6 @@ export default class MenuService {
   }
 
   public updateAccount(user?: { displayName: string }) {
-    this.menu.isAccountEnabled = true;
     this.menu.updateAccount(user);
   }
 

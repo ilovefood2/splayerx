@@ -59,13 +59,6 @@
       >
         {{ $t('preferences.privacy.privacySetting') }}
       </div>
-      <div
-        :class="$route.name === 'Account' ? 'tablist__tab--selected' : ''"
-        @mouseup="handleMouseup('Account')"
-        class="tablist__tab"
-      >
-        {{ $t('preferences.account.accountSetting') }}
-      </div>
       <!-- <div
         v-if="!isAPPX"
         :class="$route.name === 'Premium' ? 'tablist__tab--selected' : ''"

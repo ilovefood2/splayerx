@@ -152,11 +152,6 @@
         "tipWnB": "Please make sure your device is connected to Wi-Fi and Bluetooth is turned on."
       }
     },
-    "account": {
-      "name": "Account",
-      "login": "Sign In",
-      "logout": "Sign Out"
-    },
     "advanced": {
       "name": "Subtitle Tools",
       "save": "Save",

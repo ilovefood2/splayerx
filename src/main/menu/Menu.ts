@@ -65,8 +65,6 @@ export default class Menubar {
 
   private user?: { displayName: string };
 
-  public isAccountEnabled: boolean;
-
   private isProfessinal: boolean;
 
   public set routeName(val: string) {
@@ -95,7 +93,6 @@ export default class Menubar {
 
   public constructor() {
     this.locale = new Locale();
-    this.isAccountEnabled = false;
     this.currentMenuState = cloneDeep(menuTemplate as IMenubarMenuState);
     this.menuStateControl();
   }
@@ -713,19 +710,6 @@ export default class Menubar {
       }, 'Ctrl+,', true);
 
       menubar.append(preference);
-
-      let account: MenuItem;
-      if (this.user) {
-        const label = this.locale.$t('msg.account.name');
-        account = this.createMenuItem(`${label}: ${this.user.displayName}`, () => {
-          app.emit('route-account');
-        }, undefined, true, undefined, 'account');
-      } else {
-        account = this.createMenuItem('msg.account.login', () => {
-          app.emit('add-login', 'menu');
-        }, undefined, true, undefined, 'account');
-      }
-      menubar.append(account);
     }
 
     // Window
@@ -810,19 +794,6 @@ export default class Menubar {
       }, 'Ctrl+,', true);
 
       menubar.append(preference);
-
-      let account: MenuItem;
-      if (this.user) {
-        const label = this.locale.$t('msg.account.name');
-        account = this.createMenuItem(`${label}: ${this.user.displayName}`, () => {
-          app.emit('route-account');
-        }, undefined, true, undefined, 'account');
-      } else {
-        account = this.createMenuItem('msg.account.login', () => {
-          app.emit('add-login', 'menu');
-        }, undefined, true, undefined, 'account');
-      }
-      menubar.append(account);
     }
 
     // PlayBack
@@ -895,19 +866,6 @@ export default class Menubar {
       }, 'Ctrl+,', true);
 
       menubar.append(preference);
-
-      let account: MenuItem;
-      if (this.user) {
-        const label = this.locale.$t('msg.account.name');
-        account = this.createMenuItem(`${label}: ${this.user.displayName}`, () => {
-          app.emit('route-account');
-        }, undefined, true, undefined, 'account');
-      } else {
-        account = this.createMenuItem('msg.account.login', () => {
-          app.emit('add-login', 'menu');
-        }, undefined, true, undefined, 'account');
-      }
-      menubar.append(account);
     }
 
     // PlayBack
@@ -1012,19 +970,6 @@ export default class Menubar {
       }, 'Ctrl+,', true);
 
       menubar.append(preference);
-
-      let account: MenuItem;
-      if (this.user) {
-        const label = this.locale.$t('msg.account.name');
-        account = this.createMenuItem(`${label}: ${this.user.displayName}`, () => {
-          app.emit('route-account');
-        }, undefined, true, undefined, 'account');
-      } else {
-        account = this.createMenuItem('msg.account.login', () => {
-          app.emit('add-login', 'menu');
-        }, undefined, true, undefined, 'account');
-      }
-      menubar.append(account);
     }
 
     // Edit
@@ -1087,17 +1032,6 @@ export default class Menubar {
     const preference = this.createMenuItem('msg.splayerx.preferences', () => {
       app.emit('add-preference');
     }, 'CmdOrCtrl+,');
-    let account: MenuItem;
-    if (this.user) {
-      const label = this.locale.$t('msg.account.name');
-      account = this.createMenuItem(`${label}: ${this.user.displayName}`, () => {
-        app.emit('route-account');
-      }, undefined, true, undefined, 'account');
-    } else {
-      account = this.createMenuItem('msg.account.login', () => {
-        app.emit('add-login', 'menu');
-      }, undefined, true, undefined, 'account');
-    }
 
     const hide = this.createRoleMenuItem('msg.splayerx.hide', 'hide');
     const hideOthers = this.createRoleMenuItem('msg.splayerx.hideOthers', 'hideOthers');
@@ -1112,14 +1046,12 @@ export default class Menubar {
     if (isMacintoshDMG && !hideCheckBtn && this._routeName !== 'welcome-privacy' && this._routeName !== 'language-setting') {
       const items = this._routeName === 'browsing-view' ? [preference, separator()] : [
         preference,
-        account,
         separator(),
       ];
       actions.push(...items);
     } else if (this._routeName !== 'welcome-privacy' && this._routeName !== 'language-setting') {
       actions.push(...[
         preference,
-        account,
         separator(),
       ]);
     }

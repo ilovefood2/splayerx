@@ -42,7 +42,6 @@ import { log } from '@/libs/Log';
 import asyncStorage from '@/helpers/asyncStorage';
 import { videodata } from '@/store/video';
 import { addBubble } from '@/helpers/notificationControl';
-import { isAccountEnabled } from '@/../shared/config';
 import { EVENT_BUS_COLLECTIONS as bus, MAX_VOLUME, MAX_AMPLIFY_VOLUME } from '@/constants';
 import InputPlugin, { getterTypes as iGT } from '@/plugins/input';
 import { browsingHistory } from '@/services/browsing/BrowsingHistoryService';
@@ -498,15 +497,6 @@ new Vue({
     });
     getClientUUID().then((clientId: string) => {
       this.$ga && this.$ga.set('userId', clientId);
-      // get config cat is account enabled
-      isAccountEnabled().then((enabled: boolean) => {
-        log.debug('account', enabled);
-        if (enabled) {
-          this.$electron.ipcRenderer.send('account-enabled');
-        }
-      }).catch(() => {
-        // empty
-      });
     });
     this.$on('wheel-event', this.wheelEventHandler);
 

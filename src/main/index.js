@@ -78,7 +78,6 @@ let welcomeProcessDone = false;
 let menuService = null;
 let routeName = null;
 let mainWindow = null;
-let loginWindow = null;
 let aboutWindow = null;
 let preferenceWindow = null;
 let browsingWindow = null;
@@ -538,65 +537,6 @@ function createPreferenceWindow(e, route) {
   }
 }
 
-function createLoginWindow(e, fromWindow, route) {
-  const loginWindowOptions = {
-    useContentSize: true,
-    frame: false,
-    titleBarStyle: 'none',
-    width: 412,
-    height: 284,
-    webPreferences: {
-      experimentalFeatures: true,
-      webSecurity: false,
-      preload: `${require('path').resolve(__static, 'login/preload.js')}`,
-    },
-    transparent: true,
-    resizable: false,
-    show: true,
-    acceptFirstMouse: true,
-    fullscreenable: false,
-    maximizable: false,
-    minimizable: false,
-    backgroundColor: '#44444b',
-  };
-  if (!loginWindow) {
-    loginWindow = new BrowserWindow(loginWindowOptions);
-    // 登录窗口顶置
-    loginWindow.setAlwaysOnTop(true);
-    if (route) loginWindow.loadURL(`${loginURL}#/${route}`);
-    else loginWindow.loadURL(`${loginURL}`);
-
-    loginWindow.on('closed', () => {
-      loginWindow = null;
-    });
-    loginWindow.webContents.userAgent = `${loginWindow.webContents.userAgent.replace(/Electron\S+/i, '')} SPlayerX@2018 Platform/${os.platform()} Release/${os.release()} Version/${app.getVersion()} EnvironmentName/${environmentName}`;
-    if (process.env.NODE_ENV === 'development') {
-      setTimeout(() => { // wait some time to prevent `Object not found` error
-        if (loginWindow) loginWindow.openDevTools({ mode: 'detach' });
-      }, 1000);
-    }
-  } else {
-    loginWindow.focus();
-  }
-  loginWindow.once('ready-to-show', () => {
-    loginWindow.show();
-  });
-  loginWindow.on('focus', () => {
-    menuService?.enableMenu(false);
-  });
-  if (process.platform === 'win32') {
-    hackWindowsRightMenu(loginWindow);
-  }
-  // login window setbounds on mainwidnow
-  const win = fromWindow === 'preference' ? preferenceWindow : mainWindow;
-  setBoundsCenterByOriginWindow(win, loginWindow, 412, 284);
-  if (fromWindow !== 'main' && mainWindow && !mainWindow.webContents.isDestroyed()) {
-    mainWindow.webContents.send('clear-signIn-callback');
-  }
-  if (fromWindow !== 'preference' && preferenceWindow && !preferenceWindow.webContents.isDestroyed()) {
-    preferenceWindow.webContents.send('clear-signIn-callback');
-  }
-}
 
 function createAboutWindow() {
   const aboutWindowOptions = {
@@ -1636,9 +1576,6 @@ function registerMainWindowEvent(mainWindow) {
     if (mainWindow && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('mainDispatch', 'setPreference', args);
     }
-    if (loginWindow && !loginWindow.webContents.isDestroyed()) {
-      loginWindow.webContents.send('setPreference', args);
-    }
     if (premiumView && !premiumView.webContents.isDestroyed()) {
       premiumView.webContents.send('setPreference', args);
     }
@@ -1683,31 +1620,9 @@ function registerMainWindowEvent(mainWindow) {
   });
   /** grab audio logic in main process end */
 
-  ipcMain.on('add-login', createLoginWindow);
 
   // OBSOLETE: use app.on below
-  ipcMain.on('login-captcha', () => {
-    if (loginWindow && !loginWindow.webContents.isDestroyed()) {
-      loginWindow.setSize(412, 336, true);
-    }
-  });
 
-  ipcMain.on('account-enabled', () => {
-    // get storage token
-    getToken().then((account) => {
-      if (account) {
-        global['account'] = account;
-        menuService?.updateAccount(account);
-        audioGrabService.setToken(account.token);
-        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-          mainWindow.webContents.send('sign-in', account);
-        }
-      } else {
-        menuService?.updateAccount(undefined);
-        audioGrabService.setToken(undefined);
-      }
-    }).catch(console.error);
-  });
 
   ipcMain.on('sign-in-site', async (events, data) => {
     signInSite = data.replace('https', 'http'); // there's a http resource in aliyun afs js sdk
@@ -2057,9 +1972,6 @@ app.on('ready', () => {
   globalShortcut.register('CmdOrCtrl+Shift+J+K+L', () => {
     if (preferenceWindow) preferenceWindow.openDevTools({ mode: 'detach' });
   });
-  globalShortcut.register('CmdOrCtrl+Shift+A+S+D', () => {
-    if (loginWindow) loginWindow.openDevTools({ mode: 'detach' });
-  });
   globalShortcut.register('CmdOrCtrl+Shift+Q+W+E', () => {
     if (premiumView) premiumView.webContents.openDevTools();
   });
@@ -2110,7 +2022,6 @@ app.on('web-contents-created', (webContentsCreatedEvent, contents) => {
 
 app.on('bossKey', handleBossKey);
 app.on('add-preference', createPreferenceWindow);
-app.on('add-login', createLoginWindow);
 app.on('add-window-about', createAboutWindow);
 app.on('add-window-losslessStreaming', createLosslessStreamingWindow);
 app.on('open-history-item', (evt, args) => {
@@ -2164,11 +2075,6 @@ app.on('refresh-token', async (account) => {
   }
 });
 
-app.on('login-captcha', () => {
-  if (loginWindow && !loginWindow.webContents.isDestroyed()) {
-    loginWindow.setSize(412, 336, true);
-  }
-});
 
 app.on('sign-in', async () => { // eslint-disable-line complexity
   // if applePayVerify is waiting for sign in handle
@@ -2228,13 +2134,6 @@ app.on('sign-out', () => {
   }
 });
 
-app.on('route-account', (e) => {
-  if (preferenceWindow && !preferenceWindow.webContents.isDestroyed()) {
-    preferenceWindow.webContents.send('route-change');
-  } else {
-    createPreferenceWindow(e, 'account');
-  }
-});
 
 app.on('losslessStreaming-select', (src) => {
   losslessStreamingInstance.start(src);
