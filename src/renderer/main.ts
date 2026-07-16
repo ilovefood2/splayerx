@@ -33,7 +33,6 @@ import {
   SubtitleManager as smActions,
   SubtitleManager,
   Browsing as browsingActions,
-  AudioTranslate as atActions,
   UIStates as uiActions,
   Download as downloadActions,
   Editor as seActions,
@@ -59,7 +58,6 @@ import {
 } from './interfaces/ISubtitle';
 import { VueDevtools } from './plugins/vueDevtools.dev';
 import {
-  REQUEST_TIMEOUT,
   CAST_NO_DEVICE, CAST_NOT_LOCAL, CAST_UNSUPPORTED, CAST_FAILED,
   SNAPSHOT_FAILED, SNAPSHOT_SUCCESS, LOAD_SUBVIDEO_FAILED,
   BUG_UPLOAD_FAILED, BUG_UPLOAD_SUCCESS, BUG_UPLOADING,
@@ -624,25 +622,13 @@ new Vue({
       if (!e.ctrlKey) {
         let isAdvanceColumeItem;
         let isSubtitleScrollItem;
-        let isAudioTranslateItem;
         const advance = document.querySelector('.mainMenu');
-        const audioTranslate = document.querySelector('.audio-translate');
         const subtitle = document.querySelector('.subtitle-scroll-items');
         if (advance) {
           const nodeList = advance.childNodes;
           for (let i = 0; i < nodeList.length; i += 1) {
             isAdvanceColumeItem = nodeList[i].contains(e.target as Node);
             if (isAdvanceColumeItem) break;
-          }
-        }
-        if (audioTranslate) {
-          isAudioTranslateItem = audioTranslate.contains(e.target as Node);
-          if (!isAudioTranslateItem) {
-            const nodeList = audioTranslate.childNodes;
-            for (let i = 0; i < nodeList.length; i += 1) {
-              isAudioTranslateItem = nodeList[i].contains(e.target as Node);
-              if (isAudioTranslateItem) break;
-            }
           }
         }
         if (subtitle) {
@@ -695,25 +681,13 @@ new Vue({
       const { deltaX: x, ctrlKey, target } = event;
       let isAdvanceColumeItem;
       let isSubtitleScrollItem;
-      let isAudioTranslateItem;
       const advance = document.querySelector('.mainMenu');
-      const audioTranslate = document.querySelector('.audio-translate');
       const subtitle = document.querySelector('.subtitle-scroll-items');
       if (advance) {
         const nodeList = advance.childNodes;
         for (let i = 0; i < nodeList.length; i += 1) {
           isAdvanceColumeItem = nodeList[i].contains(target as Node);
           if (isAdvanceColumeItem) break;
-        }
-      }
-      if (audioTranslate) {
-        isAudioTranslateItem = audioTranslate.contains(target as Node);
-        if (!isAudioTranslateItem) {
-          const nodeList = audioTranslate.childNodes;
-          for (let i = 0; i < nodeList.length; i += 1) {
-            isAudioTranslateItem = nodeList[i].contains(target as Node);
-            if (isAudioTranslateItem) break;
-          }
         }
       }
       if (subtitle) {
@@ -723,7 +697,7 @@ new Vue({
           if (isSubtitleScrollItem) break;
         }
       }
-      if (!ctrlKey && !isAdvanceColumeItem && !isSubtitleScrollItem && !isAudioTranslateItem) {
+      if (!ctrlKey && !isAdvanceColumeItem && !isSubtitleScrollItem) {
         this.$emit('wheel-event', { x });
       }
     });
@@ -814,7 +788,6 @@ new Vue({
       changePrimarySubDelay: SubtitleManager.alterPrimaryDelay,
       changeSecondarySubDelay: SubtitleManager.alterSecondaryDelay,
       updateBarrageOpen: browsingActions.UPDATE_BARRAGE_OPEN,
-      showAudioTranslateModal: atActions.AUDIO_TRANSLATE_SHOW_MODAL,
       updatePipMode: browsingActions.UPDATE_PIP_MODE,
       updateShowSidebar: uiActions.UPDATE_SHOW_SIDEBAR,
       updateDownloadResolution: downloadActions.UPDATE_RESOLUTION,
@@ -1093,9 +1066,7 @@ new Vue({
       });
       this.menuService.on('subtitle.mainSubtitle', (e: Event, id: string, item: ISubtitleControlListItem) => {
         if (id === 'off') this.changeFirstSubtitle('');
-        else if (item.type === Type.PreTranslated && item.source.source === '') {
-          this.showAudioTranslateModal(item);
-        } else {
+        else {
           this.updateSubtitleType(true);
           this.changeFirstSubtitle(item.id);
         }
@@ -1104,8 +1075,6 @@ new Vue({
         if (id === 'off') this.changeSecondarySubtitle('');
         else if (id === 'secondarySub') {
           this.updateEnabledSecondarySub(!this.enabledSecondarySub)
-        } else if (item.type === Type.PreTranslated && item.source.source === '') {
-          this.showAudioTranslateModal(item);
         } else {
           this.updateSubtitleType(false);
           this.changeSecondarySubtitle(id);

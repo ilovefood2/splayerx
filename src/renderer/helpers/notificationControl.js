@@ -33,16 +33,6 @@ import {
   EACCES,
   EPERM,
   ENOENT,
-  TRANSLATE_NO_LINE,
-  TRANSLATE_SERVER_ERROR_FAIL,
-  TRANSLATE_REQUEST_TIMEOUT,
-  TRANSLATE_REQUEST_FORBIDDEN,
-  TRANSLATE_REQUEST_PERMISSION,
-  TRANSLATE_REQUEST_ALREADY_EXISTS,
-  TRANSLATE_REQUEST_RESOURCE_EXHAUSTED,
-  TRANSLATE_REQUEST_PERMISSION_APPX,
-  TRANSLATE_SUCCESS,
-  TRANSLATE_SUCCESS_WHEN_VIDEO_CHANGE,
   CHECK_FOR_UPDATES_OFFLINE,
   THUMBNAIL_GENERATE,
   THUMBNAIL_GENERATE_FAILED,
@@ -353,89 +343,6 @@ export function addBubble(code, options = {}) { // eslint-disable-line complexit
         type: 'result',
         title: i18n.t('errorFile.EACCES.title', i18n.locale, i18n.messages),
         content: i18n.t('errorFile.EACCES.content', i18n.locale, i18n.messages),
-        dismissAfter: 5000,
-      });
-      break;
-    case TRANSLATE_NO_LINE:
-      store.dispatch('addMessages', {
-        id,
-        type: 'result',
-        title: i18n.t('translateBubble.bubbleTranslateNoLineFail.title', i18n.locale, i18n.messages),
-        content: i18n.t('translateBubble.bubbleTranslateNoLineFail.content', i18n.locale, i18n.messages),
-        dismissAfter: 5000,
-      });
-      break;
-    case TRANSLATE_REQUEST_TIMEOUT:
-      store.dispatch('addMessages', {
-        id,
-        type: 'result',
-        title: i18n.t('translateBubble.bubbleTranslateTimeOutFail.title', i18n.locale, i18n.messages),
-        content: i18n.t('translateBubble.bubbleTranslateTimeOutFail.content', i18n.locale, i18n.messages),
-      });
-      break;
-    case TRANSLATE_REQUEST_FORBIDDEN:
-      store.dispatch('addMessages', {
-        id,
-        type: 'result',
-        title: i18n.t('translateBubble.bubbleTranslateForbiddenFail.title', i18n.locale, i18n.messages),
-        content: i18n.t('translateBubble.bubbleTranslateForbiddenFail.content', i18n.locale, i18n.messages),
-      });
-      break;
-    case TRANSLATE_REQUEST_PERMISSION:
-      store.dispatch('addMessages', {
-        id,
-        type: 'result',
-        title: i18n.t('translateBubble.bubbleTranslatePermissionFail.title', i18n.locale, i18n.messages),
-        content: i18n.t('translateBubble.bubbleTranslatePermissionFail.content', i18n.locale, i18n.messages),
-      });
-      break;
-    case TRANSLATE_REQUEST_ALREADY_EXISTS:
-      store.dispatch('addMessages', {
-        id,
-        type: 'result',
-        title: i18n.t('translateBubble.bubbleTranslateExistsFail.title', i18n.locale, i18n.messages),
-        content: i18n.t('translateBubble.bubbleTranslateExistsFail.content', i18n.locale, i18n.messages),
-      });
-      break;
-    case TRANSLATE_REQUEST_RESOURCE_EXHAUSTED:
-      store.dispatch('addMessages', {
-        id,
-        type: 'result',
-        title: i18n.t('translateBubble.bubbleTranslateExhaustedFail.title', i18n.locale, i18n.messages),
-        content: i18n.t('translateBubble.bubbleTranslateExhaustedFail.content', i18n.locale, i18n.messages),
-      });
-      break;
-    case TRANSLATE_REQUEST_PERMISSION_APPX:
-      store.dispatch('addMessages', {
-        id,
-        type: 'result',
-        title: i18n.t('translateBubble.bubbleTranslatePermissionFail.titleAPPX', i18n.locale, i18n.messages),
-        content: i18n.t('translateBubble.bubbleTranslatePermissionFail.contentAPPX', i18n.locale, i18n.messages),
-      });
-      break;
-    case TRANSLATE_SERVER_ERROR_FAIL:
-      store.dispatch('addMessages', {
-        id,
-        type: 'result',
-        title: i18n.t('translateBubble.bubbleTranslateServerErrorFail.title', i18n.locale, i18n.messages),
-        content: i18n.t('translateBubble.bubbleTranslateServerErrorFail.content', i18n.locale, i18n.messages),
-      });
-      break;
-    case TRANSLATE_SUCCESS:
-      store.dispatch('addMessages', {
-        id,
-        type: 'result',
-        title: i18n.t('translateBubble.bubbleWhenSuccess.title', i18n.locale, i18n.messages),
-        content: i18n.t('translateBubble.bubbleWhenSuccess.content', i18n.locale, i18n.messages),
-        dismissAfter: 5000,
-      });
-      break;
-    case TRANSLATE_SUCCESS_WHEN_VIDEO_CHANGE:
-      store.dispatch('addMessages', {
-        id,
-        type: 'result',
-        title: i18n.t('translateBubble.bubbleWhenSuccessOnOtherVideo.title', i18n.locale, i18n.messages),
-        content: i18n.t('translateBubble.bubbleWhenSuccessOnOtherVideo.content', i18n.locale, i18n.messages),
         dismissAfter: 5000,
       });
       break;

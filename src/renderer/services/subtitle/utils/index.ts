@@ -141,7 +141,6 @@ export function sourceToFormat(subtitleSource: IOrigin) {
   switch (subtitleSource.type) {
     case Type.Online:
     case Type.Translated:
-    case Type.PreTranslated:
       return Format.SagiText;
     case Type.Embedded: {
       const { isImage } = (subtitleSource as IEmbeddedOrigin).source;
@@ -212,8 +211,6 @@ export function getLoader(source: IOrigin, format: Format): ILoader {
     case Type.Online:
       return new SagiLoader(source.source as string);
     case Type.Translated:
-      return new SagiLoader(source.source as string);
-    case Type.PreTranslated:
       return new SagiLoader(source.source as string);
     case Type.Modified:
       return new ModifiedLoader((source.source as { source: string }).source);

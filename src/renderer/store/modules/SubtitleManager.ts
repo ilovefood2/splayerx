@@ -16,7 +16,6 @@ import {
   SubtitleManager as a,
   newSubtitle as subActions,
   Subtitle as legacyActions,
-  AudioTranslate as atActions,
   // UserInfo as usActions,
 } from '@/store/actionTypes';
 import {
@@ -25,7 +24,7 @@ import {
 import {
   TranscriptInfo,
   searchForLocalList, retrieveEmbeddedList, fetchOnlineList,
-  OnlineGenerator, LocalGenerator, EmbeddedGenerator, TranslatedGenerator, PreTranslatedGenerator,
+  OnlineGenerator, LocalGenerator, EmbeddedGenerator, TranslatedGenerator,
   AITranslatedGenerator,
 } from '@/services/subtitle';
 import {
@@ -44,11 +43,9 @@ import {
 } from '@/services/storage/subtitle';
 import { LanguageCode, codeToLanguageName, normalizeCode } from '@/libs/language';
 import { ISubtitleStream } from '@/plugins/mediaTasks';
-import { isAIEnabled } from '@/../shared/config';
 import { IEmbeddedOrigin } from '@/services/subtitle/utils/loaders';
 import { sagiSubtitleToSRT } from '@/services/subtitle/utils/transcoders';
 import { write } from '@/libs/file';
-import { AudioTranslateBubbleOrigin } from './AudioTranslate';
 import {
   ONLINE_LOADING, REQUEST_TIMEOUT,
   SUBTITLE_UPLOAD, UPLOAD_SUCCESS, UPLOAD_FAILED,
@@ -69,7 +66,6 @@ const sortOfTypes = {
   embedded: 1,
   online: 2,
   translated: 3,
-  preTranslated: 3,
   aiTranslated: 3,
   modified: 4,
 };
@@ -222,7 +218,7 @@ const getters: GetterTree<ISubtitleManagerState, {}> = {
       .map(id => ({ id, sub: state.allSubtitles[id] }));
     const controlList = sortBy(list, ({ sub }) => {
       const { type } = sub.displaySource;
-      if ((type === Type.Online || type === Type.Translated || type === Type.PreTranslated)
+      if ((type === Type.Online || type === Type.Translated)
         && sub.language !== store.getters.primaryLanguage) {
         return sortOfTypes[type] + 2;
       }
@@ -530,8 +526,6 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
             .then(streams => dispatch(a.addEmbeddedSubtitles, { mediaHash, source: streams }));
           // AI 字幕不会持久化，每次打开都要重新生成，否则重看时不会再提供翻译
           dispatch(a.ensureAITranslation);
-          // 继续上次的翻译任务
-          dispatch(atActions.AUDIO_TRANSLATE_CONTINUE);
         });
     }
 
@@ -574,27 +568,17 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         dispatch(a.ensureAITranslation);
         commit(m.setIsRefreshing, false);
         dispatch(legacyActions.UPDATE_SUBTITLE_TYPE, true);
-        // 继续上次的翻译任务
-        dispatch(atActions.AUDIO_TRANSLATE_CONTINUE);
       });
   },
   async [a.refreshSubtitles]({
     state, getters, dispatch, commit,
   }) {
     const {
-      originSrc, isTranslating,
+      originSrc,
       primaryLanguage, secondaryLanguage,
       privacyAgreement,
     } = getters;
     const { mediaHash } = state;
-    // 如果当前有翻译任务
-    if (isTranslating) {
-      dispatch(atActions.AUDIO_TRANSLATE_SHOW_BUBBLE, AudioTranslateBubbleOrigin.Refresh);
-      dispatch(atActions.AUDIO_TRANSLATE_BUBBLE_CALLBACK, () => {
-        dispatch(a.refreshSubtitles);
-      });
-      return false;
-    }
     primarySelectionComplete = false;
     secondarySelectionComplete = false;
     commit(m.setIsRefreshing, true);
@@ -622,83 +606,6 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         dispatch(legacyActions.UPDATE_SUBTITLE_TYPE, true);
       });
   },
-  // 这个方法仅仅给智能翻译成功后去加载另外一个AI翻译
-  async [a.fetchSubtitleWhenTrabslateSuccess](
-    { getters, dispatch, state }, languageCode: LanguageCode,
-  ) {
-    const {
-      mediaHash,
-    } = state;
-    const {
-      originSrc,
-    } = getters;
-    const hints = generateHints(originSrc);
-    fetchOnlineListWrapper(false, originSrc, languageCode, hints)
-      .then(async (resultsList) => {
-        const results = flatten(resultsList);
-        const newSubtitlesToAdd: TranscriptInfo[] = [];
-        const oldSubtitlesToDel: ISubtitleControlListItem[] = [];
-        const oldSubtitles = [...(getters as { list: ISubtitleControlListItem[] }).list]
-          .filter(({ language }) => language === languageCode);
-        // 将Translated类型的都删除掉
-        const translatedSubs = remove(oldSubtitles, ({
-          type,
-        }) => type === Type.PreTranslated);
-        // delete subtitles not existed in the new subtitles
-        const notExistedOldSubs = remove(
-          oldSubtitles,
-          ({ type, hash }) => (
-            (type === Type.Online || type === Type.Translated)
-            && !results.find(({ transcriptIdentity }) => transcriptIdentity === hash)
-          ),
-        );
-        oldSubtitlesToDel.push(...translatedSubs, ...notExistedOldSubs);
-        // add subtitles not existed in the old subtitles
-        const notExistedNewSubs = results
-          .filter(({ transcriptIdentity }) => !oldSubtitles
-            .find(({ hash }) => hash === transcriptIdentity));
-        const isAllResultsFromES = notExistedNewSubs
-          .every((info: TranscriptInfo) => info.tagsList.length > 0 && info.tagsList.indexOf('ES') > -1);
-        let addAIButton = false;
-        if (results.length === 0 || isAllResultsFromES) {
-          addAIButton = true;
-          const oldLen = oldSubtitles.length;
-          // 如果出现AI按钮，在线字幕列表不能超过2个
-          if (oldLen > 2) {
-            oldSubtitlesToDel.push(...oldSubtitles.splice(2, oldLen));
-          } else {
-            newSubtitlesToAdd.push(...notExistedNewSubs.splice(0, 2 - oldLen));
-          }
-          // 如果出现需要添加ai翻译按钮，先检查是不是有过翻译记录，有的话，就不添加ai翻译按钮，不删除翻译的记录
-          const preTranslated = remove(oldSubtitlesToDel,
-            ({ type, source, language }) => (type === Type.PreTranslated && language === languageCode && source.source !== ''));
-          if (preTranslated.length > 0) {
-            addAIButton = false;
-          }
-        } else {
-          const oldLen = oldSubtitles.length;
-          // 在线字幕列表不能超过3个
-          if (oldLen > 3) {
-            oldSubtitlesToDel.push(...oldSubtitles.splice(3, oldLen));
-          } else {
-            newSubtitlesToAdd.push(...notExistedNewSubs.splice(0, 3 - oldLen));
-          }
-        }
-        return {
-          delete: oldSubtitlesToDel,
-          add: newSubtitlesToAdd,
-          addAIButton,
-        };
-      }).then(async (result) => {
-        if (result.addAIButton) {
-          dispatch(a.addSubtitle, {
-            generator: new PreTranslatedGenerator(null, languageCode), mediaHash,
-          });
-        }
-        await dispatch(a.addOnlineSubtitles, { mediaHash, source: result.add })
-          .then(() => dispatch(a.deleteSubtitlesByHash, result.delete.map(({ hash }) => hash)));
-      });
-  },
   async [a.refreshOnlineSubtitles](
     { getters, dispatch },
     { mediaHash, bubble }: { mediaHash: string, bubble: boolean },
@@ -717,10 +624,6 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       const newSubtitlesToAdd: TranscriptInfo[] = [];
       const oldSubtitlesToDel: ISubtitleControlListItem[] = [];
       const oldSubtitles: ISubtitleControlListItem[] = [...getters.list];
-      // 将Translated类型的都删除掉
-      const translatedSubs = remove(oldSubtitles, ({
-        type,
-      }) => type === Type.PreTranslated);
       // delete subtitles not matching the current language preference
       const wrongLanguageSubs = remove(
         oldSubtitles,
@@ -738,107 +641,17 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
           && !results.find(({ transcriptIdentity }) => transcriptIdentity === hash)
         ),
       );
-      oldSubtitlesToDel.push(...translatedSubs, ...wrongLanguageSubs, ...notExistedOldSubs);
+      oldSubtitlesToDel.push(...wrongLanguageSubs, ...notExistedOldSubs);
       // add subtitles not existed in the old subtitles
       const notExistedNewSubs = results
         .filter(({ transcriptIdentity }) => !oldSubtitles
           .find(({ hash }) => hash === transcriptIdentity));
-      // 计算是不是手动添加AI按钮
-      let addPrimaryAIButton = false;
-      let addSecondaryAIButton = false;
-      const oldPrimarySubs = oldSubtitles
-        .filter((
-          sub: ISubtitleControlListItem,
-        ) => (sub.type === Type.Online || sub.type === Type.Translated)
-          && sub.language === primaryLanguage);
-      const oldSecondarySubs = oldSubtitles
-        .filter((
-          sub: ISubtitleControlListItem,
-        ) => (sub.type === Type.Online || sub.type === Type.Translated)
-          && sub.language === secondaryLanguage);
-      // sagi 结果
-      const primaryResults = results
-        .filter((info: TranscriptInfo) => info.languageCode === primaryLanguage);
-      const secondaryResults = results
-        .filter((info: TranscriptInfo) => info.languageCode === secondaryLanguage);
-      const oldPrimaryAISubs = oldPrimarySubs.filter((
-        sub: ISubtitleControlListItem,
-      ) => sub.type === Type.Translated);
-      const oldSecondaryAISubs = oldSecondarySubs.filter((
-        sub: ISubtitleControlListItem,
-      ) => sub.type === Type.Translated);
-      const isAllPrimaryResultsFromES = primaryResults
-        .every((info: TranscriptInfo) => info.tagsList.length > 0 && info.tagsList.indexOf('ES') > -1);
-      const isAllSecondaryResultsFromES = secondaryResults
-        .every((info: TranscriptInfo) => info.tagsList.length > 0 && info.tagsList.indexOf('ES') > -1);
-      // filter 结果
-      const primaryNotExistedResults = notExistedNewSubs
-        .filter((info: TranscriptInfo) => info.languageCode === primaryLanguage);
-      const secondaryNotExistedResults = notExistedNewSubs
-        .filter((info: TranscriptInfo) => info.languageCode === secondaryLanguage);
-      if ((await isAIEnabled())) {
-        // 出现AI按钮的情况
-        // 1. 在线字幕tags都是ES(模糊搜索)
-        // 2. 没有在线字幕
-        if ((primaryResults.length === 0 && oldPrimarySubs.length === 0)
-          || (isAllPrimaryResultsFromES && oldPrimaryAISubs.length === 0)) {
-          addPrimaryAIButton = true;
-          const oldLen = oldPrimarySubs.length;
-          // 如果出现AI按钮，在线字幕列表不能超过2个
-          if (oldLen > 2) {
-            oldSubtitlesToDel.push(...oldPrimarySubs.splice(2, oldLen));
-          } else {
-            newSubtitlesToAdd.push(...primaryNotExistedResults.splice(0, 2 - oldLen));
-          }
-          // 如果出现需要添加ai翻译按钮，先检查是不是有过翻译记录，有的话，就不添加ai翻译按钮，不删除翻译的记录
-          const primaryPreTranslated = remove(oldSubtitlesToDel,
-            ({ type, source, language }) => (type === Type.PreTranslated && language === primaryLanguage && source.source !== ''));
-          if (primaryPreTranslated.length > 0) {
-            addPrimaryAIButton = false;
-          }
-        } else {
-          newSubtitlesToAdd.push(...primaryNotExistedResults);
-        }
-        if (secondaryLanguage
-          && ((secondaryResults.length === 0 && oldSecondarySubs.length === 0)
-            || (isAllSecondaryResultsFromES && oldSecondaryAISubs.length === 0))) {
-          addSecondaryAIButton = true;
-          const oldLen = oldSecondarySubs.length;
-          // 如果出现AI按钮，在线字幕列表不能超过2个
-          if (oldLen > 2) {
-            oldSubtitlesToDel.push(...oldSecondarySubs.splice(2, oldLen));
-          } else {
-            newSubtitlesToAdd.push(...secondaryNotExistedResults.splice(0, 2 - oldLen));
-          }
-          // 如果出现需要添加ai翻译按钮，先检查是不是有过翻译记录，有的话，就不添加ai翻译按钮，不删除翻译的记录
-          const secondaryPreTranslated = remove(oldSubtitlesToDel,
-            ({ type, source, language }) => (type === Type.PreTranslated && language === secondaryLanguage && source.source !== ''));
-          if (secondaryPreTranslated.length > 0) {
-            addSecondaryAIButton = false;
-          }
-        } else {
-          newSubtitlesToAdd.push(...secondaryNotExistedResults);
-        }
-      } else {
-        newSubtitlesToAdd.push(...notExistedNewSubs);
-      }
+      newSubtitlesToAdd.push(...notExistedNewSubs);
       return {
         delete: oldSubtitlesToDel,
         add: newSubtitlesToAdd,
-        addPrimaryAIButton,
-        addSecondaryAIButton,
       };
     }).then(async (result) => {
-      if (result.addPrimaryAIButton) {
-        dispatch(a.addSubtitle, {
-          generator: new PreTranslatedGenerator(null, primaryLanguage), mediaHash,
-        });
-      }
-      if (result.addSecondaryAIButton) {
-        dispatch(a.addSubtitle, {
-          generator: new PreTranslatedGenerator(null, secondaryLanguage), mediaHash,
-        });
-      }
       await dispatch(a.addOnlineSubtitles, { mediaHash, source: result.add })
         .then(() => dispatch(a.deleteSubtitlesByUuid, result.delete.map(({ id }) => id)));
     });
@@ -1426,10 +1239,10 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       if (!primarySelectionComplete || !secondarySelectionComplete) {
         const hasPrimaryLanguage = list
           .find(({ language, type }) => language === primaryLanguage
-            && !(type === Type.Translated || type === Type.PreTranslated));
+            && type !== Type.Translated);
         const hasSecondaryLanguage = list
           .find(({ language, type }) => language === secondaryLanguage
-            && !(type === Type.Translated || type === Type.PreTranslated));
+            && type !== Type.Translated);
         if (hasPrimaryLanguage) {
           dispatch(a.autoChangePrimarySubtitle, hasPrimaryLanguage.id);
           primarySelectionComplete = true;
@@ -1623,7 +1436,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     const delay = subtitle && subtitle.delay ? subtitle.delay : 0;
     const subName = item.name || '';
     const localName = `${basename(subName, extname(subName))}`;
-    if (item && !(item.type === Type.PreTranslated && item.source.source === '')) {
+    if (item) {
       const { dialog } = remote;
       const browserWindow = remote.BrowserWindow;
       const focusWindow = browserWindow.getFocusedWindow();

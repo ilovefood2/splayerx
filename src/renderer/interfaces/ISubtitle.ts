@@ -8,7 +8,6 @@ export enum Type {
   Embedded = 'embedded',
   Local = 'local',
   Translated = 'translated',
-  PreTranslated = 'preTranslated',
   Modified = 'modified',
   /** subtitle translated on the fly from another track by an LLM */
   AITranslated = 'aiTranslated',

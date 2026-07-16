@@ -21,12 +21,11 @@
 import { Route } from 'vue-router';
 import { mapActions, mapGetters, mapMutations } from 'vuex';
 import { basename } from 'path';
-import { Subtitle as subtitleActions, SubtitleManager as smActions, AudioTranslate as atActions } from '@/store/actionTypes';
+import { Subtitle as subtitleActions, SubtitleManager as smActions } from '@/store/actionTypes';
 import SubtitleImageRenderer from '@/components/SubtitleImageRenderer.vue';
 import thumbnailPost from '@/components/PlayingView/ThumbnailPost/ThumbnailPost.vue';
 import VideoCanvas from '@/containers/VideoCanvas.vue';
 import TheVideoController from '@/containers/TheVideoController.vue';
-import { AudioTranslateBubbleType } from '@/store/modules/AudioTranslate';
 import { offListenersExceptWhiteList } from '@/libs/utils';
 import { videodata } from '../store/video';
 import { getStreams } from '../plugins/mediaTasks';
@@ -60,7 +59,7 @@ export default {
     };
   },
   computed: {
-    ...mapGetters(['originSrc', 'duration', 'isTranslateBubbleVisible', 'translateBubbleType', 'winWidth', 'winHeight', 'isProfessional', 'primarySubtitleId', 'secondarySubtitleId']),
+    ...mapGetters(['originSrc', 'duration', 'winWidth', 'winHeight', 'isProfessional', 'primarySubtitleId', 'secondarySubtitleId']),
     allCues() {
       return Array.isArray(this.currentCues)
         ? this.currentCues.flatMap(({ cues }: { cues: [] }) => cues)
@@ -124,7 +123,6 @@ export default {
       resetManager: smActions.resetManager,
       initializeManager: smActions.initializeManager,
       addLocalSubtitlesWithSelect: smActions.addLocalSubtitlesWithSelect,
-      hideTranslateBubble: atActions.AUDIO_TRANSLATE_HIDE_BUBBLE,
       getCues: smActions.getCues,
       updatePlayTime: smActions.updatePlayedTime,
     }),
@@ -133,14 +131,6 @@ export default {
     // else it is triggered by setInterval.
     onUpdateTick() {
       requestAnimationFrame(this.loopCues);
-      // when next video trigger translate bubble,
-      // user trigger video data, hide translate bubble
-      if (this.isTranslateBubbleVisible
-        && (this.translateBubbleType === AudioTranslateBubbleType.NextVideoWhenGrab
-        || this.translateBubbleType === AudioTranslateBubbleType.NextVideoWhenTranslate)
-        && Math.ceil(videodata.time) < Math.ceil(this.duration)) {
-        this.hideTranslateBubble();
-      }
       this.$refs.videoctrl.onTickUpdate();
     },
     generatePostHandler(type: number) {

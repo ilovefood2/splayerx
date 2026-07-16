@@ -44,7 +44,6 @@ import { mapActions, mapGetters } from 'vuex';
 import {
   SubtitleManager as smActions,
   UserInfo as uActions,
-  AudioTranslate as atActions,
   UIStates as uiActions,
 } from '@/store/actionTypes';
 import Titlebar from '@/components/Titlebar.vue';
@@ -56,11 +55,9 @@ import {
   getUserInfo,
   checkToken,
   getUserBalance,
-  ApiError,
 } from '@/libs/apis';
 import sagi from '@/libs/sagi';
 import { apiOfAccountService, siteOfAccountService, forceRefresh } from '@/../shared/config';
-import { AudioTranslateBubbleOrigin, AudioTranslateStatus } from '@/store/modules/AudioTranslate';
 import { log } from './libs/Log';
 
 export default {
@@ -81,7 +78,7 @@ export default {
   },
   computed: {
     ...mapGetters([
-      'signInCallback', 'isTranslating', 'translateStatus',
+      'signInCallback',
       // UIStates
       'showSidebar', 'showAllWidgets', 'playlistState',
       'isProfessional',
@@ -197,15 +194,7 @@ export default {
     });
 
     ipcRenderer.on('sign-out-confirm', () => {
-      // is translating stop
-      if (this.isTranslating || this.translateStatus === AudioTranslateStatus.Back) {
-        this.showTranslateBubble(AudioTranslateBubbleOrigin.OtherAIButtonClick);
-        this.addTranslateBubbleCallBack(() => {
-          remote.app.emit('sign-out');
-        });
-      } else {
-        remote.app.emit('sign-out');
-      }
+      remote.app.emit('sign-out');
     });
     // load global data when sign in is opend
     const account = remote.getGlobal('account');
@@ -233,8 +222,6 @@ export default {
       updateUserInfo: uActions.UPDATE_USER_INFO,
       updateToken: uActions.UPDATE_USER_TOKEN,
       removeCallback: uActions.UPDATE_SIGN_IN_CALLBACK,
-      showTranslateBubble: atActions.AUDIO_TRANSLATE_SHOW_BUBBLE,
-      addTranslateBubbleCallBack: atActions.AUDIO_TRANSLATE_BUBBLE_CALLBACK,
       updateShowSidebar: uiActions.UPDATE_SHOW_SIDEBAR,
     }),
     mainCommitProxy(commitType: string, commitPayload: any) {

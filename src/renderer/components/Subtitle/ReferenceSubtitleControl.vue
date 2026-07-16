@@ -143,8 +143,7 @@ export default {
     },
     computedAvailableItems() {
       const list = this.list
-        .filter((sub: ISubtitleControlListItem) => sub.type !== Type.Modified
-          && !(sub.type === Type.PreTranslated && sub.source.source === ''))
+        .filter((sub: ISubtitleControlListItem) => sub.type !== Type.Modified)
         .map((sub: ISubtitleControlListItem) => ({
           ...sub,
         }));

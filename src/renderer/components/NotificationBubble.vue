@@ -66,16 +66,6 @@
         class="mas-privacy-bubble"
       />
     </transition>
-    <transition name="bubble">
-      <TranslateBubble
-        v-if="isTranslateBubbleVisible"
-        :message="translateBubbleMessage"
-        :type="translateBubbleType"
-        @disCardTranslate="discardTranslate"
-        @backStageTranslate="backStageTranslate"
-        @hide="hideTranslateBubble"
-      />
-    </transition>
     <transition-group
       name="toast"
       class="transGroup"
@@ -122,7 +112,7 @@
 </template>
 
 <script lang="ts">
-import { mapGetters, mapActions } from 'vuex';
+import { mapGetters } from 'vuex';
 import StatusBubble from '@/components/Bubbles/StatusBubble.vue';
 import ErrorBubble from '@/components/Bubbles/ErrorBubble.vue';
 import PendingBubble from '@/components/Bubbles/PendingBubble.vue';
@@ -130,12 +120,8 @@ import AlertBubble from '@/components/Bubbles/AlertBubble.vue';
 import ConfirmBubble from '@/components/Bubbles/ConfirmBubble.vue';
 import NextVideo from '@/components/Bubbles/NextVideo.vue';
 import PrivacyBubble from '@/components/Bubbles/PrivacyConfirmBubble.vue';
-import TranslateBubble from '@/components/Bubbles/TranslateBubble.vue';
 import ResolvedBubble from '@/components/Bubbles/ResolvedBubble.vue';
 import { INPUT_COMPONENT_TYPE } from '@/plugins/input';
-import {
-  AudioTranslate as atActions,
-} from '@/store/actionTypes';
 
 export default {
   name: 'NotificationBubble',
@@ -148,7 +134,6 @@ export default {
     ConfirmBubble,
     NextVideo,
     PrivacyBubble,
-    TranslateBubble,
     PendingBubble,
     ResolvedBubble,
   },
@@ -169,7 +154,7 @@ export default {
   computed: {
     ...mapGetters([
       'nextVideo', 'nextVideoPreviewTime', 'duration', 'singleCycle', 'privacyAgreement', 'nsfwProcessDone',
-      'translateBubbleMessage', 'translateBubbleType', 'isTranslateBubbleVisible', 'failBubbleId', 'preferenceData',
+      'preferenceData',
       'isProfessional', 'deleteSubtitleConfirm',
     ]),
     messages() {
@@ -239,12 +224,6 @@ export default {
     });
   },
   methods: {
-    ...mapActions({
-      hideTranslateBubble: atActions.AUDIO_TRANSLATE_HIDE_BUBBLE,
-      discardTranslate: atActions.AUDIO_TRANSLATE_DISCARD,
-      backStageTranslate: atActions.AUDIO_TRANSLATE_BACKSATGE,
-      hideBubbleCallBack: atActions.AUDIO_TRANSLATE_HIDE_BUBBLE,
-    }),
     closePrivacyBubble() {
       this.showPrivacyBubble = false;
     },

@@ -15,12 +15,11 @@ import qs from 'querystring';
 import rimraf from 'rimraf';
 import mkdirp from 'mkdirp';
 import { castService } from './helpers/cast/CastService';
-import { audioGrabService } from './helpers/AudioGrabService';
 import { applePayVerify } from './helpers/ApplePayVerify';
 import './helpers/electronPrototypes';
 import {
   isVideo, isSubtitle,
-  getToken, saveToken, getEnvironmentName,
+  saveToken, getEnvironmentName,
   getIP, crossThreadCache, calcCurrentChannel, isAudio,
 } from '../shared/utils';
 import { mouse } from './helpers/mouse';
@@ -1598,30 +1597,6 @@ function registerMainWindowEvent(mainWindow) {
       preferenceWindow.webContents.send('preferenceDispatch', 'setPreference', args);
     }
   });
-  /** grab audio logic in main process start */
-  function audioGrabCallBack(data) {
-    try {
-      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-        mainWindow.webContents.send('grab-audio-update', data);
-      }
-    } catch (error) {
-      // empty
-    }
-  }
-  ipcMain.on('grab-audio', (events, data) => {
-    audioGrabService.start(data);
-    audioGrabService.removeListener('data', audioGrabCallBack);
-    audioGrabService.on('data', audioGrabCallBack);
-  });
-  ipcMain.on('grab-audio-continue', () => {
-    audioGrabService.next();
-  });
-  ipcMain.on('grab-audio-stop', () => {
-    audioGrabService.stop();
-  });
-  /** grab audio logic in main process end */
-
-
   // OBSOLETE: use app.on below
 
 
@@ -2063,7 +2038,6 @@ app.on('activate', () => {
 app.on('refresh-token', async (account) => {
   global['account'] = account;
   menuService?.updateAccount(account);
-  audioGrabService.setToken(account.token);
   saveToken(account.token);
   if (mainWindow && !mainWindow.webContents.isDestroyed()) {
     mainWindow.webContents.send('sign-in', account);
@@ -2122,7 +2096,6 @@ app.on('sign-out-confirm', () => {
 app.on('sign-out', () => {
   global['account'] = undefined;
   menuService?.updateAccount(undefined);
-  audioGrabService.setToken(undefined);
   saveToken('');
   if (mainWindow && !mainWindow.webContents.isDestroyed()) {
     mainWindow.webContents.send('sign-in', undefined);

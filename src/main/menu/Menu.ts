@@ -402,8 +402,7 @@ export default class Menubar {
       this.primarySubs
         .filter(({
           subtitleItem,
-        }) => !subtitleItem || (subtitleItem && subtitleItem.type !== Type.Modified
-          && !(subtitleItem.type === Type.PreTranslated && subtitleItem.source.source === '')))
+        }) => !subtitleItem || (subtitleItem && subtitleItem.type !== Type.Modified))
         .forEach(({
           id, label, subtitleItem,
         }) => {
@@ -460,10 +459,6 @@ export default class Menubar {
           checked,
           click: () => {
             if (this.mainWindow) {
-              // if is AI button can't choose
-              if (subtitleItem && subtitleItem.type === Type.PreTranslated && subtitleItem.source.source === '') {
-                this.menubar.getMenuItemById('subtitle.mainSubtitle.off').checked = true;
-              }
               this.mainWindow.webContents.send('subtitle.mainSubtitle', id, subtitleItem);
             }
           },
@@ -503,10 +498,6 @@ export default class Menubar {
           enabled,
           click: () => {
             if (this.mainWindow) {
-              // if is AI button can't choose
-              if (subtitleItem && subtitleItem.type === Type.PreTranslated && subtitleItem.source.source === '') {
-                this.menubar.getMenuItemById('subtitle.secondarySubtitle.off').checked = true;
-              }
               this.mainWindow.webContents.send('subtitle.secondarySubtitle', id, subtitleItem);
             }
           },

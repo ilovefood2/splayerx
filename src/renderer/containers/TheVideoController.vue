@@ -78,13 +78,6 @@
           v-bind.sync="widgetsStatus.PlaylistControl"
           class="button no-drag playlist"
         />
-        <subtitle-control
-          v-fade-in="displayState.SubtitleControl"
-          v-bind.sync="widgetsStatus.SubtitleControl"
-          :last-dragging.sync="lastDragging"
-          @conflict-resolve="conflictResolve"
-          class="button no-drag subtitle"
-        />
         <div
           :title="$t('msg.subtitle.AITranslation')"
           @mouseup.left.stop="startAITranslation"
@@ -141,7 +134,6 @@
       :show-all-widgets="showAllWidgets"
       :style="{ marginBottom: preFullScreen ? '10px' : '0' }"
     />
-    <audio-translate-modal />
     <forbidden-modal />
     <subtitle-editor
       ref="editor"
@@ -155,13 +147,10 @@ import {
   mapState, mapGetters, mapActions,
   createNamespacedHelpers,
 } from 'vuex';
-import { log } from '@/libs/Log';
 import {
   Input as inputActions,
   Video as videoActions,
-  Subtitle as legacySubtitleActions,
   SubtitleManager as smActions,
-  AudioTranslate as atActions,
   UIStates as uiActions,
 } from '@/store/actionTypes';
 import { INPUT_COMPONENT_TYPE, getterTypes as iGT } from '@/plugins/input';
@@ -169,18 +158,15 @@ import PlayButton from '@/components/PlayingView/PlayButton.vue';
 import VolumeIndicator from '@/components/PlayingView/VolumeIndicator.vue';
 import AdvanceControl from '@/components/PlayingView/AdvanceControl.vue';
 import Icon from '@/components/BaseIconContainer.vue';
-import SubtitleControl from '@/components/PlayingView/SubtitleControl.vue';
 import PlaylistControl from '@/components/PlayingView/PlaylistControl.vue';
 import TheTimeCodes from '@/components/PlayingView/TheTimeCodes.vue';
 import TheProgressBar from '@/containers/TheProgressBar.vue';
 import RecentPlaylist from '@/containers/RecentPlaylist.vue';
 import NotificationBubble from '@/components/NotificationBubble.vue';
-import AudioTranslateModal from '@/containers/AudioTranslateModal.vue';
 import ForbiddenModal from '@/containers/ForbiddenModal.vue';
 import SubtitleEditor from '@/containers/SubtitleEditor.vue';
 import ReferenceSubtitleControl from '@/components/Subtitle/ReferenceSubtitleControl.vue';
 import { videodata } from '@/store/video';
-import { AudioTranslateStatus } from '../store/modules/AudioTranslate';
 
 const { mapGetters: inputMapGetters } = createNamespacedHelpers('InputPlugin');
 /** dom wrapper */
@@ -197,14 +183,12 @@ export default {
     'play-button': PlayButton,
     'volume-indicator': VolumeIndicator,
     Icon,
-    'subtitle-control': SubtitleControl,
     'advance-control': AdvanceControl,
     'playlist-control': PlaylistControl,
     'the-time-codes': TheTimeCodes,
     'the-progress-bar': TheProgressBar,
     'notification-bubble': NotificationBubble,
     'recent-playlist': RecentPlaylist,
-    'audio-translate-modal': AudioTranslateModal,
     'forbidden-modal': ForbiddenModal,
     'subtitle-editor': SubtitleEditor,
     'reference-subtitle-control': ReferenceSubtitleControl,
@@ -281,7 +265,6 @@ export default {
       'playingList', 'isFolderList',
       'isFullScreen', 'isFocused', 'isMinimized',
       'leftMousedown', 'progressKeydown', 'volumeKeydown', 'wheelTriggered', 'volumeWheelTriggered',
-      'enabledSecondarySub', 'isTranslateModalVisible', 'translateStatus', 'failBubbleId', 'messageInfo',
       'showFullTimeCode',
       'showSidebar',
       'isEditable', 'isProfessional', 'isDragableInProfessional', 'isSpaceDownInProfessional',
@@ -296,7 +279,6 @@ export default {
       return this.casting ? this.castPaused : this.paused;
     },
     showAllWidgets() {
-      if (this.isTranslateModalVisible) return false;
       if (this.invokeAllWidgets) return true;
       return !this.tempRecentPlaylistDisplayState
         && (
@@ -315,7 +297,7 @@ export default {
       );
     },
     cursorStyle() {
-      if (this.isTranslateModalVisible || this.isProfessional) {
+      if (this.isProfessional) {
         return 'default';
       }
       return this.showAllWidgets || !this.isFocused
@@ -398,7 +380,7 @@ export default {
     isDragging(val: boolean, oldval: boolean) {
       if (
         !val && oldval
-        && !['SubtitleControl', 'AdvanceControl'].includes(this.currentMousedownWidget)
+        && this.currentMousedownWidget !== 'AdvanceControl'
       ) {
         this.lastDragging = true;
       }
@@ -424,7 +406,7 @@ export default {
       if (this.showSidebar
         && !this.isDragging
         && ([
-          'TheVideoController', 'SubtitleControl', 'PlaylistControl', 'AdvanceControl',
+          'TheVideoController', 'PlaylistControl', 'AdvanceControl',
         ].includes(newVal))
       ) {
         this.updateMousedown({ componentName: '' });
@@ -476,41 +458,6 @@ export default {
           this.playButton.icon = this.createIcon('touchBar/pause.png');
         }
       }
-    },
-    enabledSecondarySub(val: boolean) {
-      if (val) {
-        this.updateSubtitleType(false);
-        this.subMenuShow = true;
-        if (this.subMenuTimer) {
-          this.clock.clearTimeout(this.subMenuTimer);
-        }
-        this.subMenuTimer = this.clock.setTimeout(() => {
-          this.subMenuShow = false;
-        }, 3000);
-        this.tempRecentPlaylistDisplayState = false;
-        Object.keys(this.widgetsStatus).forEach((item) => {
-          this.widgetsStatus[item].showAttached = item === 'SubtitleControl';
-        });
-        this.updateMouseup({ componentName: '' });
-        this.updateMousedown({ componentName: '' });
-      }
-    },
-    isTranslateModalVisible(visible: boolean) {
-      const { ratio, winWidth } = this;
-      let minimumSize = [320, 180];
-      // 弹窗出现的时候窗口缩小到一定尺寸应该不能再缩小
-      if (visible && ratio > 1) {
-        minimumSize = [Math.round(290 * ratio), 290];
-        if (winWidth < Math.round(290 * ratio)) {
-          this.$electron.ipcRenderer.send('callMainWindowMethod', 'setSize', minimumSize);
-        }
-      } else if (visible && ratio <= 1) {
-        minimumSize = [290, Math.round(290 / ratio)];
-        if (winWidth < 290) {
-          this.$electron.ipcRenderer.send('callMainWindowMethod', 'setSize', minimumSize);
-        }
-      }
-      this.$electron.ipcRenderer.send('callMainWindowMethod', 'setMinimumSize', minimumSize);
     },
   },
   created() {
@@ -645,9 +592,6 @@ export default {
       updateKeydown: inputActions.KEYDOWN_UPDATE,
       updateKeyup: inputActions.KEYUP_UPDATE,
       updateWheel: inputActions.WHEEL_UPDATE,
-      updateSubtitleType: legacySubtitleActions.UPDATE_SUBTITLE_TYPE,
-      updateHideModalCallback: atActions.AUDIO_TRANSLATE_MODAL_HIDE_CALLBACK,
-      updateHideBubbleCallback: atActions.AUDIO_TRANSLATE_BUBBLE_CANCEL_CALLBACK,
       updateShowAllWidgets: uiActions.UPDATE_SHOW_ALLWIDGETS,
       updatePlaylistState: uiActions.UPDATE_PLAYLIST,
       updateShowSidebar: uiActions.UPDATE_SHOW_SIDEBAR,
@@ -759,27 +703,7 @@ export default {
         videodata.paused = true;
         // we need to reset the hoverProgressBar for play next video
         this.needResetHoverProgressBar = true;
-        // 如果要自动切下个视频的时候，这个时候视频的自能翻译是失败的
-        // 但是气泡和modal显示着，就不自动切，用户手动关闭再切
-        const translateFailBubbleExist = this.messageInfo
-          && this.messageInfo.find((e: { id: string }) => e.id === this.failBubbleId);
-        log.debug('TheVideoController.vue', translateFailBubbleExist, this.messageInfo, this.failBubbleId);
-        if (this.translateStatus === AudioTranslateStatus.Fail && this.isTranslateModalVisible) {
-          this.$store.dispatch(videoActions.PAUSE_VIDEO);
-          this.updateHideModalCallback(() => {
-            this.$bus.$emit('next-video');
-            this.$store.dispatch(videoActions.PLAY_VIDEO);
-          });
-        } else if (this.translateStatus === AudioTranslateStatus.Fail
-          && translateFailBubbleExist) {
-          this.$store.dispatch(videoActions.PAUSE_VIDEO);
-          this.updateHideBubbleCallback(() => {
-            this.$bus.$emit('next-video');
-            this.$store.dispatch(videoActions.PLAY_VIDEO);
-          });
-        } else {
-          this.$bus.$emit('next-video');
-        }
+        this.$bus.$emit('next-video');
       }
 
       this.start = timestamp;
@@ -958,8 +882,7 @@ export default {
         this.clicksTimer = setTimeout(() => {
           this.clicks = 0;
           this.lastDragging = false;
-          this.lastAttachedShowing = this.widgetsStatus.SubtitleControl.showAttached
-            || this.widgetsStatus.AdvanceControl.showAttached
+          this.lastAttachedShowing = this.widgetsStatus.AdvanceControl.showAttached
             || this.widgetsStatus.PlaylistControl.showAttached;
         }, this.clicksDelay);
       } else if (this.clicks === 2) {

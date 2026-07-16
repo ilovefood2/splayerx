@@ -52,11 +52,10 @@ import { playInfoStorageService } from '@/services/storage/PlayInfoStorageServic
 import { settingStorageService } from '@/services/storage/SettingStorageService';
 import { generateShortCutImageBy, ShortCut } from '@/libs/utils';
 import { Video as videoMutations } from '@/store/mutationTypes';
-import { Video as videoActions, AudioTranslate as atActions } from '@/store/actionTypes';
+import { Video as videoActions } from '@/store/actionTypes';
 import { videodata } from '@/store/video';
 import BaseVideoPlayer from '@/components/PlayingView/BaseVideoPlayer.vue';
 import { MediaItem } from '../interfaces/IDB';
-import { AudioTranslateBubbleOrigin } from '../store/modules/AudioTranslate';
 
 export default {
   name: 'VideoCanvas',
@@ -87,7 +86,7 @@ export default {
     ...mapGetters([
       'videoId', 'nextVideoId', 'originSrc', 'convertedSrc', 'volume', 'muted', 'rate', 'paused', 'casting', 'castPaused', 'duration', 'ratio', 'currentAudioTrackId', 'enabledSecondarySub', 'subToTop',
       'winSize', 'winPos', 'winAngle', 'isFullScreen', 'winWidth', 'winHeight', 'chosenStyle', 'chosenSize', 'nextVideo', 'loop', 'playinglistRate', 'isFolderList', 'playingList', 'playingIndex', 'playListId', 'items',
-      'previousVideo', 'previousVideoId', 'incognitoMode', 'isTranslating', 'nsfwProcessDone', 'hwhevc',
+      'previousVideo', 'previousVideoId', 'incognitoMode', 'nsfwProcessDone', 'hwhevc',
     ]),
     ...mapGetters({
       videoWidth: 'intrinsicWidth',
@@ -154,15 +153,6 @@ export default {
   mounted() {
     this.audioCtx = new AudioContext();
     this.$bus.$on('back-to-landingview', () => {
-      if (this.isTranslating) {
-        this.showTranslateBubble(AudioTranslateBubbleOrigin.WindowClose);
-        this.addTranslateBubbleCallBack(() => {
-          this.backToLandingView();
-        });
-        return false;
-      }
-      // 如果有back翻译任务，直接丢弃掉
-      this.discardTranslate();
       this.backToLandingView();
       return false;
     });
@@ -281,9 +271,6 @@ export default {
       switchAudioTrack: videoActions.SWITCH_AUDIO_TRACK,
       removeAllAudioTrack: videoActions.REMOVE_ALL_AUDIO_TRACK,
       updatePlayinglistRate: videoActions.UPDATE_PLAYINGLIST_RATE,
-      showTranslateBubble: atActions.AUDIO_TRANSLATE_SHOW_BUBBLE,
-      addTranslateBubbleCallBack: atActions.AUDIO_TRANSLATE_BUBBLE_CALLBACK,
-      discardTranslate: atActions.AUDIO_TRANSLATE_DISCARD,
     }),
     async onMetaLoaded(event: Event) { // eslint-disable-line complexity
       const target = event.target as HTMLVideoElement;
@@ -468,17 +455,6 @@ export default {
         .then(this.savePlaybackStates));
     },
     beforeUnloadHandler(e: BeforeUnloadEvent) {
-      // 如果当前有翻译任务进行，而不是再后台进行
-      if (this.isTranslating) {
-        this.showTranslateBubble(AudioTranslateBubbleOrigin.WindowClose);
-        this.addTranslateBubbleCallBack(() => {
-          window.close();
-        });
-        e.returnValue = true;
-        return;
-      }
-      // 如果有back翻译任务，直接丢弃掉
-      this.discardTranslate();
       if (!this.asyncTasksDone && !this.needToRestore) {
         e.returnValue = false;
         if (typeof this.$electron.remote.app.hide === 'function') { // macOS only
