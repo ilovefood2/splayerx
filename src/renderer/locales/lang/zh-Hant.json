@@ -85,12 +85,13 @@
       "content": "這部影片沒有可以翻譯成{target}的字幕。它的字幕可能已經是{target}，也可能根本沒有字幕。可在「偏好設定 > 翻譯 > 翻譯為」中換一種語言。"
     },
     "aiProgress": {
+      "downloading": "正在準備字幕 — 下載語音模型 {percent}%",
       "transcribing": "正在準備字幕 — 辨識語音 {percent}%",
       "translating": "正在準備字幕 — 已翻譯 {done}/{total} 句"
     },
     "aiTranslateNoWhisper": {
-      "title": "語音辨識未就緒",
-      "content": "這部影片沒有字幕，需要先辨識它的語音。缺少：{missing}。請執行 brew install whisper-cpp ffmpeg 安裝，並把 ggml 模型放到 Application Support/SPlayer/whisper 目錄。"
+      "title": "語音辨識無法使用",
+      "content": "這部影片沒有字幕，需要先辨識它的語音，但目前無法進行（{missing}）。請檢查網路連線後再試一次。"
     },
     "aiTranscribeNoSpeech": {
       "title": "沒有辨識到語音",

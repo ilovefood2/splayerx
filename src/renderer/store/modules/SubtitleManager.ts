@@ -30,8 +30,8 @@ import {
 import {
   registerAITranslation, makeAITranslationKey, clearAllAITranslations,
   appendAITranslationCues, getAITranslator, resolveAIProvider, configFor,
-  checkTranscribeEnvironment, transcribeVideo,
-  AIProviderResolution, AIProviderTuning, TimedText,
+  checkTranscribeEnvironment, transcribeVideo, downloadModel,
+  AIProviderResolution, AIProviderTuning, TimedText, BundledPaths, TranscribeEnvironment,
 } from '@/services/subtitle/ai';
 import { generateHints, calculatedName } from '@/libs/utils';
 import { log } from '@/libs/Log';
@@ -423,6 +423,46 @@ function abortTranscription(): void {
   if (!transcribeAbort) return;
   transcribeAbort.abort();
   transcribeAbort = undefined;
+}
+
+/**
+ * whisper-cli and ffmpeg ship with the app, so on a fresh install the only thing
+ * missing is the speech model — download it once (showing progress) and re-probe,
+ * instead of sending the user to the command line. A no-op when nothing is
+ * missing, or when something other than the model is (dev without Homebrew).
+ *
+ * Returns the up-to-date environment, or undefined if a download was needed but
+ * failed or is already running — in which case the caller should abort.
+ */
+async function ensureTranscribeModel(
+  env: TranscribeEnvironment,
+  reprobe: () => TranscribeEnvironment,
+  mediaHash: string,
+): Promise<TranscribeEnvironment | undefined> {
+  const onlyModelMissing = env.missing.length === 1 && env.missing[0] === 'model';
+  if (env.ok || !onlyModelMissing || !env.modelDir) return env;
+  if (transcribingMediaHash === mediaHash) return undefined; // already downloading
+  transcribingMediaHash = mediaHash;
+  transcribeAbort = new AbortController();
+  showAIProgress(progressText('errorFile.aiProgress.downloading', { percent: 0 }));
+  try {
+    await downloadModel({
+      modelDir: env.modelDir,
+      signal: transcribeAbort.signal,
+      onProgress: ({ received, total }) => {
+        const percent = total > 0 ? Math.round((received / total) * 100) : 0;
+        updateAIProgress(progressText('errorFile.aiProgress.downloading', { percent }));
+      },
+    });
+  } catch (error) {
+    endAIProgress();
+    transcribingMediaHash = '';
+    addBubble(AI_TRANSLATE_NO_WHISPER, { missing: 'model (download failed)' });
+    log.warn('SubtitleManager', `AI transcribe: model download failed — ${error}`);
+    return undefined;
+  }
+  transcribingMediaHash = ''; // real transcription re-claims it in the caller
+  return reprobe();
 }
 let alterDelayTimeoutId: NodeJS.Timer;
 function setDelayTimeout() {
@@ -992,9 +1032,20 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
   async [a.transcribeAndTranslate]({ state, getters, dispatch }, { targetCode }) {
     const { originSrc } = getters;
     if (!originSrc) return undefined;
-    const env = checkTranscribeEnvironment(
-      remote.app.getPath('userData'), remote.app.getPath('home'),
-    );
+    // The packaged app ships whisper-cli + ffmpeg in Resources/; prefer those so
+    // a fresh Mac needs nothing installed. In dev we fall back to Homebrew.
+    const bundled: BundledPaths = remote.app.isPackaged ? {
+      binDir: join(process.resourcesPath, 'bin'),
+      whisperDir: join(process.resourcesPath, 'whisper'),
+    } : {};
+    const userData = remote.app.getPath('userData');
+    const home = remote.app.getPath('home');
+    const probe = () => checkTranscribeEnvironment(userData, home, bundled);
+
+    // With whisper + ffmpeg bundled, the only thing a fresh install lacks is the
+    // model — fetch it once (with progress) instead of the command line.
+    const env = await ensureTranscribeModel(probe(), probe, state.mediaHash);
+    if (!env) return undefined; // download failed or already in progress
     if (!env.ok) {
       // Name exactly what is missing: "it didn't work" sends people hunting.
       addBubble(AI_TRANSLATE_NO_WHISPER, { missing: env.missing.join(', ') });

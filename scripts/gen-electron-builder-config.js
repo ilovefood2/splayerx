@@ -89,6 +89,10 @@ const config = {
       from: mediaBinaries.ffprobePath,
       to: 'bin/ffprobe',
     },
+    // Self-contained whisper.cpp (whisper-cli + dylibs + backend .so files) so
+    // speech-to-subtitle works with nothing installed. Built by
+    // scripts/bundle-whisper.sh on macOS; the entry is added below only when it
+    // exists, so Windows/Linux builds — which have no bundle — don't fail.
   ],
   win,
   mac,
@@ -128,6 +132,21 @@ const config = {
     allowToChangeInstallationDirectory: true,
   },
 };
+
+const whisperBundleDir = path.join(__dirname, '../build/whisper');
+if (fs.existsSync(path.join(whisperBundleDir, 'whisper-cli'))) {
+  config.extraResources.push({
+    from: 'build/whisper',
+    to: 'whisper',
+    filter: ['**/*'],
+  });
+} else {
+  // eslint-disable-next-line no-console
+  console.warn(
+    'gen-electron-builder-config: build/whisper not found — '
+    + 'run scripts/bundle-whisper.sh to bundle speech recognition.',
+  );
+}
 
 const json = JSON.stringify(config, null, 2);
 fs.writeFileSync(path.join(__dirname, '../electron-builder.json'), json, {

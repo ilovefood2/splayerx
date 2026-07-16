@@ -85,12 +85,13 @@
       "content": "这个视频没有可以翻译成{target}的字幕。它的字幕可能已经是{target}，也可能根本没有字幕。可在“偏好设置 > 翻译 > 翻译为”中换一种语言。"
     },
     "aiProgress": {
+      "downloading": "正在准备字幕 — 下载语音模型 {percent}%",
       "transcribing": "正在准备字幕 — 识别语音 {percent}%",
       "translating": "正在准备字幕 — 已翻译 {done}/{total} 句"
     },
     "aiTranslateNoWhisper": {
-      "title": "语音识别未就绪",
-      "content": "这个视频没有字幕，需要先识别它的语音。缺少：{missing}。请运行 brew install whisper-cpp ffmpeg 安装，并把 ggml 模型放到 Application Support/SPlayer/whisper 目录。"
+      "title": "语音识别不可用",
+      "content": "这个视频没有字幕，需要先识别它的语音，但现在无法进行（{missing}）。请检查网络连接后重试。"
     },
     "aiTranscribeNoSpeech": {
       "title": "没有识别到语音",

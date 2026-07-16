@@ -5,15 +5,20 @@
  * make one: extract the audio with ffmpeg, transcribe it with whisper-cli, and
  * hand the cues to the normal AI translation pipeline.
  *
- * Both binaries come from the user's own install (Homebrew) rather than being
- * bundled. A packaged .app does NOT inherit the shell PATH, so everything is
- * resolved by absolute path and reported precisely when missing.
+ * The packaged app ships its own whisper-cli + ffmpeg (see bundle-whisper.sh and
+ * gen-electron-builder-config.js), so this works on a fresh Mac with nothing
+ * installed; a Homebrew install is used as a fallback in dev. A packaged .app
+ * does NOT inherit the shell PATH, so everything is resolved by absolute path —
+ * bundled dirs first — and reported precisely when missing.
  *
  * NOTE: explicit `=== undefined` checks rather than `??`/`?.` — see ollama.ts.
  */
 
 import { spawn } from 'child_process';
-import { existsSync, readFileSync, unlinkSync } from 'fs';
+import {
+  existsSync, readFileSync, unlinkSync, createWriteStream, mkdirSync, renameSync,
+} from 'fs';
+import { IncomingMessage } from 'http';
 import { join } from 'path';
 import { TimedText } from './realtimeTranslator';
 
@@ -30,8 +35,20 @@ export interface TranscribeEnvironment {
    * music and silence — see VAD_THRESHOLD.
    */
   vadModelPath?: string;
+  /** Where the model would be downloaded to, if it needs to be. */
+  modelDir?: string;
   /** Which pieces are missing, so the UI can name them exactly. */
   missing: TranscribeTool[];
+}
+
+/**
+ * Paths into the app bundle, passed in by the caller (this module stays free of
+ * electron). `binDir` holds the bundled ffmpeg/ffprobe; `whisperDir` holds the
+ * self-contained whisper-cli and its backend .so files (see bundle-whisper.sh).
+ */
+export interface BundledPaths {
+  binDir?: string;
+  whisperDir?: string;
 }
 
 export interface TranscribeResult {
@@ -62,6 +79,8 @@ const MODEL_NAMES = [
   'ggml-large-v3.bin',
   'ggml-large.bin',
   'ggml-medium.bin',
+  'ggml-large-v3-turbo-q8_0.bin',
+  'ggml-large-v3-turbo-q5_0.bin', // what we auto-download
   'ggml-small.bin',
   'ggml-base.bin',
 ];
@@ -78,14 +97,127 @@ function findFile(searchDirs: string[], names: string[]): string | undefined {
   return undefined;
 }
 
+/** whisper.cpp ggml models and the Silero VAD model live on Hugging Face. */
+const MODEL_REPO = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
+const VAD_REPO = 'https://huggingface.co/ggml-org/whisper-vad/resolve/main';
+
 /**
- * Locate everything transcription needs.
- * `userDataPath` is passed in rather than imported so this module stays testable
- * and free of electron.
+ * The model auto-downloaded on first use: quantized large-v3-turbo. Best
+ * accuracy-for-size of the turbo line (~550 MB vs ~1.6 GB unquantized), so a
+ * fresh Mac becomes usable after one moderate download rather than a huge one.
+ */
+export const DEFAULT_MODEL_NAME = 'ggml-large-v3-turbo-q5_0.bin';
+export const VAD_MODEL_NAME = 'ggml-silero-v5.1.2.bin';
+
+export interface DownloadProgress {
+  /** Bytes received so far for the file currently downloading. */
+  received: number;
+  /** Total bytes, or 0 if the server didn't send Content-Length. */
+  total: number;
+}
+
+export interface DownloadModelOptions {
+  /** Directory to download into; created if absent. */
+  modelDir: string;
+  onProgress?: (progress: DownloadProgress) => void;
+  signal?: AbortSignal;
+}
+
+/** GET `url` into `dest`, following redirects (HF resolve URLs redirect to a CDN). */
+function fetchToFile(
+  url: string,
+  dest: string,
+  onData?: (received: number, total: number) => void,
+  signal?: AbortSignal,
+  redirects = 0,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // eslint-disable-next-line global-require
+    const https = require('https');
+    const request = https.get(url, (res: IncomingMessage) => {
+      const status = res.statusCode as number;
+      const { location } = res.headers;
+      if (status >= 300 && status < 400 && location) {
+        res.resume(); // drain so the socket frees
+        if (redirects > 5) { reject(new Error('too many redirects')); return; }
+        fetchToFile(location, dest, onData, signal, redirects + 1).then(resolve, reject);
+        return;
+      }
+      if (status !== 200) {
+        res.resume();
+        reject(new Error(`download failed: HTTP ${status}`));
+        return;
+      }
+      const total = parseInt(res.headers['content-length'] || '0', 10);
+      let received = 0;
+      const out = createWriteStream(dest);
+      res.on('data', (chunk: Buffer) => {
+        received += chunk.length;
+        if (onData) onData(received, total);
+      });
+      res.on('error', reject);
+      out.on('error', reject);
+      // 'finish' fires once all data is flushed; the stream auto-closes its fd,
+      // and renameSync works on POSIX even before the fd is fully released.
+      out.on('finish', () => resolve());
+      res.pipe(out);
+    });
+    request.on('error', reject);
+    if (signal) {
+      signal.addEventListener('abort', () => request.destroy(new Error('aborted')), { once: true });
+    }
+  });
+}
+
+/**
+ * Fetch the default model (and the small VAD model) into `modelDir` if not
+ * already there. Downloads to a `.part` file and renames on success so an
+ * interrupted download never leaves a truncated model that looks complete.
+ */
+export async function downloadModel(
+  options: DownloadModelOptions,
+): Promise<{ modelPath: string, vadModelPath?: string }> {
+  const { modelDir, onProgress, signal } = options;
+  mkdirSync(modelDir, { recursive: true });
+
+  const modelPath = join(modelDir, DEFAULT_MODEL_NAME);
+  if (!existsSync(modelPath)) {
+    const part = `${modelPath}.part`;
+    await fetchToFile(
+      `${MODEL_REPO}/${DEFAULT_MODEL_NAME}`, part,
+      onProgress ? (received, total) => onProgress({ received, total }) : undefined,
+      signal,
+    );
+    renameSync(part, modelPath);
+  }
+
+  // The VAD model is ~2 MB and stops whisper hallucinating over music/silence,
+  // so grab it too; a failure here is non-fatal (transcription still works).
+  let vadModelPath: string | undefined;
+  const vadDest = join(modelDir, VAD_MODEL_NAME);
+  try {
+    if (!existsSync(vadDest)) {
+      const part = `${vadDest}.part`;
+      await fetchToFile(`${VAD_REPO}/${VAD_MODEL_NAME}`, part, undefined, signal);
+      renameSync(part, vadDest);
+    }
+    vadModelPath = vadDest;
+  } catch (error) {
+    vadModelPath = undefined;
+  }
+
+  return { modelPath, vadModelPath };
+}
+
+/**
+ * Locate everything transcription needs, preferring what ships inside the app.
+ * `userDataPath`/`home` are passed in (not imported) so this module stays
+ * testable and free of electron; `bundled` carries the in-app binary dirs.
  */
 export function checkTranscribeEnvironment(
   userDataPath?: string,
   home?: string,
+  bundled: BundledPaths = {},
 ): TranscribeEnvironment {
   const modelDirs: string[] = [];
   if (userDataPath) modelDirs.push(join(userDataPath, 'whisper'));
@@ -95,10 +227,14 @@ export function checkTranscribeEnvironment(
   }
   modelDirs.push('/opt/homebrew/share/whisper-cpp');
 
-  const whisperPath = findBinary(WHISPER_NAMES);
-  const ffmpegPath = findBinary(['ffmpeg']);
+  // Bundled binaries win over a Homebrew install, so a fresh Mac works with no
+  // setup; Homebrew is the fallback in dev or if the bundle is absent.
+  const whisperExtra = bundled.whisperDir ? [bundled.whisperDir] : [];
+  const binExtra = bundled.binDir ? [bundled.binDir] : [];
+  const whisperPath = findBinary(WHISPER_NAMES, whisperExtra);
+  const ffmpegPath = findBinary(['ffmpeg'], binExtra);
   // ffprobe ships with ffmpeg; we need it to know how long the video is.
-  const ffprobePath = findBinary(['ffprobe']);
+  const ffprobePath = findBinary(['ffprobe'], binExtra);
   const modelPath = findFile(modelDirs, MODEL_NAMES);
   const vadModelPath = findFile(modelDirs, VAD_MODEL_NAMES);
 
@@ -114,6 +250,7 @@ export function checkTranscribeEnvironment(
     ffprobePath,
     modelPath,
     vadModelPath,
+    modelDir: modelDirs[0],
     missing,
   };
 }
@@ -141,11 +278,12 @@ export async function durationOf(ffprobePath: string, videoPath: string): Promis
   return seconds;
 }
 
-function run(
-  command: string,
-  args: string[],
-  options: { onStderr?: (chunk: string) => void, signal?: AbortSignal } = {},
-): Promise<void> {
+interface RunOptions {
+  onStderr?: (chunk: string) => void;
+  signal?: AbortSignal;
+}
+
+function run(command: string, args: string[], options: RunOptions = {}): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args);
     let stderr = '';
@@ -311,6 +449,9 @@ async function transcribeChunk(
       wavPath,
     ]), { signal: options.signal });
 
+    // whisper-cli loads its compute backends (Metal/BLAS/CPU) from its own
+    // directory, so the bundled copy Just Works: bundle-whisper.sh puts the
+    // backend .so files right next to the executable in Resources/whisper.
     await run(env.whisperPath as string, [
       '-m', env.modelPath as string,
       '-f', wavPath,
