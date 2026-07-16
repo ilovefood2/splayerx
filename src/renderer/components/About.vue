@@ -79,7 +79,7 @@
       </div>
     </div>
     <div class="copyright">
-      <p>© 2009-2020</p><p>Sagittarius Technology Co.,Ltd</p>
+      <p>© 2009-2026</p><p>Sagittarius Technology Co.,Ltd</p>
     </div>
   </div>
 </template>

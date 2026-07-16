@@ -115,7 +115,6 @@ export default Vue.extend({
     signIn() {
       // 清楚登录信息， 开登录窗口
       remote.app.emit('sign-out');
-      ipcRenderer.send('add-login', 'main');
       this.hideModal();
     },
     goPremium() {

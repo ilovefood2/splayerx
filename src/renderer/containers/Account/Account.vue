@@ -233,7 +233,6 @@ export default Vue.extend({
       // @ts-ignore
       window.remote && window.remote.app.emit('sign-out');
       // @ts-ignore
-      window.ipcRenderer && window.ipcRenderer.send('add-login', 'preference');
       this.updateCallback(() => { });
     },
     goPremium() {

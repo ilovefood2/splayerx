@@ -85,7 +85,6 @@ class ApplePayVerify implements IApplePayVerify {
     } catch (error) {
       if (error && (error.status === 401 || error.status === 403)) {
         app.emit('sign-out');
-        app.emit('add-login', 'preference');
         this.waitingTransaction = transaction;
         return false;
       }
@@ -123,7 +122,6 @@ class ApplePayVerify implements IApplePayVerify {
         // empty
         if (error && (error.status === 401 || error.status === 403)) {
           app.emit('sign-out');
-          app.emit('add-login', 'preference');
         }
       }
     });

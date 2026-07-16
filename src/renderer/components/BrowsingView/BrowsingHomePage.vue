@@ -34,64 +34,6 @@
             fontWeight: 'bold',
           }"
         >{{ $t('welcome.welcomeTitle') }}</span>
-        <div
-          :style="{
-            margin: `auto 0 ${userPos}px ${userPos}px`,
-          }"
-          class="user-content"
-        >
-          <div
-            :style="{
-              fontSize: `${userStateSize}px`,
-              display: 'block',
-              fontWeight: 'bold',
-              marginBottom: `${userStatePos}px`,
-            }"
-          >
-            {{ isLogin ? $t('browsing.homepage.account') + `${displayName}` : '' }}
-            <div
-              :style="{
-                marginLeft: `${userStatePos}px`,
-                fontSize: `${moreInfoSize}px`,
-              }"
-              @click="handleLogout"
-              v-show="isLogin"
-              class="sign-out"
-            >
-              {{ $t('browsing.homepage.signOut') }}
-            </div>
-          </div>
-          <span
-            :style="{
-              fontSize: `${moreInfoSize}px`,
-            }"
-          >
-            <span v-if="isLogin">
-              {{ $t('browsing.homepage.premiumInfo') + `${userInfo.createdAt}` }}
-            </span>
-            <span v-if="!isLogin && !isMas">
-              {{ $t('browsing.homepage.signInfo') }}
-            </span>
-          </span>
-          <button
-            v-if="!isMas"
-            :style="{
-              outline: 'none',
-              width: `${buttonSize.width}px`,
-              height: `${buttonSize.height}px`,
-              marginTop: `${buttonPos}px`,
-              borderRadius: '3px',
-              fontSize: `${buttonFontSize}px`,
-              cursor: 'pointer',
-              zIndex: 1,
-              opacity: isLogin ? '0' : '',
-              pointerEvents: isLogin ? 'none' : 'auto',
-            }"
-            @click="handleLogin"
-          >
-            {{ $t('browsing.homepage.signBtn') }}
-          </button>
-        </div>
         <span
           :style="{
             fontSize: `${versionSize}px`,
@@ -304,16 +246,6 @@ export default {
     calcSizeByPhase(val: number) {
       return [val * this.minRatioWidth / this.maxRatioWidth,
         val * this.winWidth / this.maxRatioWidth, val][this.currentPhase];
-    },
-    handleLogin() {
-      if (!this.isLogin) {
-        this.$electron.remote.app.emit('add-login');
-      } else {
-        this.$electron.ipcRenderer.send('add-preference', 'premium');
-      }
-    },
-    handleLogout() {
-      this.$electron.remote.app.emit('sign-out-confirm');
     },
   },
 };

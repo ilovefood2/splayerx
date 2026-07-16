@@ -382,7 +382,6 @@ export default Vue.extend({
         remote && remote.app.emit('sign-out');
         // eslint-disable-next-line
         if (!this.isMas || !window.confirm(this.$i18n.t('preferences.points.guestWarning'))) {
-          ipcRenderer && ipcRenderer.send('add-login', 'preference');
         } else {
           getClientUUID().then(async (clientUUID) => {
             await signIn('guest', clientUUID, '');
@@ -440,7 +439,6 @@ export default Vue.extend({
                 this.buy(item);
               });
               remote && remote.app.emit('sign-out');
-              ipcRenderer && ipcRenderer.send('add-login', 'preference');
             } else {
               this.updatePayStatus(PayStatus.PremiumPayFail);
             }

@@ -454,7 +454,6 @@ const actions = {
         if (fileType === AudioTranslateFailType.Forbidden) {
           // 清楚登录信息， 开登录窗口
           remote.app.emit('sign-out');
-          ipcRenderer.send('add-login', 'main');
           dispatch(uActions.UPDATE_SIGN_IN_CALLBACK, () => { });
         }
       });
@@ -744,7 +743,6 @@ const actions = {
       const enabled = await isAccountEnabled();
       if (enabled && !getters.token) {
         // 未登录
-        ipcRenderer.send('add-login', 'main');
         dispatch(uActions.UPDATE_SIGN_IN_CALLBACK, () => {
           dispatch(a.AUDIO_TRANSLATE_SHOW_MODAL, sub);
         });

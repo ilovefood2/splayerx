@@ -167,7 +167,6 @@ export default Vue.extend({
       const remote = window.remote;
       if (!this.token) {
         remote && remote.app.emit('sign-out');
-        ipcRenderer && ipcRenderer.send('add-login', 'preference');
         // sign in callback
         this.updateSignInCallBack(() => {
           this.buy(item);
@@ -216,7 +215,6 @@ export default Vue.extend({
                 this.buy(item);
               });
               remote && remote.app.emit('sign-out');
-              ipcRenderer && ipcRenderer.send('add-login', 'preference');
             } else {
               this.updatePayStatus(PayStatus.PremiumPayFail);
             }
