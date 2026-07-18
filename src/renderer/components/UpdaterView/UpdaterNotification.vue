@@ -126,12 +126,7 @@ export default {
             top: 20px;
             border-radius: 15px;
             box-shadow: $bs $bs 0 0 rgba(255,255,255,0.15), $bs $bs 5px 0 rgba(0,0,0,0.3);
-            @if platform = 'darwin'{
-                right: 10px;
-            }
-            @if platform = 'win32'{
-                right: 10px;
-            }
+            right: 10px;
         }
         @media screen and (min-width: 854px) and (max-width: 1919px) {
             height: 33px;
@@ -141,12 +136,7 @@ export default {
             top: 20px;
             border-radius: 18.75px;
             box-shadow: $bs $bs 0 0 rgba(255,255,255,0.15), $bs $bs 7px 0 rgba(0,0,0,0.3);
-            @if platform = 'darwin'{
-                right: 14px;
-            }
-            @if platform = 'win32'{
-                right: 14px;
-            }
+            right: 14px;
         }
         @media screen and (min-width: 1920px) {
             height: 50px;
@@ -156,12 +146,7 @@ export default {
             top: 20px;
             border-radius: 30px;
             box-shadow: $bsl $bsl 0 0 rgba(255,255,255,0.15), $bsl $bsl 15px 0 rgba(0,0,0,0.3);
-            @if platform = 'darwin'{
-                right: 24px;
-            }
-            @if platform = 'win32'{
-                right: 24px;
-            }
+            right: 24px;
         }
         backdrop-filter: blur(2px);
         .backGround {

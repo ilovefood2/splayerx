@@ -17,7 +17,8 @@ let webpackConfig = merge(baseConfig, {
   devtool: '#inline-source-map',
   plugins: [
     new webpack.DefinePlugin({
-      'process.env.NODE_ENV': '"testing"'
+      'process.env.NODE_ENV': '"testing"',
+      global: 'window'
     })
   ]
 })
@@ -26,6 +27,10 @@ let webpackConfig = merge(baseConfig, {
 delete webpackConfig.entry
 delete webpackConfig.externals
 delete webpackConfig.output.libraryTarget
+// Webpack 4 defaults to MD4, which modern Node/OpenSSL versions disable.
+// A standard hash keeps the test bundle working without NODE_OPTIONS (which
+// Electron rejects when Karma passes it through to the browser process).
+webpackConfig.output.hashFunction = 'sha256'
 
 // apply vue option to apply isparta-loader on js
 webpackConfig.module.rules
@@ -42,6 +47,10 @@ webpackConfig.module.rules.push({
 module.exports = config => {
   config.set({
     browsers: ['invisibleElectron'],
+    // Current macOS may resolve localhost to IPv6, while Karma listens on
+    // IPv4. Keep both ends explicit so the legacy Electron runner connects.
+    hostname: '127.0.0.1',
+    listenAddress: '127.0.0.1',
     client: {
       useIframe: false,
       mocha: {
