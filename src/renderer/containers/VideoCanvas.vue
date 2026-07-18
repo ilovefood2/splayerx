@@ -317,6 +317,7 @@ export default {
       if (this.volume > 1) this.amplifyAudio(this.volume);
 
       this.videoElement.play();
+      this.$emit('media-ready', this.originSrc);
       setTimeout(() => {
         this.enableVideoInfoStore = true;
       }, 20);

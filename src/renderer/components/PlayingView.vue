@@ -1,6 +1,9 @@
 <template>
   <div class="player">
-    <the-video-canvas ref="videoCanvas" />
+    <the-video-canvas
+      ref="videoCanvas"
+      @media-ready="onMediaReady"
+    />
     <subtitle-image-renderer
       :windowWidth="winWidth"
       :windowHeight="winHeight"
@@ -59,7 +62,7 @@ export default {
     };
   },
   computed: {
-    ...mapGetters(['originSrc', 'duration', 'winWidth', 'winHeight', 'isProfessional', 'primarySubtitleId', 'secondarySubtitleId']),
+    ...mapGetters(['originSrc', 'duration', 'winWidth', 'winHeight', 'isProfessional', 'primarySubtitleId', 'secondarySubtitleId', 'isFolderList']),
     allCues() {
       return Array.isArray(this.currentCues)
         ? this.currentCues.flatMap(({ cues }: { cues: [] }) => cues)
@@ -73,10 +76,6 @@ export default {
       handler: function (newVal: string) {
         this.generatePost = false;
         this.resetManager();
-        if (newVal) {
-          getStreams(newVal);
-          this.initializeManager();
-        }
       },
     },
     async primarySubtitleId() {
@@ -126,6 +125,12 @@ export default {
       getCues: smActions.getCues,
       updatePlayTime: smActions.updatePlayedTime,
     }),
+    onMediaReady(src: string) {
+      if (!src || src !== this.originSrc) return;
+      getStreams(src);
+      this.initializeManager();
+      if (this.isFolderList) this.$store.dispatch('UpdatePlayingList');
+    },
     // Compute UI states
     // When the video is playing the ontick is triggered by ontimeupdate of Video tag,
     // else it is triggered by setInterval.

@@ -1,5 +1,4 @@
 import fs from 'fs';
-import path from 'path';
 import helpers from '@/helpers/index';
 
 const state = {
@@ -143,17 +142,16 @@ const actions = {
     commit('AddIdsToPlayingList', items.ids);
   },
   UpdatePlayingList({ dispatch, commit, state }) {
-    const dirPath = path.dirname(state.playList[0]);
-
-    if (!fs.existsSync(dirPath)) {
-      commit('playList', []);
-    } else if (state.isFolderList) {
+    if (state.isFolderList && state.playList.length) {
+      const source = state.playList[0];
       /*
         Currently not judging whether app is mas version
         Until detecting same directory be abandoned on mas version
        */
-      helpers.methods.findSimilarVideoByVidPath(state.playList[0]).then((videoFiles) => {
-        commit('playList', videoFiles);
+      helpers.methods.findSimilarVideoByVidPath(source).then((videoFiles) => {
+        if (state.isFolderList && state.playList.includes(source)) {
+          commit('playList', videoFiles);
+        }
       }, (err) => {
         if (process.mas && (err && err.code === 'EPERM')) {
           dispatch('FolderList', {
@@ -163,7 +161,7 @@ const actions = {
           });
         }
       });
-    } else {
+    } else if (!state.isFolderList) {
       for (let i = 0; i < state.playList.length; i += 1) {
         fs.access(state.playList[i], fs.constants.F_OK, (err) => {
           if (err && err.code === 'ENOENT') dispatch('RemoveItemFromPlayingList', state.playList[i]);

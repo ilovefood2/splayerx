@@ -69,23 +69,14 @@ export default {
 
       const dirPath = path.dirname(vidPath);
 
-      const videoFiles = [];
-      const files = await fsPromises.readdir(dirPath);
-      const tasks = [];
-      for (let i = 0; i < files.length; i += 1) {
-        const filename = path.join(dirPath, files[i]);
-        tasks.push(fsPromises.lstat(filename).then((stat) => {
-          const fileBaseName = path.basename(filename);
-          if (!stat.isDirectory() && !fileBaseName.startsWith('.')) {
-            if (isVideo((fileBaseName))) { // TODO: audio
-              videoFiles.push(fileBaseName);
-            }
-          }
-        }, (ex) => {
-          log.warn('findSimilarVideoByVidPath', ex);
-        }));
-      }
-      await Promise.all(tasks);
+      // Dirents let the filesystem return names and types in one directory request.
+      // Avoiding an lstat for every sibling is especially important on SMB/NFS shares.
+      const entries = await fsPromises.readdir(dirPath, { withFileTypes: true });
+      const videoFiles = entries
+        .filter(entry => !entry.isDirectory()
+          && !entry.name.startsWith('.')
+          && isVideo(entry.name)) // TODO: audio
+        .map(entry => entry.name);
       videoFiles.sort(sortVideoFile);
       for (let i = 0; i < videoFiles.length; i += 1) {
         videoFiles[i] = path.join(dirPath, videoFiles[i]);
@@ -400,7 +391,7 @@ export default {
           }
         }
 
-        await this.playFile(currentVideo.path, currentVideo.videoId);
+        await this.playFile(currentVideo.path, currentVideo.videoId, currentVideo.quickHash);
         const paths = [];
         for (const videoId of playlist.items) {
           // TODO: find out why videoId is undefined
@@ -418,24 +409,12 @@ export default {
         const video = await this.infoDB.get('media-item', playlist.items[playlist.playedIndex]);
         try {
           await fsPromises.access(video.path, fs.constants.F_OK);
-          let similarVideos;
-          try {
-            similarVideos = await this.findSimilarVideoByVidPath(video.path);
-            this.$store.dispatch('FolderList', {
-              id,
-              paths: similarVideos,
-            });
-          } catch (err) {
-            if (process.mas && get(err, 'code') === 'EPERM') {
-              // TODO: maybe this.openFolderByDialog(videoFiles[0]) ?
-              this.$store.dispatch('FolderList', {
-                id,
-                paths: [video.path],
-                items: [playlist.items[0]],
-              });
-            }
-          }
-          this.playFile(video.path, video.videoId);
+          this.$store.dispatch('FolderList', {
+            id,
+            paths: [video.path],
+            items: [playlist.items[0]],
+          });
+          this.playFile(video.path, video.videoId, video.quickHash);
         } catch (err) {
           addBubble(PLAYLIST_NON_EXIST);
         }
@@ -500,24 +479,13 @@ export default {
         id = await this.infoDB.add('recent-played', playlist);
       }
 
-      try {
-        const similarVideos = await this.findSimilarVideoByVidPath(videoFile);
-        this.$store.dispatch('FolderList', {
-          id,
-          paths: similarVideos,
-        });
-      } catch (err) {
-        if (process.mas && get(err, 'code') === 'EPERM') {
-          // TODO: maybe this.openFolderByDialog(videoFiles[0]) ?
-          const items = playlist ? playlist.items.slice(0, 1) : [];
-          this.$store.dispatch('FolderList', {
-            id,
-            paths: [videoFile],
-            items,
-          });
-        }
-      }
-      this.playFile(videoFile, playlist.items[0]);
+      if (!quickHash || !playlist) return;
+      this.$store.dispatch('FolderList', {
+        id,
+        paths: [videoFile],
+        items: playlist.items.slice(0, 1),
+      });
+      this.playFile(videoFile, playlist.items[0], quickHash);
     },
     bookmarkAccessing(vidPath) {
       const bookmarkObj = syncStorage.getSync('bookmark');
@@ -545,8 +513,8 @@ export default {
       return true;
     },
     // openFile and db operation
-    async playFile(vidPath, id) { // eslint-disable-line complexity
-      let mediaHash;
+    async playFile(vidPath, id, knownMediaHash) { // eslint-disable-line complexity
+      let mediaHash = knownMediaHash;
       if (process.mas && this.$store.getters.source !== 'drop') {
         if (!this.bookmarkAccessing(vidPath)) return;
       }
@@ -554,7 +522,7 @@ export default {
         this.$store.dispatch('UPDATE_SHOW_SIDEBAR', false);
       }
       try {
-        mediaHash = await mediaQuickHash(vidPath);
+        if (!mediaHash) mediaHash = await mediaQuickHash(vidPath);
       } catch (err) {
         const errorCode = get(err, 'code');
         if (errorCode === 'ENOENT') {
