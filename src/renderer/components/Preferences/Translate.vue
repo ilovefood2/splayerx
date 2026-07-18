@@ -135,9 +135,6 @@
                 <option value="auto">
                   {{ $t('preferences.translate.aiProviderAuto') }}
                 </option>
-                <option value="apple">
-                  {{ $t('preferences.translate.aiProviderApple') }}
-                </option>
                 <option value="ollama">
                   {{ $t('preferences.translate.aiProviderOllama') }}
                 </option>
@@ -387,12 +384,6 @@ export default {
     /** Plain-language summary of which provider will actually be used, and why. */
     providerStatus() {
       if (!this.aiTranslateEnabled) return '';
-      if (this.aiTranslateProvider === 'auto') {
-        return this.$t('preferences.translate.aiStatusApplePreferred');
-      }
-      if (this.aiTranslateProvider === 'apple') {
-        return this.$t('preferences.translate.aiStatusAppleOnly');
-      }
       if (this.detecting) return this.$t('preferences.translate.aiStatusDetecting');
       const resolved = this.resolution;
       if (!resolved) return '';
@@ -512,13 +503,6 @@ export default {
       this.detectToken += 1;
       const token = this.detectToken;
       if (!this.aiTranslateEnabled) {
-        this.detecting = false;
-        this.resolution = null;
-        return;
-      }
-      // Apple-only mode is checked by the native helper when translation starts.
-      // Do not contact Ollama merely to render the settings status.
-      if (this.aiTranslateProvider === 'apple') {
         this.detecting = false;
         this.resolution = null;
         return;

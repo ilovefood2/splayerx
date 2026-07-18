@@ -59,26 +59,28 @@ describe('Component - Preferences/Translate', () => {
   beforeEach(() => { originalFetch = global.fetch; });
   afterEach(() => { global.fetch = originalFetch; });
 
-  it('reports Apple first while detecting the local fallback', async () => {
+  it('detects and integrates a local ollama model', async () => {
     global.fetch = () => Promise.resolve({
       ok: true, status: 200, json: () => Promise.resolve(TAGS_FIXTURE),
     });
     const wrapper = mountWith({ aiTranslateEnabled: true });
     await flush();
-    expect(wrapper.vm.providerStatus).to.contain('Apple Translation is preferred');
-    expect(wrapper.vm.providerStatus).to.contain('automatically if unavailable');
-    // The detected fallback model is still exposed as the input placeholder.
+    expect(wrapper.vm.providerStatus).to.contain('Using local Ollama');
+    expect(wrapper.vm.providerStatus).to.contain('nothing leaves your computer');
     expect(wrapper.vm.defaultModel).to.equal('qwen3-coder:latest');
   });
 
-  it('offers a strict Apple-only mode without probing ollama', async () => {
-    let probed = false;
-    global.fetch = () => { probed = true; return Promise.reject(new Error('should not probe')); };
+  it('migrates the retired apple choice to ollama', async () => {
+    global.fetch = () => Promise.resolve({
+      ok: true, status: 200, json: () => Promise.resolve(TAGS_FIXTURE),
+    });
     const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'apple' });
     await flush();
-    expect(probed).to.equal(false);
-    expect(wrapper.vm.providerStatus).to.contain('Using Apple Translation only');
-    expect(wrapper.vm.providerStatus).to.contain('no Ollama or API fallback');
+    expect(wrapper.vm.aiTranslateProvider).to.equal('ollama');
+    expect(wrapper.vm.providerStatus).to.contain('Using local Ollama');
+    const choices = wrapper.findAll('option').wrappers.map(option => option.attributes('value'));
+    expect(choices).to.include('ollama');
+    expect(choices).to.not.include('apple');
   });
 
   it('tells the user how to install ollama when none is running', async () => {

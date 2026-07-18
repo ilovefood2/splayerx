@@ -29,7 +29,7 @@
     "test": "npm run unit",
     "unit": "karma start test/unit/karma.conf.js",
     "postinstall": "node ./scripts/post-install.js",
-    "prepare:mac": "scripts/build-apple-translation.sh && scripts/bundle-whisper.sh && node node_modules/ffmpeg-ffprobe-static/install.js && node scripts/gen-electron-builder-config.js",
+    "prepare:mac": "scripts/bundle-whisper.sh && node node_modules/ffmpeg-ffprobe-static/install.js && node scripts/gen-electron-builder-config.js",
     "pack:mac": "npm run pack && npm run prepare:mac && cross-env USE_HARD_LINKS=false CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --arm64 -p never -c.mac.hardenedRuntime=false"
   },
   "_moduleAliases": {

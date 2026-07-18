@@ -30,7 +30,6 @@ import {
 import {
   registerAITranslation, makeAITranslationKey, clearAllAITranslations,
   appendAITranslationCues, getAITranslator, resolveAIProvider, configFor,
-  probeAppleTranslation, translateWithApple, translateLines,
   checkTranscribeEnvironment, transcribeVideo, downloadModel,
   AIProviderResolution, AIProviderTuning, AIProviderPrefs, AITranslatorConfig,
   RealtimeTranslatorOptions, TimedText, BundledPaths, TranscribeEnvironment,
@@ -99,7 +98,6 @@ function languagesFor(
   sourceCode?: LanguageCode,
 ): {
     targetLanguage: string, sourceLanguage?: string,
-    targetLanguageCode: string, sourceLanguageCode?: string,
   } {
   // An untagged track (Default/No) has no meaningful language name — passing it
   // through would put "translate from Default" in the prompt. Leave it out and
@@ -109,8 +107,6 @@ function languagesFor(
   return {
     targetLanguage: codeToLanguageName(targetCode),
     sourceLanguage: hasKnownSource ? codeToLanguageName(sourceCode as LanguageCode) : undefined,
-    targetLanguageCode: String(targetCode),
-    sourceLanguageCode: hasKnownSource ? String(sourceCode) : undefined,
   };
 }
 
@@ -120,7 +116,7 @@ function aiPrefsOf(getters: {
 }) {
   return {
     aiTranslateProvider: getters.aiTranslateProvider as
-      'auto' | 'apple' | 'openai' | 'ollama' | undefined,
+      'auto' | 'openai' | 'ollama' | undefined,
     aiTranslateApiUrl: getters.aiTranslateApiUrl,
     aiTranslateApiKey: getters.aiTranslateApiKey,
     aiTranslateModel: getters.aiTranslateModel,
@@ -199,99 +195,15 @@ function buildTranslatorOptions(
   });
 }
 
-type TranslationLanguages = ReturnType<typeof languagesFor>;
-
-function appleConfig(languages: TranslationLanguages): AITranslatorConfig {
-  return {
-    baseUrl: '',
-    apiKey: '',
-    model: 'apple-translation',
-    targetLanguage: languages.targetLanguage,
-    sourceLanguage: languages.sourceLanguage,
-    targetLanguageCode: languages.targetLanguageCode,
-    sourceLanguageCode: languages.sourceLanguageCode,
-  };
-}
-
-/** Automatic fallback order after Apple: local Ollama, then a configured API. */
-async function resolveAppleFallback(prefs: AIProviderPrefs): Promise<AIProviderResolution> {
-  const local = await resolveAIProvider(Object.assign({}, prefs, {
-    aiTranslateProvider: 'ollama' as const,
-    // A hosted API URL is not an Ollama address; only carry a custom URL when
-    // Ollama itself was explicitly selected.
-    aiTranslateApiUrl: prefs.aiTranslateProvider === 'ollama' ? prefs.aiTranslateApiUrl : '',
-  }));
-  if (local.ok) return local;
-  if (prefs.aiTranslateApiKey || prefs.aiTranslateApiUrl) {
-    return resolveAIProvider(Object.assign({}, prefs, { aiTranslateProvider: 'openai' as const }));
-  }
-  return local;
-}
-
 async function translationPlan(
   prefs: AIProviderPrefs,
-  languages: TranslationLanguages,
-  sourceCues: TimedText[],
+  languages: ReturnType<typeof languagesFor>,
 ): Promise<{ config?: AITranslatorConfig, options?: RealtimeTranslatorOptions, reason: string }> {
-  const preference = prefs.aiTranslateProvider || 'auto';
-  if (preference !== 'auto' && preference !== 'apple') {
-    const resolution = await resolveAIProvider(prefs);
-    return {
-      config: configFor(resolution, languages),
-      options: buildTranslatorOptions(resolution, languages),
-      reason: resolution.reason,
-    };
-  }
-
-  const sample = sourceCues.slice(0, 8).map(cue => cue.text).join('\n');
-  const apple = await probeAppleTranslation(
-    languages.sourceLanguageCode, languages.targetLanguageCode, sample,
-  );
-  if (!apple.available) {
-    if (preference === 'apple') {
-      return { reason: `apple-${apple.status}` };
-    }
-    const fallback = await resolveAppleFallback(prefs);
-    return {
-      config: configFor(fallback, languages),
-      options: buildTranslatorOptions(fallback, languages),
-      reason: `apple-${apple.status}/${fallback.reason}`,
-    };
-  }
-
-  let fallbackPromise: Promise<AIProviderResolution> | undefined;
-  let reportedFailure = false;
-  const config = appleConfig(Object.assign({}, languages, {
-    sourceLanguageCode: languages.sourceLanguageCode || apple.sourceLanguage,
-  }));
-  const translate: typeof translateLines = async (texts, activeConfig, options) => {
-    try {
-      return await translateWithApple(texts, activeConfig, options);
-    } catch (error) {
-      if (preference === 'apple') {
-        if (!reportedFailure) {
-          reportedFailure = true;
-          log.warn('SubtitleManager', `Apple Translation failed: ${(error as Error).message}`);
-        }
-        throw error;
-      }
-      if (!reportedFailure) {
-        reportedFailure = true;
-        log.warn('SubtitleManager', `Apple Translation failed; using fallback: ${(error as Error).message}`);
-      }
-      if (!fallbackPromise) fallbackPromise = resolveAppleFallback(prefs);
-      const fallback = await fallbackPromise;
-      const fallbackConfig = configFor(fallback, languages);
-      if (!fallbackConfig) throw error;
-      return translateLines(texts, fallbackConfig, options);
-    }
-  };
+  const resolution = await resolveAIProvider(prefs);
   return {
-    config,
-    options: Object.assign({}, tuningOptions({ lookaheadSeconds: 45, requestTimeout: 60000 }), {
-      translate,
-    }),
-    reason: 'apple-installed',
+    config: configFor(resolution, languages),
+    options: buildTranslatorOptions(resolution, languages),
+    reason: resolution.reason,
   };
 }
 
@@ -1062,9 +974,9 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     if (!sourceCues.length) return undefined;
 
     const languages = languagesFor(targetCode, normalizeCode(reference.language));
-    // Resolve Apple and any fallback before registering the subtitle, so the
-    // realtime track never starts with an unusable provider.
-    const plan = await translationPlan(aiPrefsOf(getters), languages, sourceCues);
+    // Resolve Ollama or the configured API before registering the subtitle, so
+    // the realtime track never starts with an unusable provider.
+    const plan = await translationPlan(aiPrefsOf(getters), languages);
     if (!plan.config) {
       log.warn('SubtitleManager', `AI translate: no provider available (${plan.reason})`);
       return undefined;
@@ -1255,7 +1167,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     if (state.mediaHash !== mediaHash) return undefined;
     const sourceCode = normalizeCode(language);
     const languages = languagesFor(targetCode, sourceCode);
-    const plan = await translationPlan(aiPrefsOf(getters), languages, cues);
+    const plan = await translationPlan(aiPrefsOf(getters), languages);
     if (!plan.config) {
       addBubble(AI_TRANSLATE_NO_PROVIDER);
       log.warn('SubtitleManager', `AI transcribe: no provider (${plan.reason})`);

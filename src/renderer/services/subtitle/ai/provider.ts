@@ -14,7 +14,7 @@ import {
   OLLAMA_DEFAULT_BASE_URL, OllamaProbe, apiRootOf, probeOllama,
 } from './ollama';
 
-export type AIProviderPreference = 'auto' | 'apple' | 'openai' | 'ollama';
+export type AIProviderPreference = 'auto' | 'openai' | 'ollama';
 
 export type AIProviderKind = 'openai' | 'ollama';
 

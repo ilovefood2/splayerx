@@ -22,8 +22,8 @@ const state = {
   isDarkMode: undefined,
   // LLM realtime subtitle translation (off by default; opt-in)
   aiTranslateEnabled: false,
-  // 'auto' uses the API key when set and a local Ollama otherwise.
-  aiTranslateProvider: 'auto',
+  // Ollama is the built-in local translation provider.
+  aiTranslateProvider: 'ollama',
   aiTranslateApiUrl: '',
   aiTranslateApiKey: '',
   aiTranslateModel: '',
@@ -55,7 +55,10 @@ const getters = {
   snapshotSavedPath: state => state.snapshotSavedPath,
   isDarkMode: state => state.isDarkMode,
   aiTranslateEnabled: state => !!state.aiTranslateEnabled,
-  aiTranslateProvider: state => state.aiTranslateProvider || 'auto',
+  aiTranslateProvider: state => (
+    ['auto', 'ollama', 'openai'].includes(state.aiTranslateProvider)
+      ? state.aiTranslateProvider : 'ollama'
+  ),
   aiTranslateApiUrl: state => state.aiTranslateApiUrl,
   aiTranslateApiKey: state => state.aiTranslateApiKey,
   aiTranslateModel: state => state.aiTranslateModel,
@@ -100,6 +103,9 @@ const mutations = {
   getLocalPreference(state) {
     const data = syncStorage.getSync('preferences');
     Object.assign(state, data);
+    // Apple Translation was removed. Migrate the retired choice to the local
+    // Ollama provider so existing users never land on an invalid blank option.
+    if (state.aiTranslateProvider === 'apple') state.aiTranslateProvider = 'ollama';
   },
   subtitleOff(state, payload) {
     state.subtitleOff = !!payload;
