@@ -1064,6 +1064,12 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         tmpDir: remote.app.getPath('temp'),
         language: whisperLanguageOf(getters.aiTranscribeLanguage),
         signal,
+        onProgress: (percent) => {
+          if (signal.aborted || state.mediaHash !== mediaHash) return;
+          if (aiProgressTimer === undefined) {
+            updateAIProgress(progressText('errorFile.aiProgress.transcribing', { percent }));
+          }
+        },
         // Each chunk is shown as soon as it lands: whisper runs far faster than
         // playback, so the viewer starts watching in seconds instead of waiting
         // for a three-hour file to finish.

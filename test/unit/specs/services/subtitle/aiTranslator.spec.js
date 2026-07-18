@@ -3,7 +3,8 @@ import {
   RealtimeSubtitleTranslator, TranslationCache,
   probeOllama, pickChatModel, isEmbeddingModel, parseParameterSize, apiRootOf,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
-  parseWhisperCues, checkTranscribeEnvironment, chunkPlanOf, whisperArgs,
+  parseWhisperCues, parseWhisperProgress, checkTranscribeEnvironment,
+  chunkPlanOf, whisperArgs,
 } from '@/services/subtitle/ai';
 
 const config = {
@@ -284,8 +285,15 @@ describe('services/subtitle/ai - whisper transcription', () => {
       missing: [],
     }, '/tmp/audio.wav', '/tmp/subtitles', 'en', 4);
     expect(args).to.include('--no-gpu');
+    expect(args).to.include('--print-progress');
     expect(args).to.include('--vad');
     expect(args).to.include('/models/vad.bin');
+  });
+
+  it('parses the latest native progress update even across buffered output', () => {
+    const stderr = 'callback: progress =  10%\ncallback: progress =  35%\n';
+    expect(parseWhisperProgress(stderr)).to.equal(35);
+    expect(parseWhisperProgress('loading model')).to.equal(undefined);
   });
 
   it('converts whisper millisecond offsets into second-based cues', () => {

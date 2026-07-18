@@ -36,6 +36,7 @@ export {
   checkTranscribeEnvironment,
   downloadModel,
   parseWhisperCues,
+  parseWhisperProgress,
   chunkPlanOf,
   whisperArgs,
   durationOf,

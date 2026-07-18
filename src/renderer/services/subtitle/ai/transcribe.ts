@@ -315,9 +315,11 @@ function run(command: string, args: string[], options: RunOptions = {}): Promise
   });
 }
 
-/** whisper-cli reports `n%` on stderr while decoding. */
-function parseProgress(chunk: string): number | undefined {
-  const matched = /progress\s*=\s*(\d+)%/i.exec(chunk);
+/** Exported for tests: whisper-cli reports `n%` on stderr while decoding. */
+export function parseWhisperProgress(chunk: string): number | undefined {
+  const matches = chunk.match(/progress\s*=\s*(\d+)%/ig);
+  if (!matches || !matches.length) return undefined;
+  const matched = /(\d+)%/.exec(matches[matches.length - 1]);
   if (!matched) return undefined;
   return parseInt(matched[1], 10);
 }
@@ -391,11 +393,33 @@ export interface TranscribeOptions {
     cues: TimedText[],
     info: { language: string, done: number, total: number },
   ) => void | Promise<void>;
+  /** Overall transcription completion from 0 through 100. */
+  onProgress?: (percent: number) => void;
   signal?: AbortSignal;
 }
 
 const DEFAULT_CHUNK_SECONDS = 120;
 const DEFAULT_THREADS = 8;
+
+function chunkProgressReporter(
+  report: ((percent: number) => void) | undefined,
+  chunkIndex: number,
+  chunkCount: number,
+): ((percent: number) => void) | undefined {
+  if (!report) return undefined;
+  return (chunkPercent) => {
+    const overall = ((chunkIndex + chunkPercent / 100) / chunkCount) * 100;
+    report(Math.min(100, Math.round(overall)));
+  };
+}
+
+function reportCompletedChunk(
+  report: ((percent: number) => void) | undefined,
+  completed: number,
+  total: number,
+): void {
+  if (report) report(Math.round((completed / total) * 100));
+}
 
 /**
  * Voice-activity threshold.
@@ -439,6 +463,7 @@ export function whisperArgs(
     '-of', outPrefix,
     '-t', String(threads),
     '--no-gpu',
+    '--print-progress',
     // Suppress non-speech tokens ([Music] and friends).
     '-sns',
   ].concat(vadArgs(env));
@@ -468,6 +493,7 @@ async function transcribeChunk(
   length: number,
   language: string,
   options: TranscribeOptions,
+  onProgress?: (percent: number) => void,
 ): Promise<{ cues: TimedText[], language: string }> {
   const stamp = `splayer-whisper-${hashOf(videoPath)}-${start}`;
   const wavPath = join(options.tmpDir, `${stamp}.wav`);
@@ -490,10 +516,24 @@ async function transcribeChunk(
       wavPath,
     ]), { signal: options.signal });
 
+    let progressBuffer = '';
+    let lastProgress = -1;
     await run(
       env.whisperPath as string,
       whisperArgs(env, wavPath, outPrefix, language, threads),
-      { signal: options.signal },
+      {
+        signal: options.signal,
+        onStderr: onProgress ? (text) => {
+          // Native stderr can split a progress line across chunks, so retain a
+          // short tail and report only changes.
+          progressBuffer = (progressBuffer + text).slice(-300);
+          const progress = parseWhisperProgress(progressBuffer);
+          if (progress !== undefined && progress !== lastProgress) {
+            lastProgress = progress;
+            onProgress(progress);
+          }
+        } : undefined,
+      },
     );
 
     if (!existsSync(jsonPath)) return { cues: [], language };
@@ -538,6 +578,7 @@ export async function transcribeVideo(
   const duration = await durationOf(env.ffprobePath, videoPath);
   const plan = chunkPlanOf(duration, chunkSeconds);
   const all: TimedText[] = [];
+  const reportProgress = options.onProgress;
   let language = options.language === undefined ? '' : options.language;
 
   for (let i = 0; i < plan.length; i += 1) {
@@ -548,7 +589,9 @@ export async function transcribeVideo(
     // eslint-disable-next-line no-await-in-loop
     const chunk = await transcribeChunk(
       videoPath, env, plan[i].start, plan[i].length, language, options,
+      chunkProgressReporter(reportProgress, i, plan.length),
     );
+    reportCompletedChunk(reportProgress, i + 1, plan.length);
     // Let the first chunk settle the language, then reuse it: faster, and it
     // stops one quiet chunk being detected as a different language.
     if (!language && chunk.language) language = chunk.language;
