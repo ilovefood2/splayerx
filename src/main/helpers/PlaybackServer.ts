@@ -176,6 +176,37 @@ export function shouldUsePlaybackServer(filePath: string): boolean {
     && VIRTUAL_MP4_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
 
+export function compatibilityFfmpegArgs(
+  filePath: string,
+  start: number,
+  platform = process.platform,
+): string[] {
+  const args = ['-v', 'error', '-nostdin'];
+  if (start > 0) args.push('-ss', start.toFixed(3));
+  args.push('-i', filePath, '-map', '0:v:0', '-map', '0:a?');
+  if (platform === 'darwin') {
+    // Electron 11 cannot decode the source file's 10-bit HEVC stream. Apple
+    // VideoToolbox converts it faster than real time without first copying the
+    // multi-gigabyte movie to local storage.
+    args.push(
+      '-c:v', 'h264_videotoolbox', '-allow_sw', '1', '-realtime', '1',
+      '-profile:v', 'high', '-level:v', '5.1', '-pix_fmt', 'yuv420p',
+      '-b:v', '16M', '-maxrate', '24M', '-bufsize', '32M',
+    );
+  } else {
+    args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-crf', '20');
+  }
+  args.push(
+    '-c:a', 'aac', '-b:a', '256k',
+    '-sn', '-dn', '-map_chapters', '-1',
+    '-max_muxing_queue_size', '4096',
+    '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+    '-frag_duration', '1000000',
+    '-f', 'mp4', 'pipe:1',
+  );
+  return args;
+}
+
 export function parseByteRange(
   header: string | undefined,
   size: number,
@@ -472,18 +503,7 @@ export class PlaybackServer {
       stopCompatibilityProcess(media.activeCompatibilityProcess);
     }
 
-    const args = ['-v', 'error', '-nostdin'];
-    if (start > 0) args.push('-ss', start.toFixed(3));
-    args.push(
-      '-i', media.filePath,
-      '-map', '0:v:0', '-map', '0:a?',
-      '-c:v', 'copy', '-c:a', 'aac',
-      '-sn', '-dn', '-map_chapters', '-1',
-      '-max_muxing_queue_size', '4096',
-      '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-      '-frag_duration', '1000000',
-      '-f', 'mp4', 'pipe:1',
-    );
+    const args = compatibilityFfmpegArgs(media.filePath, start);
     const child = spawn(compatibility.ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     media.activeCompatibilityProcess = child;
     const headerTransform = new FragmentedMp4HeaderTransform(compatibility.duration);

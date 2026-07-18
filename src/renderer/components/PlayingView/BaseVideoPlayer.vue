@@ -237,8 +237,8 @@ export default {
   mounted() {
     if (this.isDarwin && this.$refs.video) {
       if (this.isCompatibilityStream()) {
-        // The remux is already HEVC-compatible. The legacy custom flag makes
-        // subsequent stream seeks wait for a second demux pass.
+        // Compatibility streams are hardware-converted to H.264 because this
+        // Electron version cannot render the source MKV's 10-bit HEVC frames.
         this.$refs.video.hwhevc = false;
       } else {
         this.$refs.video.hwhevc = this.hwhevc;

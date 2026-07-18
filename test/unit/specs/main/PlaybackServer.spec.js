@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import {
   buildVirtualMp4,
+  compatibilityFfmpegArgs,
   parseByteRange,
   patchFragmentedMp4Duration,
   PlaybackServer,
@@ -121,11 +122,20 @@ describe('PlaybackServer', () => {
     expect(shouldUsePlaybackServer('/Volumes/Videos/movie.webm')).to.equal(false);
   });
 
-  it('returns a seekable compatibility stream URL for Matroska remuxing', async () => {
+  it('returns a seekable compatibility stream URL for Matroska conversion', async () => {
     const url = await server.compatibilityUrlFor(filePath, 6395.639, '/bin/false');
 
     expect(url).to.match(/^http:\/\/127\.0\.0\.1:\d+\/compat\/[a-f0-9]{40}\//);
     expect(url).to.contain('.mp4?start=0');
+  });
+
+  it('hardware-converts incompatible HEVC video instead of producing audio-only playback', () => {
+    const args = compatibilityFfmpegArgs('/Volumes/Videos/movie.mkv', 3000, 'darwin');
+
+    expect(args).to.include.members([
+      '-ss', '3000.000', '-c:v', 'h264_videotoolbox', '-pix_fmt', 'yuv420p',
+    ]);
+    expect(args).not.to.include('copy');
   });
 
   it('writes the complete movie duration into fragmented MP4 track headers', () => {
