@@ -87,7 +87,7 @@
     "aiProgress": {
       "downloading": "Preparing subtitles — downloading speech model {percent}%",
       "downloadingTranslationModel": "Preparing subtitles — downloading built-in Qwen3 32B model {percent}%",
-      "verifyingModel": "Preparing subtitles — verifying the Qwen3 32B model…",
+      "verifyingModel": "Preparing subtitles — verifying the Qwen3 32B model {percent}%",
       "startingModel": "Preparing subtitles — starting the built-in Qwen3 32B model…",
       "transcribing": "Preparing subtitles — recognising speech {percent}%",
       "translating": "Preparing subtitles — translated {done}/{total} lines"

@@ -105,16 +105,36 @@ export function cleanupLegacyManagedModels(modelDir: string): void {
   });
 }
 
-function sha256(path: string, signal?: AbortSignal): Promise<string> {
+/** Hash a model while reporting coarse progress so multi-gigabyte verification stays visible. */
+export function sha256File(
+  path: string,
+  signal?: AbortSignal,
+  onProgress?: (received: number, total: number) => void,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = createHash('sha256');
+    const total = statSync(path).size;
+    let received = 0;
+    let lastPercent = -1;
     const input = createReadStream(path);
     const abort = () => input.destroy(new Error('aborted'));
+    const report = () => {
+      if (!onProgress) return;
+      const percent = total > 0 ? Math.floor((received / total) * 100) : 100;
+      if (percent === lastPercent) return;
+      lastPercent = percent;
+      onProgress(received, total);
+    };
+    report();
     if (signal) {
       if (signal.aborted) { abort(); return; }
       signal.addEventListener('abort', abort, { once: true });
     }
-    input.on('data', chunk => hash.update(chunk));
+    input.on('data', (chunk: Buffer) => {
+      hash.update(chunk);
+      received += chunk.length;
+      report();
+    });
     input.on('error', reject);
     input.on('end', () => resolve(hash.digest('hex')));
     input.on('close', () => {
@@ -208,8 +228,14 @@ export async function ensureManagedModelFile(
   // A complete file without a marker may have come from an older build. Verify
   // it once before deciding whether it needs to be downloaded again.
   if (existsSync(modelPath)) {
-    if (onProgress) onProgress({ stage: 'verifying' });
-    if (await sha256(modelPath, signal) === MANAGED_MODEL_SHA256) {
+    const digest = await sha256File(
+      modelPath,
+      signal,
+      onProgress
+        ? (received, total) => onProgress({ stage: 'verifying', received, total })
+        : undefined,
+    );
+    if (digest === MANAGED_MODEL_SHA256) {
       writeFileSync(markerPath(modelPath), `${MANAGED_MODEL_SHA256}\n`);
       cleanupLegacyManagedModels(paths.modelDir);
       return modelPath;
@@ -228,8 +254,13 @@ export async function ensureManagedModelFile(
     onProgress ? (received, total) => onProgress({ stage: 'downloading', received, total }) : undefined,
     signal,
   );
-  if (onProgress) onProgress({ stage: 'verifying' });
-  const digest = await sha256(part, signal);
+  const digest = await sha256File(
+    part,
+    signal,
+    onProgress
+      ? (received, total) => onProgress({ stage: 'verifying', received, total })
+      : undefined,
+  );
   if (digest !== MANAGED_MODEL_SHA256) {
     removeIfPresent(part);
     throw new Error(`Qwen3 model checksum mismatch: ${digest}`);

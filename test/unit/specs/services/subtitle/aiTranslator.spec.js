@@ -7,7 +7,7 @@ import {
   translateLines, AITranslationError,
   RealtimeSubtitleTranslator, TranslationCache,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
-  cleanupLegacyManagedModels, contentRangeTotal, inspectManagedModel,
+  cleanupLegacyManagedModels, contentRangeTotal, sha256File, inspectManagedModel,
   MANAGED_MODEL_NAME, MANAGED_MODEL_ALIAS,
   parseWhisperCues, parseWhisperProgress, parseFfmpegProgress, checkTranscribeEnvironment,
   chunkPlanOf, whisperArgs,
@@ -104,6 +104,29 @@ describe('services/subtitle/ai - managed Qwen3 model', () => {
     expect(contentRangeTotal('bytes 1048576-2097151/2621440')).to.equal(2621440);
     expect(contentRangeTotal(undefined)).to.equal(0);
     expect(contentRangeTotal('invalid')).to.equal(0);
+  });
+
+  it('reports visible progress while verifying a model file', async () => {
+    const modelDir = mkdtempSync(join(tmpdir(), 'splayer-model-hash-test-'));
+    const modelPath = join(modelDir, 'model.gguf');
+    const contents = Buffer.alloc(256 * 1024, 7);
+    const progress = [];
+    writeFileSync(modelPath, contents);
+
+    try {
+      const digest = await sha256File(modelPath, undefined, (received, total) => {
+        progress.push({ received, total });
+      });
+      expect(digest).to.have.length(64);
+      expect(progress[0]).to.deep.equal({ received: 0, total: contents.length });
+      expect(progress[progress.length - 1]).to.deep.equal({
+        received: contents.length,
+        total: contents.length,
+      });
+    } finally {
+      unlinkSync(modelPath);
+      rmdirSync(modelDir);
+    }
   });
 
   it('reports missing app-owned runtime and model without probing the network', () => {

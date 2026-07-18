@@ -191,7 +191,10 @@ function managedPaths(): ManagedModelPaths {
 
 function managedProgressText(progress: ManagedModelProgress): string {
   if (progress.stage === 'verifying') {
-    return progressText('errorFile.aiProgress.verifyingModel', {});
+    const received = progress.received || 0;
+    const total = progress.total || 0;
+    const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
+    return progressText('errorFile.aiProgress.verifyingModel', { percent });
   }
   if (progress.stage === 'starting') {
     return progressText('errorFile.aiProgress.startingModel', {});
@@ -211,14 +214,14 @@ async function translationPlan(
   const useManaged = preference === 'local'
     || (preference === 'auto' && !prefs.aiTranslateApiKey);
   if (useManaged) {
-    let stage: string | undefined;
+    let progressShown = false;
     try {
       const endpoint = await ensureManagedModelServer({
         paths: managedPaths(),
         onProgress: (progress) => {
           const content = managedProgressText(progress);
-          if (stage !== progress.stage) {
-            stage = progress.stage;
+          if (!progressShown) {
+            progressShown = true;
             showAIProgress(content);
           } else {
             updateAIProgress(content);

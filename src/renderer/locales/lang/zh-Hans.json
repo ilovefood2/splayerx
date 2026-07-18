@@ -87,7 +87,7 @@
     "aiProgress": {
       "downloading": "正在准备字幕 — 下载语音模型 {percent}%",
       "downloadingTranslationModel": "正在准备字幕 — 下载内置 Qwen3 32B 模型 {percent}%",
-      "verifyingModel": "正在准备字幕 — 验证 Qwen3 32B 模型…",
+      "verifyingModel": "正在准备字幕 — 验证 Qwen3 32B 模型 {percent}%",
       "startingModel": "正在准备字幕 — 启动内置 Qwen3 32B 模型…",
       "transcribing": "正在准备字幕 — 识别语音 {percent}%",
       "translating": "正在准备字幕 — 已翻译 {done}/{total} 句"

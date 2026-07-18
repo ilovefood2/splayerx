@@ -56,6 +56,7 @@ export {
   ManagedModelEndpoint,
   EnsureManagedModelOptions,
   contentRangeTotal,
+  sha256File,
   inspectManagedModel,
   cleanupLegacyManagedModels,
   ensureManagedModelFile,
