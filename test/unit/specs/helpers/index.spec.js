@@ -82,5 +82,31 @@ describe('index.js', () => {
       });
       sinon.assert.calledWithExactly(emit, 'new-file-open');
     });
+
+    it('starts opening before deferred source preparation finishes', async () => {
+      let finishOpening;
+      const sourceResult = new Promise((resolve) => { finishOpening = resolve; });
+      const dispatch = sinon.stub().returns(sourceResult);
+      const emit = sinon.spy();
+      const context = {
+        $store: {
+          getters: { showSidebar: false, source: '' },
+          dispatch,
+        },
+        $router: {
+          currentRoute: { name: 'landing-view' },
+          push: sinon.spy(),
+        },
+        $bus: { $emit: emit },
+      };
+
+      const opening = helpers.methods.playFile.call(context, '/network/movie.mkv', NaN);
+
+      sinon.assert.calledOnce(dispatch);
+      sinon.assert.calledWithExactly(context.$router.push, { name: 'playing-view' });
+      sinon.assert.calledWithExactly(emit, 'new-file-open');
+      finishOpening('calculated-hash');
+      expect(await opening).to.equal('calculated-hash');
+    });
   });
 });

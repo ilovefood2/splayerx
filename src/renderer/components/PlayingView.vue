@@ -59,10 +59,12 @@ export default {
       generateType: NaN,
       showingPopupDialog: false,
       savedName: '',
+      mediaReadySrc: '',
+      initializedMediaKey: '',
     };
   },
   computed: {
-    ...mapGetters(['originSrc', 'duration', 'winWidth', 'winHeight', 'isProfessional', 'primarySubtitleId', 'secondarySubtitleId', 'isFolderList']),
+    ...mapGetters(['originSrc', 'mediaHash', 'duration', 'winWidth', 'winHeight', 'isProfessional', 'primarySubtitleId', 'secondarySubtitleId', 'isFolderList']),
     allCues() {
       return Array.isArray(this.currentCues)
         ? this.currentCues.flatMap(({ cues }: { cues: [] }) => cues)
@@ -75,8 +77,13 @@ export default {
       // eslint-disable-next-line
       handler: function (newVal: string) {
         this.generatePost = false;
+        this.mediaReadySrc = '';
+        this.initializedMediaKey = '';
         this.resetManager();
       },
+    },
+    mediaHash() {
+      this.initializeMediaFeatures(this.originSrc);
     },
     async primarySubtitleId() {
       this.currentCues = await this.getCues(videodata.time);
@@ -127,6 +134,14 @@ export default {
     }),
     onMediaReady(src: string) {
       if (!src || src !== this.originSrc) return;
+      this.mediaReadySrc = src;
+      this.initializeMediaFeatures(src);
+    },
+    initializeMediaFeatures(src: string) {
+      if (!src || src !== this.originSrc || this.mediaReadySrc !== src || !this.mediaHash) return;
+      const key = `${src}\u0000${this.mediaHash}`;
+      if (key === this.initializedMediaKey) return;
+      this.initializedMediaKey = key;
       getStreams(src);
       this.initializeManager();
       if (this.isFolderList) this.$store.dispatch('UpdatePlayingList');

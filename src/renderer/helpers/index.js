@@ -454,7 +454,24 @@ export default {
       if (!videoFile) return;
       let id;
       let playlist;
-      const quickHash = await mediaQuickHash.try(videoFile);
+      this.$store.dispatch('FolderList', {
+        id: '',
+        paths: [videoFile],
+        items: [],
+      });
+      const knownVideoPromise = this.$store.getters.incognitoMode
+        ? Promise.resolve(null)
+        : this.infoDB.get('media-item', 'path', videoFile).then((knownVideo) => {
+          if (knownVideo && this.$store.getters.originSrc === videoFile) {
+            this.$store.commit('ID_UPDATE', knownVideo.videoId);
+          }
+          return knownVideo;
+        });
+      const [quickHash, knownVideo] = await Promise.all([
+        this.playFile(videoFile, NaN),
+        knownVideoPromise,
+      ]);
+      if (!quickHash) return;
       playlist = await this.infoDB.get('recent-played', 'hpaths', [`${quickHash}-${videoFile}`]);
       if (quickHash && playlist && !this.$store.getters.incognitoMode) {
         id = playlist.id;
@@ -473,19 +490,23 @@ export default {
           path: videoFile,
           source: '',
         };
-        const videoId = await this.infoDB.add('media-item', data);
+        const videoId = knownVideo && knownVideo.quickHash === quickHash
+          ? knownVideo.videoId
+          : await this.infoDB.add('media-item', data);
         playlist.items.push(videoId);
         playlist.hpaths.push(`${quickHash}-${videoFile}`);
         id = await this.infoDB.add('recent-played', playlist);
       }
 
       if (!quickHash || !playlist) return;
-      this.$store.dispatch('FolderList', {
-        id,
-        paths: [videoFile],
-        items: playlist.items.slice(0, 1),
-      });
-      this.playFile(videoFile, playlist.items[0], quickHash);
+      if (this.$store.getters.originSrc === videoFile) {
+        this.$store.commit('ID_UPDATE', playlist.items[0]);
+        this.$store.dispatch('FolderList', {
+          id,
+          paths: [videoFile],
+          items: playlist.items.slice(0, 1),
+        });
+      }
     },
     bookmarkAccessing(vidPath) {
       const bookmarkObj = syncStorage.getSync('bookmark');
@@ -514,33 +535,22 @@ export default {
     },
     // openFile and db operation
     async playFile(vidPath, id, knownMediaHash) { // eslint-disable-line complexity
-      let mediaHash = knownMediaHash;
       if (process.mas && this.$store.getters.source !== 'drop') {
-        if (!this.bookmarkAccessing(vidPath)) return;
+        if (!this.bookmarkAccessing(vidPath)) return undefined;
       }
       if (this.$store.getters.showSidebar) {
         this.$store.dispatch('UPDATE_SHOW_SIDEBAR', false);
       }
-      try {
-        if (!mediaHash) mediaHash = await mediaQuickHash(vidPath);
-      } catch (err) {
-        const errorCode = get(err, 'code');
-        if (errorCode === 'ENOENT') {
-          log.warn('helpers/index.js', 'Failed to open file, it will be removed from list.');
-          addBubble(FILE_NON_EXIST_IN_PLAYLIST);
-          this.$bus.$emit('delete-file', vidPath, id);
-          this.$bus.$emit('refresh-recent-delete-file', vidPath, id);
-        }
-        if (process.mas && errorCode === 'EPERM') {
-          this.openFilesByDialog({ defaultPath: vidPath });
-        }
-        return;
-      }
-      this.$store.dispatch('SRC_SET', { src: vidPath, mediaHash, id });
+      const sourceTask = this.$store.dispatch('SRC_SET', {
+        src: vidPath,
+        mediaHash: knownMediaHash,
+        id,
+      });
       if (this.$router.currentRoute.name !== 'playing-view') {
         this.$router.push({ name: 'playing-view' });
       }
       this.$bus.$emit('new-file-open');
+      return sourceTask;
     },
     createIcon(iconPath) {
       const { nativeImage } = this.$electron.remote;

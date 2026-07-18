@@ -8,7 +8,7 @@
     >
       <base-video-player
         ref="videoCanvas"
-        :key="videoId"
+        :key="originSrc"
         :needtimeupdate="true"
         :last-audio-track-id="lastAudioTrackId"
         :events="['loadedmetadata', 'audiotrack', 'playing']"

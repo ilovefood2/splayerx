@@ -202,22 +202,31 @@ function generateRate(rateInfo, nowRate, oldRateGroup) {
 const mutations = mutationsGenerator(videoMutations);
 
 const actions = {
-  async [videoActions.SRC_SET]({ commit, dispatch }, { src, mediaHash, id }) {
+  async [videoActions.SRC_SET]({ state, commit, dispatch }, { src, mediaHash, id }) {
     const srcRegexes = {
       unix: RegExp(/^[^\0]+$/),
       windows: RegExp(/^[a-zA-Z]:\/(((?![<>:"//|?*]).)+((?<![ .])\/)?)*$/),
     };
     const isValid = Object.keys(srcRegexes).some(type => srcRegexes[type].test(src));
-    if (!isValid) return;
-    mediaHash = mediaHash || await mediaQuickHash.try(src);
-    if (!mediaHash) return;
-    const playbackSrc = process.env.NODE_ENV === 'testing'
-      ? src : await ipcRenderer.invoke('prepare-playback-source', src);
-    commit(videoMutations.SRC_UPDATE, src);
+    if (!isValid) return undefined;
+    let playbackSrc = src;
+    // Only transport streams need compatibility preparation. Normal files can
+    // be handed to the video element immediately, before network fingerprinting.
+    if (process.env.NODE_ENV !== 'testing' && /\.ts$/i.test(src)) {
+      playbackSrc = await ipcRenderer.invoke('prepare-playback-source', src);
+    }
     commit(videoMutations.CURRENT_SRC_UPDATE, playbackSrc);
-    commit(videoMutations.MEDIA_HASH_UPDATE, mediaHash);
+    commit(videoMutations.MEDIA_HASH_UPDATE, mediaHash || '');
     commit(videoMutations.ID_UPDATE, id);
+    commit(videoMutations.SRC_UPDATE, src);
     dispatch(subtitleActions.INITIALIZE_VIDEO_SUBTITLE_MAP, { videoSrc: src });
+
+    if (mediaHash) return mediaHash;
+    const calculatedHash = await mediaQuickHash.try(src);
+    if (calculatedHash && state.src === src) {
+      commit(videoMutations.MEDIA_HASH_UPDATE, calculatedHash);
+    }
+    return calculatedHash;
   },
   [videoActions.INITIALIZE]({ commit }, config) {
     Object.keys(config).forEach((item) => {
