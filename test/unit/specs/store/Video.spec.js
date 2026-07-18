@@ -3,6 +3,12 @@ import { Video as videoActions, Subtitle as subtitleActions } from '@/store/acti
 import { Video as videoMutations } from '@/store/mutationTypes';
 
 describe('store/modules/Video', () => {
+  it('preserves HTTP playback URLs', () => {
+    const url = 'http://127.0.0.1:54321/media/token/movie.mp4';
+    expect(Video.getters.convertedSrc({ currentSrc: url, src: '/Volumes/movie.mp4' }))
+      .to.equal(url);
+  });
+
   it('assigns a normal media source before calculating its hash', async () => {
     const state = { src: '' };
     const commits = [];

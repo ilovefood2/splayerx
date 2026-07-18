@@ -68,6 +68,7 @@ const getters = {
   originSrc: state => state.src,
   convertedSrc: (state) => {
     const playbackSrc = state.currentSrc || state.src;
+    if (/^https?:\/\//i.test(playbackSrc)) return playbackSrc;
     const converted = process.platform === 'win32' ? encodeURIComponent(playbackSrc).replace(/%3A/g, ':').replace(/(%5C)|(%2F)/g, '/')
       : encodeURIComponent(playbackSrc).replace(/%3A/g, ':').replace(/%2F/g, '/');
     return process.platform === 'win32' ? converted : `file://${converted}`;
@@ -210,9 +211,12 @@ const actions = {
     const isValid = Object.keys(srcRegexes).some(type => srcRegexes[type].test(src));
     if (!isValid) return undefined;
     let playbackSrc = src;
-    // Only transport streams need compatibility preparation. Normal files can
-    // be handed to the video element immediately, before network fingerprinting.
-    if (process.env.NODE_ENV !== 'testing' && /\.ts$/i.test(src)) {
+    // Transport streams need remuxing. Mounted media uses the loopback range
+    // reader so Chromium avoids many small reads directly over SMB.
+    const isMountedMedia = process.platform === 'darwin'
+      ? src.indexOf('/Volumes/') === 0
+      : /^\\\\/.test(src);
+    if (process.env.NODE_ENV !== 'testing' && (/\.ts$/i.test(src) || isMountedMedia)) {
       playbackSrc = await ipcRenderer.invoke('prepare-playback-source', src);
     }
     commit(videoMutations.CURRENT_SRC_UPDATE, playbackSrc);
