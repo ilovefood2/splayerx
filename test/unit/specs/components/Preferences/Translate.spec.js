@@ -48,16 +48,16 @@ describe('Component - Preferences/Translate', () => {
     const wrapper = mountWith({ aiTranslateEnabled: true });
     await flush();
     expect(wrapper.vm.aiTranslateProvider).to.equal('local');
-    expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in madlad-400 10b-mt');
-    expect(wrapper.vm.defaultModel).to.equal('splayer-madlad400-10b-mt');
-    expect(wrapper.vm.aiTranslateManagedModel).to.equal('madlad400-10b-mt');
+    expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in tower+ 9b q8');
+    expect(wrapper.vm.defaultModel).to.equal('splayer-tower-plus-9b');
+    expect(wrapper.vm.aiTranslateManagedModel).to.equal('tower-plus-9b');
   });
 
   it('migrates retired local-provider choices to the built-in provider', async () => {
     const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'apple' });
     await flush();
     expect(wrapper.vm.aiTranslateProvider).to.equal('local');
-    expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in madlad-400 10b-mt');
+    expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in tower+ 9b q8');
     const choices = wrapper.findAll('option').wrappers.map(option => option.attributes('value'));
     expect(choices).to.include('local');
     expect(choices).to.not.include('apple');
@@ -84,17 +84,15 @@ describe('Component - Preferences/Translate', () => {
     const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'local' });
     await flush();
     const choices = wrapper.findAll('option').wrappers.map(option => option.attributes('value'));
-    expect(choices).to.include.members(['qwen3-14b', 'qwen3-32b', 'madlad400-10b-mt']);
+    expect(choices).to.include.members(['qwen3-14b', 'qwen3-32b', 'tower-plus-9b']);
     expect(choices).to.not.include('qwen3-4b');
-    expect(choices).to.not.include('tower-plus-72b');
 
-    wrapper.vm.aiTranslateManagedModel = 'madlad400-10b-mt';
+    wrapper.vm.aiTranslateManagedModel = 'tower-plus-9b';
     await flush();
-    expect(wrapper.vm.defaultModel).to.equal('splayer-madlad400-10b-mt');
-    expect(wrapper.vm.providerStatus).to.contain('MADLAD-400 10B-MT');
-    expect(wrapper.vm.selectedManagedModel.downloadSize).to.equal('8.79 GB');
-    expect(wrapper.text()).to.contain('MADLAD-400 10B-MT — 8.79 GB');
-    expect(wrapper.text()).to.contain('Qwen3 32B — 20 GB');
+    expect(wrapper.vm.defaultModel).to.equal('splayer-tower-plus-9b');
+    expect(wrapper.vm.providerStatus).to.contain('Tower+ 9B Q8');
+    expect(wrapper.vm.selectedManagedModel.downloadSize).to.equal('9.83 GB');
+    expect(wrapper.text()).to.contain('Tower+ 9B Q8 — 9.83 GB · personal use');
   });
 
   it('reports the api key path without probing', async () => {

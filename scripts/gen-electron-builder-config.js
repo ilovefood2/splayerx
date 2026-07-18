@@ -149,8 +149,7 @@ if (fs.existsSync(path.join(whisperBundleDir, 'whisper-cli'))) {
 }
 
 const llamaBundleDir = path.join(__dirname, '../build/llama');
-if (fs.existsSync(path.join(llamaBundleDir, 'llama-server'))
-  && fs.existsSync(path.join(llamaBundleDir, 'madlad-worker'))) {
+if (fs.existsSync(path.join(llamaBundleDir, 'llama-server'))) {
   config.extraResources.push({
     from: 'build/llama',
     to: 'llama',

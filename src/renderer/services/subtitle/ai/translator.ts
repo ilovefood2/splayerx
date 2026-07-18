@@ -19,8 +19,6 @@ export interface AITranslatorConfig {
   model: string;
   /** Human-readable target language name, e.g. `Simplified Chinese`. */
   targetLanguage: string;
-  /** BCP-47 target code used by dedicated translation models, e.g. `zh-CN`. */
-  targetLanguageCode?: string;
   /** Optional human-readable source language name. Auto-detected when omitted. */
   sourceLanguage?: string;
   /** Sampling temperature. Defaults to a low value for deterministic output. */
@@ -56,36 +54,30 @@ function resolveEndpoint(baseUrl: string): string {
   return `${url}/chat/completions`;
 }
 
-function resolveCompletionsEndpoint(baseUrl: string): string {
-  const url = (baseUrl || DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
-  if (/\/completions$/.test(url)) return url;
-  return `${url}/completions`;
+export function isTowerModel(model: string): boolean {
+  return /tower-plus/i.test(model || '');
 }
 
-export function isMadladModel(model: string): boolean {
-  return /madlad400/i.test(model || '');
+function towerLanguageName(language: string): string {
+  if (/^simplified chinese$/i.test(language)) return 'Chinese (Simplified)';
+  if (/^traditional chinese$/i.test(language)) return 'Chinese (Traditional)';
+  return language;
 }
 
-/** MADLAD uses a target-language token instead of a chat instruction. */
-export function madladTargetToken(code?: string, languageName?: string): string {
-  const aliases: Record<string, string> = {
-    'zh-cn': 'zh',
-    'zh-hans': 'zh',
-    'zh-tw': 'zh_Hant',
-    'zh-hant': 'zh_Hant',
-    nb: 'no',
-  };
-  const raw = (code || '').trim();
-  let normalized = aliases[raw.toLowerCase()] || raw.replace('-', '_');
-  if (!normalized) {
-    const name = (languageName || '').toLowerCase();
-    if (name.indexOf('traditional chinese') >= 0) normalized = 'zh_Hant';
-    else if (name.indexOf('chinese') >= 0) normalized = 'zh';
-  }
-  if (!/^[A-Za-z]{2,3}(?:_[A-Za-z]{4})?$/.test(normalized)) {
-    throw new AITranslationError(`MADLAD does not recognise target language: ${languageName || code || ''}`);
-  }
-  return `<2${normalized}>`;
+/** Use the single-source format recommended by Tower's authors. */
+function buildTowerPrompt(text: string, config: AITranslatorConfig): string {
+  const target = towerLanguageName(config.targetLanguage);
+  const source = config.sourceLanguage
+    ? towerLanguageName(config.sourceLanguage) : 'Source';
+  const instruction = config.sourceLanguage
+    ? `Translate the following ${source} source text to ${target}`
+    : `Translate the following source text to ${target}`;
+  return [
+    `${instruction} as natural, concise spoken subtitles. Preserve casual tone, implied subjects,`,
+    'and speaker intent; do not translate literally:',
+    `${source}: ${text}`,
+    `${target}: `,
+  ].join('\n');
 }
 
 function buildSystemPrompt(config: AITranslatorConfig): string {
@@ -135,12 +127,12 @@ function parseTranslations(content: string, expectedLength: number): string[] | 
   return undefined;
 }
 
-async function requestJSON(
+async function requestCompletion(
   endpoint: string,
   body: object,
   config: AITranslatorConfig,
   options: TranslateOptions,
-): Promise<unknown> {
+): Promise<string> {
   const controller = new AbortController();
   // NOTE: explicit undefined checks rather than `??` throughout this module —
   // webpack 4 cannot parse `??`/`?.`, and ts-loader passes them through untouched
@@ -148,9 +140,10 @@ async function requestJSON(
   // deliberate 0 (e.g. temperature: 0).
   const timeout = options.timeout === undefined ? DEFAULT_TIMEOUT : options.timeout;
   const timer = setTimeout(() => controller.abort(), timeout);
+  const abort = () => controller.abort();
   if (options.signal) {
     if (options.signal.aborted) controller.abort();
-    else options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+    else options.signal.addEventListener('abort', abort, { once: true });
   }
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
@@ -169,6 +162,7 @@ async function requestJSON(
     throw new AITranslationError(`Translation request failed: ${err.message}`);
   } finally {
     clearTimeout(timer);
+    if (options.signal) options.signal.removeEventListener('abort', abort);
   }
 
   if (!response.ok) {
@@ -179,16 +173,7 @@ async function requestJSON(
     );
   }
 
-  return response.json().catch(() => undefined);
-}
-
-async function requestCompletion(
-  endpoint: string,
-  body: object,
-  config: AITranslatorConfig,
-  options: TranslateOptions,
-): Promise<string> {
-  const json = await requestJSON(endpoint, body, config, options) as
+  const json = await response.json().catch(() => undefined) as
     | { choices?: { message?: { content?: string } }[] }
     | undefined;
   const choices = json && json.choices;
@@ -199,50 +184,31 @@ async function requestCompletion(
   return content;
 }
 
-async function requestTextCompletion(
-  endpoint: string,
-  body: object,
-  config: AITranslatorConfig,
-  options: TranslateOptions,
-): Promise<string> {
-  const json = await requestJSON(endpoint, body, config, options) as
-    | { choices?: { text?: string }[] }
-    | undefined;
-  const choices = json && json.choices;
-  const first = choices && choices[0];
-  const text = first && first.text;
-  if (typeof text !== 'string') {
-    throw new AITranslationError('MADLAD returned an unexpected response shape');
-  }
-  return text.trim();
-}
-
-async function translateMadladLines(
+async function translateTowerLines(
   texts: string[],
   config: AITranslatorConfig,
   options: TranslateOptions,
 ): Promise<string[]> {
-  const endpoint = resolveCompletionsEndpoint(config.baseUrl);
-  const targetToken = madladTargetToken(config.targetLanguageCode, config.targetLanguage);
+  const endpoint = resolveEndpoint(config.baseUrl);
   const translated = new Array<string>(texts.length);
   let nextIndex = 0;
-  // The dedicated encoder-decoder runtime handles one request at a time while
-  // keeping the large model resident in memory between subtitle lines.
   const worker = async () => {
     while (nextIndex < texts.length) {
       const index = nextIndex;
       nextIndex += 1;
-      const text = await requestTextCompletion(endpoint, {
+      const content = await requestCompletion(endpoint, {
         model: config.model,
-        prompt: `${targetToken} ${texts[index]}`,
         temperature: 0,
         max_tokens: 512,
+        messages: [{ role: 'user', content: buildTowerPrompt(texts[index], config) }],
       }, config, options);
-      if (!text) throw new AITranslationError('MADLAD returned an empty translation');
+      const text = content.trim();
+      if (!text) throw new AITranslationError('Tower+ returned an empty translation');
       translated[index] = text;
     }
   };
-  const workers = new Array(Math.min(1, texts.length)).fill(undefined).map(() => worker());
+  // Two in-flight lines keep local inference busy without flooding its queue.
+  const workers = new Array(Math.min(2, texts.length)).fill(undefined).map(() => worker());
   await Promise.all(workers);
   return translated;
 }
@@ -264,7 +230,7 @@ export async function translateLines(
   options: TranslateOptions = {},
 ): Promise<string[]> {
   if (!texts.length) return [];
-  if (isMadladModel(config.model)) return translateMadladLines(texts, config, options);
+  if (isTowerModel(config.model)) return translateTowerLines(texts, config, options);
   const endpoint = resolveEndpoint(config.baseUrl);
   const body = {
     model: config.model || DEFAULT_MODEL,

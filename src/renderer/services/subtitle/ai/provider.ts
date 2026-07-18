@@ -135,9 +135,7 @@ export async function resolveAIProvider(
 /** Build the translator config for a resolved provider. */
 export function configFor(
   resolution: AIProviderResolution,
-  languages: {
-    targetLanguage: string, targetLanguageCode?: string, sourceLanguage?: string,
-  },
+  languages: { targetLanguage: string, sourceLanguage?: string },
 ): AITranslatorConfig | undefined {
   if (!resolution.ok || !resolution.endpoint) return undefined;
   return {
@@ -145,7 +143,6 @@ export function configFor(
     apiKey: resolution.endpoint.apiKey,
     model: resolution.endpoint.model,
     targetLanguage: languages.targetLanguage,
-    targetLanguageCode: languages.targetLanguageCode,
     sourceLanguage: languages.sourceLanguage,
     temperature: resolution.kind === 'local' ? 0 : undefined,
   };

@@ -3,8 +3,7 @@ export {
   TranslateOptions,
   AITranslationError,
   translateLines,
-  isMadladModel,
-  madladTargetToken,
+  isTowerModel,
   DEFAULT_BASE_URL,
   DEFAULT_MODEL,
 } from './translator';

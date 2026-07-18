@@ -100,7 +100,7 @@ function languagesFor(
   targetCode: LanguageCode,
   sourceCode?: LanguageCode,
 ): {
-    targetLanguage: string, targetLanguageCode: string, sourceLanguage?: string,
+    targetLanguage: string, sourceLanguage?: string,
   } {
   // An untagged track (Default/No) has no meaningful language name — passing it
   // through would put "translate from Default" in the prompt. Leave it out and
@@ -109,7 +109,6 @@ function languagesFor(
     && sourceCode !== LanguageCode.Default && sourceCode !== LanguageCode.No;
   return {
     targetLanguage: codeToLanguageName(targetCode),
-    targetLanguageCode: String(targetCode),
     sourceLanguage: hasKnownSource ? codeToLanguageName(sourceCode as LanguageCode) : undefined,
   };
 }

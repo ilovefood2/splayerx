@@ -4,7 +4,7 @@ import {
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
-  translateLines, AITranslationError, madladTargetToken,
+  translateLines, AITranslationError, isTowerModel,
   RealtimeSubtitleTranslator, TranslationCache,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
   contentRangeTotal, sha256File, inspectManagedModel, managedModelById,
@@ -93,47 +93,44 @@ describe('services/subtitle/ai - translateLines', () => {
     expect(out).to.deep.equal([]);
   });
 
-  it('uses MADLAD completion prompts and preserves subtitle order', async () => {
+  it('uses Tower translation prompts for Chinese and Japanese in source order', async () => {
     const requests = [];
     global.fetch = mockFetch((url, init) => {
       const body = JSON.parse(init.body);
       requests.push({ url, body });
-      return { body: { choices: [{ text: `译:${body.prompt.replace(/^<2zh> /, '')}` }] } };
+      const prompt = body.messages[0].content;
+      const source = prompt.match(/Japanese: (.*)\nChinese \(Simplified\):/)[1];
+      return { body: { choices: [{ message: { content: `译:${source}` } }] } };
     });
-    const out = await translateLines(['hello', 'world'], {
+    const out = await translateLines(['気をつけて', '行きましょう'], {
       ...config,
-      model: 'splayer-madlad400-10b-mt',
-      targetLanguageCode: 'zh-CN',
+      model: 'splayer-tower-plus-9b',
+      sourceLanguage: 'Japanese',
     });
-    expect(out).to.deep.equal(['译:hello', '译:world']);
-    expect(requests.map(request => request.url))
-      .to.deep.equal(['https://api.openai.com/v1/completions', 'https://api.openai.com/v1/completions']);
-    expect(requests.map(request => request.body.prompt)).to.have.members([
-      '<2zh> hello', '<2zh> world',
-    ]);
+    expect(out).to.deep.equal(['译:気をつけて', '译:行きましょう']);
+    expect(requests).to.have.length(2);
+    expect(requests.every(request => request.url.endsWith('/chat/completions'))).to.equal(true);
+    expect(requests.every(request => request.body.messages.length === 1)).to.equal(true);
+    expect(requests[0].body.messages[0].content)
+      .to.contain('Translate the following Japanese source text to Chinese (Simplified)');
     expect(requests.every(request => request.body.temperature === 0)).to.equal(true);
-  });
-
-  it('maps app language codes to MADLAD target tokens', () => {
-    expect(madladTargetToken('zh-CN')).to.equal('<2zh>');
-    expect(madladTargetToken('zh-TW')).to.equal('<2zh_Hant>');
-    expect(madladTargetToken('nb')).to.equal('<2no>');
-    expect(madladTargetToken('ja')).to.equal('<2ja>');
+    expect(isTowerModel('splayer-tower-plus-9b')).to.equal(true);
+    expect(isTowerModel('splayer-qwen3-32b')).to.equal(false);
   });
 });
 
 describe('services/subtitle/ai - managed translation model', () => {
-  it('offers three verified downloads and defaults to MADLAD-400 10B-MT', () => {
+  it('offers three verified downloads and defaults to Tower+ 9B Q8', () => {
     expect(MANAGED_MODELS.map(model => model.id)).to.deep.equal([
-      'qwen3-14b', 'qwen3-32b', 'madlad400-10b-mt',
+      'qwen3-14b', 'qwen3-32b', 'tower-plus-9b',
     ]);
-    expect(DEFAULT_MANAGED_MODEL_ID).to.equal('madlad400-10b-mt');
-    expect(MANAGED_MODEL_NAME).to.equal('model-q6_k.gguf');
-    expect(MANAGED_MODEL_ALIAS).to.equal('splayer-madlad400-10b-mt');
-    expect(managedModelById('madlad400-10b-mt').sha256)
-      .to.equal('1bae3de3d35a08c900de28c165e5f59cfe9a59a1b20e53d441caf36ce43cf169');
-    expect(managedModelById('madlad400-10b-mt').url)
-      .to.contain('thirteenbit/madlad400-10b-mt-gguf');
+    expect(DEFAULT_MANAGED_MODEL_ID).to.equal('tower-plus-9b');
+    expect(MANAGED_MODEL_NAME).to.equal('Tower-Plus-9B.Q8_0.gguf');
+    expect(MANAGED_MODEL_ALIAS).to.equal('splayer-tower-plus-9b');
+    expect(managedModelById('tower-plus-9b').sha256)
+      .to.equal('715482435090af7e4cc84d3caf9503793779d95db7ee4b41293171ff7ca136de');
+    expect(managedModelById('tower-plus-9b').url)
+      .to.contain('mradermacher/Tower-Plus-9B-GGUF');
     MANAGED_MODELS.forEach((model) => {
       expect(model.sha256).to.match(/^[a-f0-9]{64}$/);
       expect(model.url).to.contain(model.fileName);
@@ -143,9 +140,11 @@ describe('services/subtitle/ai - managed translation model', () => {
   it('resolves a selected model and safely falls back for old preferences', () => {
     expect(managedModelById('qwen3-14b').downloadSize).to.equal('9 GB');
     expect(managedModelById('qwen3-32b').alias).to.equal('splayer-qwen3-32b');
-    expect(managedModelById('madlad400-10b-mt').downloadSize).to.equal('8.79 GB');
+    expect(managedModelById('tower-plus-9b').downloadSize).to.equal('9.83 GB');
+    expect(managedModelById('tower-plus-9b').personalUseOnly).to.equal(true);
     expect(managedModelById('qwen3-4b').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
     expect(managedModelById('tower-plus-72b').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
+    expect(managedModelById('madlad400-10b-mt').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
     expect(managedModelById('unknown').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
   });
 
@@ -197,7 +196,7 @@ describe('services/subtitle/ai - managed translation model', () => {
     try {
       expect(inspectManagedModel({ serverPath: __filename, modelDir }, 'qwen3-14b')
         .modelDownloaded).to.equal(true);
-      expect(inspectManagedModel({ serverPath: __filename, modelDir }, 'madlad400-10b-mt')
+      expect(inspectManagedModel({ serverPath: __filename, modelDir }, 'tower-plus-9b')
         .modelDownloaded).to.equal(false);
       expect(existsSync(qwenModel)).to.equal(true);
     } finally {

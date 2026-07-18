@@ -27,7 +27,7 @@ const state = {
   aiTranslateApiUrl: '',
   aiTranslateApiKey: '',
   aiTranslateModel: '',
-  aiTranslateManagedModel: 'madlad400-10b-mt',
+  aiTranslateManagedModel: 'tower-plus-9b',
   aiTranslateTargetLanguage: '',
   // Spoken language for whisper transcription; '' means auto-detect.
   aiTranscribeLanguage: '',
@@ -64,8 +64,8 @@ const getters = {
   aiTranslateApiKey: state => state.aiTranslateApiKey,
   aiTranslateModel: state => state.aiTranslateModel,
   aiTranslateManagedModel: state => (
-    ['qwen3-14b', 'qwen3-32b', 'madlad400-10b-mt'].includes(state.aiTranslateManagedModel)
-      ? state.aiTranslateManagedModel : 'madlad400-10b-mt'
+    ['qwen3-14b', 'qwen3-32b', 'tower-plus-9b'].includes(state.aiTranslateManagedModel)
+      ? state.aiTranslateManagedModel : 'tower-plus-9b'
   ),
   aiTranslateTargetLanguage: state => state.aiTranslateTargetLanguage,
   aiTranscribeLanguage: state => state.aiTranscribeLanguage,
