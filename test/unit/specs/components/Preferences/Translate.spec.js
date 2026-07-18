@@ -71,6 +71,16 @@ describe('Component - Preferences/Translate', () => {
     expect(wrapper.vm.defaultModel).to.equal('qwen3-coder:latest');
   });
 
+  it('offers a strict Apple-only mode without probing ollama', async () => {
+    let probed = false;
+    global.fetch = () => { probed = true; return Promise.reject(new Error('should not probe')); };
+    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'apple' });
+    await flush();
+    expect(probed).to.equal(false);
+    expect(wrapper.vm.providerStatus).to.contain('Using Apple Translation only');
+    expect(wrapper.vm.providerStatus).to.contain('no Ollama or API fallback');
+  });
+
   it('tells the user how to install ollama when none is running', async () => {
     global.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
     const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'ollama' });

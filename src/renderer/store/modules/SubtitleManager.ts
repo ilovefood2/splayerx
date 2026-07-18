@@ -248,6 +248,9 @@ async function translationPlan(
     languages.sourceLanguageCode, languages.targetLanguageCode, sample,
   );
   if (!apple.available) {
+    if (preference === 'apple') {
+      return { reason: `apple-${apple.status}` };
+    }
     const fallback = await resolveAppleFallback(prefs);
     return {
       config: configFor(fallback, languages),
@@ -265,6 +268,13 @@ async function translationPlan(
     try {
       return await translateWithApple(texts, activeConfig, options);
     } catch (error) {
+      if (preference === 'apple') {
+        if (!reportedFailure) {
+          reportedFailure = true;
+          log.warn('SubtitleManager', `Apple Translation failed: ${(error as Error).message}`);
+        }
+        throw error;
+      }
       if (!reportedFailure) {
         reportedFailure = true;
         log.warn('SubtitleManager', `Apple Translation failed; using fallback: ${(error as Error).message}`);
