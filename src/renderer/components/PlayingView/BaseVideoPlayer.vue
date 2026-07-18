@@ -130,6 +130,9 @@ export default {
       duration: 0,
       skipEventCount: 0, // hwhevc need skip event count
       loading: 0, // after hwhevc load, skip skipEventCount
+      compatibilityOffset: 0,
+      compatibilityMetadataLoaded: false,
+      compatibilityGeneration: 0,
     };
   },
   computed: {
@@ -148,13 +151,22 @@ export default {
       else if (finalSeekTime > this.duration) finalSeekTime = this.duration;
       // seek the video
       if (Number.isFinite(finalSeekTime)) {
-        this.$refs.video.currentTime = finalSeekTime;
+        if (this.isCompatibilityStream()) {
+          const relativeTime = finalSeekTime - this.compatibilityOffset;
+          if (relativeTime === 0 || this.isCompatibilityTimeBuffered(relativeTime)) {
+            this.$refs.video.currentTime = Math.max(0, relativeTime);
+          } else {
+            this.restartCompatibilityStream(finalSeekTime);
+          }
+        } else {
+          this.$refs.video.currentTime = finalSeekTime;
+        }
       } else {
         log.warn('BaseVideoPlayer', `Invalid currentTime: ${JSON.stringify(finalSeekTime)}`);
       }
       // update the seek time
       if (this.needtimeupdate) {
-        videodata.time = this.$refs.video.currentTime;
+        videodata.time = finalSeekTime;
       }
     },
     playbackRate(newVal: number) {
@@ -180,7 +192,7 @@ export default {
       if (newVal <= 1) this.$refs.video.volume = newVal;
     },
     async hwhevc(val: boolean) {
-      if (this.isDarwin && this.$refs.video) {
+      if (this.isDarwin && this.$refs.video && !this.isCompatibilityStream()) {
         const paused = this.paused;
         const currentTime = this.$refs.video.currentTime;
         this.loading = this.skipEventCount;
@@ -224,10 +236,21 @@ export default {
   },
   mounted() {
     if (this.isDarwin && this.$refs.video) {
-      this.$refs.video.hwhevc = this.hwhevc;
-      this.$refs.video.load();
+      if (this.isCompatibilityStream()) {
+        // The remux is already HEVC-compatible. The legacy custom flag makes
+        // subsequent stream seeks wait for a second demux pass.
+        this.$refs.video.hwhevc = false;
+      } else {
+        this.$refs.video.hwhevc = this.hwhevc;
+        this.$refs.video.load();
+      }
     }
     this.basicInfoInitialization(this.$refs.video);
+    if (this.isCompatibilityStream()) {
+      const parsedUrl = new URL(this.src);
+      const initialOffset = Number(parsedUrl.searchParams.get('start'));
+      this.compatibilityOffset = Number.isFinite(initialOffset) ? initialOffset : 0;
+    }
     this.addEvents(this.events);
     this.setStyle(this.styles);
     if (this.needtimeupdate) {
@@ -262,13 +285,54 @@ export default {
       return this.$refs.video;
     },
     currentTimeUpdate() {
-      videodata.time = this.$refs.video.currentTime;
+      const time = this.$refs.video.currentTime
+        + (this.isCompatibilityStream() ? this.compatibilityOffset : 0);
+      videodata.time = Number.isFinite(this.duration) ? Math.min(this.duration, time) : time;
+    },
+    isCompatibilityStream() {
+      return /^https?:\/\/127\.0\.0\.1:\d+\/compat\//.test(this.src);
+    },
+    isCompatibilityTimeBuffered(relativeTime: number) {
+      if (relativeTime < 0) return false;
+      const { buffered } = this.$refs.video;
+      for (let index = 0; index < buffered.length; index += 1) {
+        if (relativeTime >= buffered.start(index)
+          && relativeTime <= buffered.end(index)) return true;
+      }
+      return false;
+    },
+    restartCompatibilityStream(start: number) {
+      const video = this.$refs.video as HTMLVideoElement;
+      const generation = this.compatibilityGeneration + 1;
+      this.compatibilityGeneration = generation;
+      this.compatibilityOffset = start;
+      const streamUrl = new URL(this.src);
+      streamUrl.searchParams.set('start', start.toFixed(3));
+      const shouldResume = !this.paused;
+      video.addEventListener('loadedmetadata', async () => {
+        if (generation !== this.compatibilityGeneration) return;
+        video.currentTime = 0;
+        if (shouldResume) {
+          try {
+            await video.play();
+          } catch (error) {
+            log.warn('compatibility stream play error', error);
+          }
+        }
+      }, { once: true });
+      video.src = streamUrl.toString();
+      video.load();
     },
     // helper functions
     emitEvents(event: string, value: Event) {
       if (this.loading > 0) {
         this.loading -= 1;
         return;
+      }
+      if (event === 'loadedmetadata' && this.isCompatibilityStream()) {
+        this.duration = this.$refs.video.duration;
+        if (this.compatibilityMetadataLoaded) return;
+        this.compatibilityMetadataLoaded = true;
       }
       if (event && !value) {
         this.$emit(event);

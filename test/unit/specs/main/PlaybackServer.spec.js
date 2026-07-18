@@ -5,6 +5,7 @@ import path from 'path';
 import {
   buildVirtualMp4,
   parseByteRange,
+  patchFragmentedMp4Duration,
   PlaybackServer,
   shouldUsePlaybackServer,
 } from '@/../main/helpers/PlaybackServer';
@@ -38,6 +39,29 @@ function fragmentedMp4Fixture() {
   fixture.write('mdat', 60, 4, 'ascii');
   fixture.writeUInt32BE(40, 88);
   fixture.write('mdat', 92, 4, 'ascii');
+  return fixture;
+}
+
+function fragmentedMp4InitFixture() {
+  const fixture = Buffer.alloc(152);
+  fixture.writeUInt32BE(8, 0);
+  fixture.write('ftyp', 4, 4, 'ascii');
+  fixture.writeUInt32BE(144, 8);
+  fixture.write('moov', 12, 4, 'ascii');
+  fixture.writeUInt32BE(32, 16);
+  fixture.write('mvhd', 20, 4, 'ascii');
+  fixture.writeUInt32BE(1000, 36);
+  fixture.writeUInt32BE(104, 48);
+  fixture.write('trak', 52, 4, 'ascii');
+  fixture.writeUInt32BE(40, 56);
+  fixture.write('tkhd', 60, 4, 'ascii');
+  fixture.writeUInt32BE(56, 96);
+  fixture.write('mdia', 100, 4, 'ascii');
+  fixture.writeUInt32BE(32, 104);
+  fixture.write('mdhd', 108, 4, 'ascii');
+  fixture.writeUInt32BE(48000, 124);
+  fixture.writeUInt32BE(16, 136);
+  fixture.write('free', 140, 4, 'ascii');
   return fixture;
 }
 
@@ -95,6 +119,21 @@ describe('PlaybackServer', () => {
     expect(shouldUsePlaybackServer('/Volumes/Videos/movie.mp4')).to.equal(true);
     expect(shouldUsePlaybackServer('/Volumes/Videos/movie.mkv')).to.equal(false);
     expect(shouldUsePlaybackServer('/Volumes/Videos/movie.webm')).to.equal(false);
+  });
+
+  it('returns a seekable compatibility stream URL for Matroska remuxing', async () => {
+    const url = await server.compatibilityUrlFor(filePath, 6395.639, '/bin/false');
+
+    expect(url).to.match(/^http:\/\/127\.0\.0\.1:\d+\/compat\/[a-f0-9]{40}\//);
+    expect(url).to.contain('.mp4?start=0');
+  });
+
+  it('writes the complete movie duration into fragmented MP4 track headers', () => {
+    const patched = patchFragmentedMp4Duration(fragmentedMp4InitFixture(), 12.5);
+
+    expect(patched.readUInt32BE(40)).to.equal(12500);
+    expect(patched.readUInt32BE(84)).to.equal(12500);
+    expect(patched.readUInt32BE(128)).to.equal(600000);
   });
 
   it('builds a contiguous virtual MP4 from fragmented media blocks', () => {

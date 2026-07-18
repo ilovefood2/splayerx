@@ -4,7 +4,7 @@ import {
   existsSync, mkdirSync, readFile, renameSync, statSync, unlinkSync,
 } from 'fs';
 import path from 'path';
-import { runMediaBinary } from './ffmpeg';
+import { mediaBinaryPath, runMediaBinary } from './ffmpeg';
 import { PlaybackServer, shouldUsePlaybackServer } from './PlaybackServer';
 
 function reply(event: IpcMainEvent, channel: string, ...args: unknown[]) {
@@ -29,6 +29,7 @@ interface ExtractedSubtitle {
 const extractedSubtitles = new Map<string, ExtractedSubtitle>();
 const compatibilityTasks = new Map<string, Promise<string>>();
 const playbackServer = new PlaybackServer();
+let playbackServerShutdownRegistered = false;
 
 function compatibilityOutputPath(videoPath: string): string {
   const stat = statSync(videoPath);
@@ -41,7 +42,24 @@ function compatibilityOutputPath(videoPath: string): string {
 }
 
 async function preparePlaybackSource(videoPath: string): Promise<string> {
-  if (path.extname(videoPath).toLowerCase() !== '.ts') {
+  const extension = path.extname(videoPath).toLowerCase();
+  if (extension === '.mkv') {
+    if (!existsSync(videoPath)) throw new Error('File does not exist.');
+    const { stdout } = await runMediaBinary('ffprobe', [
+      '-v', 'error', '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1', videoPath,
+    ]);
+    const duration = Number(stdout.trim());
+    if (!Number.isFinite(duration) || duration <= 0) {
+      throw new Error('Cannot determine Matroska duration.');
+    }
+    return playbackServer.compatibilityUrlFor(
+      videoPath,
+      duration,
+      mediaBinaryPath('ffmpeg'),
+    );
+  }
+  if (extension !== '.ts') {
     return shouldUsePlaybackServer(videoPath) ? playbackServer.urlFor(videoPath) : videoPath;
   }
   if (!existsSync(videoPath)) throw new Error('File does not exist.');
@@ -102,6 +120,10 @@ async function extractTextSubtitle(
 }
 
 export default function registerMediaTasks() {
+  if (!playbackServerShutdownRegistered) {
+    playbackServerShutdownRegistered = true;
+    app.once('before-quit', () => playbackServer.close());
+  }
   ipcMain.removeHandler('prepare-playback-source');
   ipcMain.handle('prepare-playback-source', (event, videoPath: string) => (
     preparePlaybackSource(videoPath)

@@ -172,6 +172,21 @@ describe('Component - BaseVideoPlayer', () => {
       expect(videoElement).to.equal(wrapper.vm.$refs.video);
     });
 
+    it('recognizes local Matroska compatibility streams', () => {
+      const compatibilityWrapper = mount(BaseVideoPlayer, {
+        propsData: {
+          src: 'http://127.0.0.1:54321/compat/token/movie.mkv.mp4?start=0',
+          events: ['loadedmetadata'],
+        },
+      });
+
+      expect(compatibilityWrapper.vm.isCompatibilityStream()).to.equal(true);
+      if (process.platform === 'darwin') {
+        expect(compatibilityWrapper.vm.$refs.video.hwhevc).to.equal(false);
+      }
+      compatibilityWrapper.destroy();
+    });
+
     it('should emitEvents emit events', () => {
       const testEvents = ['loadedmetadata', 'canplay', 'someotherevent'];
 

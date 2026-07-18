@@ -6,9 +6,9 @@ export type MediaBinary = 'ffmpeg' | 'ffprobe';
 
 export function mediaBinaryPath(binary: MediaBinary): string {
   if (app.isPackaged) return path.join(process.resourcesPath, 'bin', binary);
-  // Build-only dependency: production packages use the copied Resources/bin files.
-  const staticBinaries = require('ffmpeg-ffprobe-static'); // eslint-disable-line
-  return binary === 'ffmpeg' ? staticBinaries.ffmpegPath : staticBinaries.ffprobePath;
+  // Webpack rewrites the static package's __dirname, so resolve from the
+  // development application's real root instead. Production uses Resources/bin.
+  return path.join(app.getAppPath(), 'node_modules', 'ffmpeg-ffprobe-static', binary);
 }
 
 export function runMediaBinary(

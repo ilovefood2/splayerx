@@ -1,7 +1,9 @@
 import { createHash } from 'crypto';
+import { ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
+import { Transform, TransformCallback } from 'stream';
 
 const PREFIX_SIZE = 8 * 1024 * 1024;
 const MAX_FILES = 8;
@@ -28,6 +30,11 @@ interface SharedMedia {
   filePath: string,
   prefix: Promise<Buffer>,
   virtualMedia: Promise<VirtualMedia | undefined>,
+  compatibility?: {
+    duration: number,
+    ffmpegPath: string,
+  },
+  activeCompatibilityProcess?: ChildProcess,
 }
 
 interface VirtualChunk {
@@ -41,6 +48,121 @@ export interface VirtualMedia {
   prefix: Buffer,
   size: number,
   chunks: VirtualChunk[],
+}
+
+const MP4_CONTAINER_BOXES = new Set(['mdia', 'moov', 'trak']);
+
+function writeMp4Duration(
+  buffer: Buffer,
+  offset: number,
+  version: number,
+  timescale: number,
+  duration: number,
+): void {
+  const value = Math.max(0, Math.round(duration * timescale));
+  if (version === 1) {
+    buffer.writeUInt32BE(Math.floor(value / 0x100000000), offset);
+    buffer.writeUInt32BE(value % 0x100000000, offset + 4);
+  } else buffer.writeUInt32BE(Math.min(value, 0xffffffff), offset);
+}
+
+// MP4 version and container variants make this parser inherently branchy.
+// eslint-disable-next-line complexity
+function patchMp4Boxes(
+  buffer: Buffer,
+  start: number,
+  end: number,
+  duration: number,
+  initialMovieTimescale = 1000,
+): void {
+  let offset = start;
+  let movieTimescale = initialMovieTimescale;
+  while (offset + 8 <= end) {
+    let size = buffer.readUInt32BE(offset);
+    const type = buffer.toString('ascii', offset + 4, offset + 8);
+    let headerSize = 8;
+    if (size === 1 && offset + 16 <= end) {
+      size = (buffer.readUInt32BE(offset + 8) * 0x100000000)
+        + buffer.readUInt32BE(offset + 12);
+      headerSize = 16;
+    } else if (size === 0) {
+      size = end - offset;
+    }
+    if (size < headerSize || offset + size > end) break;
+
+    const version = buffer[offset + headerSize];
+    if (type === 'mvhd') {
+      const timescaleOffset = offset + headerSize + (version === 1 ? 20 : 12);
+      const durationOffset = offset + headerSize + (version === 1 ? 24 : 16);
+      movieTimescale = buffer.readUInt32BE(timescaleOffset);
+      writeMp4Duration(buffer, durationOffset, version, movieTimescale, duration);
+    } else if (type === 'tkhd') {
+      const durationOffset = offset + headerSize + (version === 1 ? 28 : 20);
+      writeMp4Duration(buffer, durationOffset, version, movieTimescale, duration);
+    } else if (type === 'mdhd') {
+      const timescaleOffset = offset + headerSize + (version === 1 ? 20 : 12);
+      const durationOffset = offset + headerSize + (version === 1 ? 24 : 16);
+      const timescale = buffer.readUInt32BE(timescaleOffset);
+      writeMp4Duration(buffer, durationOffset, version, timescale, duration);
+    }
+
+    if (MP4_CONTAINER_BOXES.has(type)) {
+      patchMp4Boxes(buffer, offset + headerSize, offset + size, duration, movieTimescale);
+    }
+    offset += size;
+  }
+}
+
+export function patchFragmentedMp4Duration(initSegment: Buffer, duration: number): Buffer {
+  const patched = Buffer.from(initSegment);
+  patchMp4Boxes(patched, 0, patched.length, duration);
+  return patched;
+}
+
+class FragmentedMp4HeaderTransform extends Transform {
+  private buffered = Buffer.alloc(0);
+
+  private headerSent = false;
+
+  constructor(private duration: number) {
+    super();
+  }
+
+  public _transform(chunk: Buffer, encoding: string, callback: TransformCallback): void {
+    if (this.headerSent) {
+      this.push(chunk);
+      callback();
+      return;
+    }
+    this.buffered = Buffer.concat([this.buffered, chunk]);
+    const moofTypeOffset = this.buffered.indexOf('moof', 4, 'ascii');
+    if (moofTypeOffset < 4) {
+      callback();
+      return;
+    }
+    const moofStart = moofTypeOffset - 4;
+    this.push(patchFragmentedMp4Duration(this.buffered.slice(0, moofStart), this.duration));
+    this.push(this.buffered.slice(moofStart));
+    this.buffered = Buffer.alloc(0);
+    this.headerSent = true;
+    callback();
+  }
+
+  public _flush(callback: TransformCallback): void {
+    if (this.buffered.length) {
+      this.push(patchFragmentedMp4Duration(this.buffered, this.duration));
+    }
+    callback();
+  }
+}
+
+function stopCompatibilityProcess(child: ChildProcess): void {
+  if (child.exitCode !== null) return;
+  child.kill('SIGTERM');
+  const forceStop = setTimeout(() => {
+    if (child.exitCode === null) child.kill('SIGKILL');
+  }, 500);
+  forceStop.unref();
 }
 
 export function isMountedMediaPath(filePath: string): boolean {
@@ -206,7 +328,39 @@ export class PlaybackServer {
     return `http://127.0.0.1:${port}/media/${token}/${encodeURIComponent(path.basename(filePath))}`;
   }
 
+  public async compatibilityUrlFor(
+    filePath: string,
+    duration: number,
+    ffmpegPath: string,
+  ): Promise<string> {
+    const token = createHash('sha1').update(`compatibility\u0000${filePath}`).digest('hex');
+    const existing = this.files.get(token);
+    if (existing && existing.activeCompatibilityProcess
+      && existing.activeCompatibilityProcess.exitCode === null) {
+      stopCompatibilityProcess(existing.activeCompatibilityProcess);
+    }
+    this.files.delete(token);
+    this.files.set(token, {
+      filePath,
+      prefix: Promise.resolve(Buffer.alloc(0)),
+      virtualMedia: Promise.resolve(undefined),
+      compatibility: { duration, ffmpegPath },
+    });
+    while (this.files.size > MAX_FILES) {
+      const oldest = this.files.keys().next();
+      if (!oldest.done) this.files.delete(oldest.value);
+    }
+    const port = await this.start();
+    return `http://127.0.0.1:${port}/compat/${token}/${encodeURIComponent(path.basename(filePath))}.mp4?start=0`;
+  }
+
   public close(): Promise<void> {
+    this.files.forEach((media) => {
+      if (media.activeCompatibilityProcess
+        && media.activeCompatibilityProcess.exitCode === null) {
+        stopCompatibilityProcess(media.activeCompatibilityProcess);
+      }
+    });
     if (!this.server) return Promise.resolve();
     const server = this.server;
     this.server = undefined;
@@ -234,15 +388,23 @@ export class PlaybackServer {
     return this.starting;
   }
 
+  // Range, virtual MP4, and compatibility streams share this one local endpoint.
+  // eslint-disable-next-line complexity
   private async handle(
     request: http.IncomingMessage,
     response: http.ServerResponse,
   ): Promise<void> {
-    const match = /^\/media\/([a-f0-9]{40})\//.exec(request.url || '');
+    const compatibilityMatch = /^\/compat\/([a-f0-9]{40})\//.exec(request.url || '');
+    const match = compatibilityMatch || /^\/media\/([a-f0-9]{40})\//.exec(request.url || '');
     const media = match ? this.files.get(match[1]) : undefined;
     if (!media) {
       response.writeHead(404);
       response.end();
+      return;
+    }
+
+    if (compatibilityMatch && media.compatibility) {
+      this.sendCompatibility(request, response, media);
       return;
     }
 
@@ -278,6 +440,70 @@ export class PlaybackServer {
       if (!response.headersSent) response.writeHead(404);
       response.end();
     }
+  }
+
+  private sendCompatibility(
+    request: http.IncomingMessage,
+    response: http.ServerResponse,
+    media: SharedMedia,
+  ): void {
+    const { compatibility } = media;
+    if (!compatibility) {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    const parsedUrl = new URL(request.url || '/', 'http://127.0.0.1');
+    const requestedStart = Number(parsedUrl.searchParams.get('start'));
+    const start = Number.isFinite(requestedStart)
+      ? Math.max(0, Math.min(requestedStart, compatibility.duration)) : 0;
+    response.writeHead(200, {
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store',
+      'Content-Type': 'video/mp4',
+    });
+    if (request.method === 'HEAD') {
+      response.end();
+      return;
+    }
+
+    if (media.activeCompatibilityProcess
+      && media.activeCompatibilityProcess.exitCode === null) {
+      stopCompatibilityProcess(media.activeCompatibilityProcess);
+    }
+
+    const args = ['-v', 'error', '-nostdin'];
+    if (start > 0) args.push('-ss', start.toFixed(3));
+    args.push(
+      '-i', media.filePath,
+      '-map', '0:v:0', '-map', '0:a?',
+      '-c:v', 'copy', '-c:a', 'aac',
+      '-sn', '-dn', '-map_chapters', '-1',
+      '-max_muxing_queue_size', '4096',
+      '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+      '-frag_duration', '1000000',
+      '-f', 'mp4', 'pipe:1',
+    );
+    const child = spawn(compatibility.ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    media.activeCompatibilityProcess = child;
+    const headerTransform = new FragmentedMp4HeaderTransform(compatibility.duration);
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (stderr.length < 8192) stderr += chunk.toString();
+    });
+    child.once('error', error => response.destroy(error));
+    child.once('exit', (code) => {
+      if (media.activeCompatibilityProcess === child) {
+        media.activeCompatibilityProcess = undefined;
+      }
+      if (code && !response.destroyed) {
+        response.destroy(new Error(stderr || `ffmpeg exited with code ${code}`));
+      }
+    });
+    response.once('close', () => {
+      stopCompatibilityProcess(child);
+    });
+    child.stdout.pipe(headerTransform).pipe(response);
   }
 
   private async send(

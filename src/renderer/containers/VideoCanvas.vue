@@ -296,7 +296,12 @@ export default {
         currentTime,
       });
 
-      if (target.duration && Number.isFinite(target.duration)) {
+      const isMountedMedia = process.platform === 'darwin'
+        ? this.originSrc.indexOf('/Volumes/') === 0
+        : /^\\\\/.test(this.originSrc);
+      // A contact sheet scans the entire movie. On a network mount that can
+      // monopolize SMB bandwidth and starve playback, so generate it on local media only.
+      if (target.duration && Number.isFinite(target.duration) && !isMountedMedia) {
         this.$bus.$emit('generate-thumbnails');
       }
 

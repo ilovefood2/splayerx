@@ -211,13 +211,15 @@ const actions = {
     const isValid = Object.keys(srcRegexes).some(type => srcRegexes[type].test(src));
     if (!isValid) return undefined;
     let playbackSrc = src;
-    // Transport streams need remuxing. Mounted MP4-family media uses the
-    // loopback range reader; formats such as MKV are faster as direct files.
+    // Transport streams need remuxing. Matroska is streamed as fragmented MP4
+    // because Chromium cannot demux common HEVC/DTS MKVs. Mounted MP4-family
+    // media uses the loopback range reader.
     const isMountedMedia = process.platform === 'darwin'
       ? src.indexOf('/Volumes/') === 0
       : /^\\\\/.test(src);
     const isMountedMp4 = isMountedMedia && /\.(m4v|mov|mp4)$/i.test(src);
-    if (process.env.NODE_ENV !== 'testing' && (/\.ts$/i.test(src) || isMountedMp4)) {
+    if (process.env.NODE_ENV !== 'testing'
+      && (/\.(mkv|ts)$/i.test(src) || isMountedMp4)) {
       playbackSrc = await ipcRenderer.invoke('prepare-playback-source', src);
     }
     commit(videoMutations.CURRENT_SRC_UPDATE, playbackSrc);
