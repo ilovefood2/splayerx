@@ -37,6 +37,7 @@ export {
   downloadModel,
   parseWhisperCues,
   chunkPlanOf,
+  whisperArgs,
   durationOf,
   transcribeVideo,
 } from './transcribe';

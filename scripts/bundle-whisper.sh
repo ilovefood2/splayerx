@@ -1,81 +1,75 @@
 #!/bin/bash
 #
-# Stage a self-contained whisper.cpp into build/whisper/ for bundling in the app.
+# Build and stage a self-contained whisper.cpp in build/whisper/.
 #
-# whisper-cli from Homebrew is dynamically linked to libwhisper / libggml and
-# loads its compute backends (Metal, BLAS, per-chip CPU) as separate .so files
-# from the Homebrew Cellar — none of which exist on a user's machine. This copies
-# the whole closure into one flat directory, rewrites every install name to
-# @loader_path so it runs from anywhere, and ad-hoc signs each file (the rewrite
-# invalidates the original signature).
-#
-# ggml discovers its backends by scanning the directory the executable lives in,
-# so keeping the backend .so files as siblings of whisper-cli (verified on a Mac
-# with the Homebrew Cellar removed) is all that's needed — no env var required.
-# Build-time only: reads from the build machine's Homebrew, ships a copy that
-# needs none.
-#
-# Requires: brew install whisper-cpp  (on the build machine)
+# Do not copy Homebrew's whisper-cli and ggml independently: the two formulae
+# can be upgraded at different times, producing an ABI-mismatched bundle that
+# crashes before transcription starts. Building the version-locked upstream
+# source statically keeps whisper and ggml in sync and removes every Homebrew
+# runtime dependency.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VERSION="1.9.1"
+SHA256="147267177eef7b22ec3d2476dd514d1b12e160e176230b740e3d1bd600118447"
+URL="https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v${VERSION}.tar.gz"
+CACHE="$ROOT/build/tool-cache"
+ARCHIVE="$CACHE/whisper.cpp-v${VERSION}.tar.gz"
+SOURCE="$ROOT/build/whisper-source-v${VERSION}"
+BUILD="$ROOT/build/whisper-static-v${VERSION}"
 OUT="$ROOT/build/whisper"
-BREW="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
 
-WHISPER_BIN="$(command -v whisper-cli || echo "$BREW/bin/whisper-cli")"
-if [ ! -x "$WHISPER_BIN" ]; then
-  echo "bundle-whisper: whisper-cli not found. Run: brew install whisper-cpp" >&2
+for tool in cmake curl shasum; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "bundle-whisper: required build tool not found: $tool" >&2
+    exit 1
+  fi
+done
+
+mkdir -p "$CACHE"
+if [ ! -f "$ARCHIVE" ] || ! echo "$SHA256  $ARCHIVE" | shasum -a 256 -c -s; then
+  echo "bundle-whisper: downloading verified whisper.cpp v${VERSION} source"
+  curl -L --fail --retry 3 --output "$ARCHIVE.part" "$URL"
+  echo "$SHA256  $ARCHIVE.part" | shasum -a 256 -c
+  mv "$ARCHIVE.part" "$ARCHIVE"
+fi
+
+echo "bundle-whisper: building a static, relocatable speech engine"
+rm -rf "$SOURCE" "$BUILD" "$OUT"
+mkdir -p "$SOURCE" "$OUT"
+tar -xzf "$ARCHIVE" -C "$SOURCE" --strip-components=1
+
+cmake -S "$SOURCE" -B "$BUILD" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DGGML_BACKEND_DL=OFF \
+  -DGGML_NATIVE=OFF \
+  -DGGML_OPENMP=OFF \
+  -DGGML_METAL=ON \
+  -DGGML_METAL_EMBED_LIBRARY=ON \
+  -DWHISPER_BUILD_TESTS=OFF \
+  -DWHISPER_BUILD_EXAMPLES=ON \
+  -DWHISPER_BUILD_SERVER=OFF \
+  -DWHISPER_SDL2=OFF
+cmake --build "$BUILD" --target whisper-cli --config Release --parallel
+
+cp "$BUILD/bin/whisper-cli" "$OUT/whisper-cli"
+cp "$SOURCE/LICENSE" "$OUT/LICENSE.whisper-cpp"
+strip -x "$OUT/whisper-cli"
+codesign -s - -f "$OUT/whisper-cli" >/dev/null
+
+# Smoke-test the exact binary that will ship. GPU is disabled at runtime too:
+# Metal allocation failures in a busy media player currently abort whisper.cpp
+# instead of returning an error, whereas the CPU backend is stable.
+"$OUT/whisper-cli" \
+  -m "$SOURCE/models/for-tests-ggml-tiny.bin" \
+  -f "$SOURCE/samples/jfk.wav" \
+  --no-gpu --no-prints
+
+if otool -L "$OUT/whisper-cli" | grep -E '/opt/homebrew|/usr/local'; then
+  echo "bundle-whisper: unexpected package-manager dependency above" >&2
   exit 1
 fi
 
-GGML_LIB="$BREW/opt/ggml/lib"
-GGML_LIBEXEC="$(dirname "$(readlink -f "$GGML_LIB/libggml.0.dylib" 2>/dev/null || echo "$GGML_LIB/libggml.0.dylib")")/../libexec"
-GGML_LIBEXEC="$(cd "$GGML_LIBEXEC" 2>/dev/null && pwd || echo "$BREW/opt/ggml/libexec")"
-
-echo "bundle-whisper: staging into $OUT"
-rm -rf "$OUT"
-mkdir -p "$OUT"
-
-# Executable + core libraries.
-cp "$WHISPER_BIN" "$OUT/whisper-cli"
-cp "$BREW/opt/whisper-cpp/lib/libwhisper.1.dylib" "$OUT/"
-cp "$GGML_LIB/libggml.0.dylib" "$OUT/"
-cp "$GGML_LIB/libggml-base.0.dylib" "$OUT/"
-cp "$BREW/opt/libomp/lib/libomp.dylib" "$OUT/"
-
-# Runtime compute backends (Metal, BLAS, every Apple-silicon CPU variant).
-cp "$GGML_LIBEXEC"/libggml-*.so "$OUT/"
-
-chmod -R u+w "$OUT"
-
-# Rewrite every Homebrew / @rpath dependency to a flat @loader_path sibling.
-for f in "$OUT"/whisper-cli "$OUT"/*.dylib "$OUT"/*.so; do
-  [ -e "$f" ] || continue
-  # each library announces itself as @rpath/<name>
-  case "$f" in *.dylib|*.so)
-    install_name_tool -id "@rpath/$(basename "$f")" "$f" 2>/dev/null || true ;;
-  esac
-  otool -L "$f" 2>/dev/null | tail -n +2 | awk '{print $1}' | while read -r dep; do
-    case "$dep" in
-      "$BREW"/*|/opt/homebrew/*|@rpath/*)
-        install_name_tool -change "$dep" "@loader_path/$(basename "$dep")" "$f" 2>/dev/null || true ;;
-    esac
-  done
-done
-
-# The install-name rewrite invalidates signatures; ad-hoc re-sign so they load.
-for f in "$OUT"/whisper-cli "$OUT"/*.dylib "$OUT"/*.so; do
-  [ -e "$f" ] || continue
-  codesign --remove-signature "$f" 2>/dev/null || true
-  codesign -s - -f "$f" >/dev/null 2>&1 || true
-done
-
-# Sanity: no Homebrew paths should remain in any dependency list.
-if otool -L "$OUT"/whisper-cli "$OUT"/*.dylib "$OUT"/*.so 2>/dev/null \
-    | grep -E "$BREW|/opt/homebrew" | grep -v ":$"; then
-  echo "bundle-whisper: WARNING — Homebrew paths remain above (self-IDs are fine)." >&2
-fi
-
-SIZE="$(du -sh "$OUT" | cut -f1)"
-echo "bundle-whisper: done — $SIZE in $OUT"
-ls "$OUT"
+echo "bundle-whisper: ready — $(du -sh "$OUT" | cut -f1) in $OUT"

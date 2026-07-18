@@ -3,7 +3,7 @@ import {
   RealtimeSubtitleTranslator, TranslationCache,
   probeOllama, pickChatModel, isEmbeddingModel, parseParameterSize, apiRootOf,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
-  parseWhisperCues, checkTranscribeEnvironment, chunkPlanOf,
+  parseWhisperCues, checkTranscribeEnvironment, chunkPlanOf, whisperArgs,
 } from '@/services/subtitle/ai';
 
 const config = {
@@ -275,6 +275,18 @@ describe('services/subtitle/ai - whisper transcription', () => {
       },
     ],
   };
+
+  it('uses the stable CPU backend while media playback owns the GPU', () => {
+    const args = whisperArgs({
+      ok: true,
+      modelPath: '/models/whisper.bin',
+      vadModelPath: '/models/vad.bin',
+      missing: [],
+    }, '/tmp/audio.wav', '/tmp/subtitles', 'en', 4);
+    expect(args).to.include('--no-gpu');
+    expect(args).to.include('--vad');
+    expect(args).to.include('/models/vad.bin');
+  });
 
   it('converts whisper millisecond offsets into second-based cues', () => {
     const cues = parseWhisperCues(WHISPER_JSON);

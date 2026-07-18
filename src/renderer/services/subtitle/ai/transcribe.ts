@@ -44,7 +44,7 @@ export interface TranscribeEnvironment {
 /**
  * Paths into the app bundle, passed in by the caller (this module stays free of
  * electron). `binDir` holds the bundled ffmpeg/ffprobe; `whisperDir` holds the
- * self-contained whisper-cli and its backend .so files (see bundle-whisper.sh).
+ * self-contained static whisper-cli (see bundle-whisper.sh).
  */
 export interface BundledPaths {
   binDir?: string;
@@ -418,6 +418,33 @@ function vadArgs(env: TranscribeEnvironment): string[] {
 }
 
 /**
+ * Arguments shared by every whisper invocation.
+ *
+ * Keep GPU inference disabled until whisper.cpp handles Metal allocation
+ * failures without aborting the process. Video playback and casting already
+ * put sustained pressure on Metal; CPU inference is slower but reliable.
+ */
+export function whisperArgs(
+  env: TranscribeEnvironment,
+  wavPath: string,
+  outPrefix: string,
+  language: string,
+  threads: number,
+): string[] {
+  return [
+    '-m', env.modelPath as string,
+    '-f', wavPath,
+    '-l', language || 'auto',
+    '-oj', // JSON output, with millisecond offsets
+    '-of', outPrefix,
+    '-t', String(threads),
+    '--no-gpu',
+    // Suppress non-speech tokens ([Music] and friends).
+    '-sns',
+  ].concat(vadArgs(env));
+}
+
+/**
  * Split a duration into chunks. A duration of 0 means ffprobe could not tell us,
  * so fall back to one pass over the whole file.
  */
@@ -463,19 +490,11 @@ async function transcribeChunk(
       wavPath,
     ]), { signal: options.signal });
 
-    // whisper-cli loads its compute backends (Metal/BLAS/CPU) from its own
-    // directory, so the bundled copy Just Works: bundle-whisper.sh puts the
-    // backend .so files right next to the executable in Resources/whisper.
-    await run(env.whisperPath as string, [
-      '-m', env.modelPath as string,
-      '-f', wavPath,
-      '-l', language || 'auto',
-      '-oj', // JSON output, with millisecond offsets
-      '-of', outPrefix,
-      '-t', String(threads),
-      // Suppress non-speech tokens ([Music] and friends).
-      '-sns',
-    ].concat(vadArgs(env)), { signal: options.signal });
+    await run(
+      env.whisperPath as string,
+      whisperArgs(env, wavPath, outPrefix, language, threads),
+      { signal: options.signal },
+    );
 
     if (!existsSync(jsonPath)) return { cues: [], language };
     const json = JSON.parse(readFileSync(jsonPath, 'utf8')) as WhisperJson;
@@ -523,7 +542,7 @@ export async function transcribeVideo(
 
   for (let i = 0; i < plan.length; i += 1) {
     if (options.signal && options.signal.aborted) break;
-    // Sequential on purpose: whisper already saturates the GPU, so running
+    // Sequential on purpose: transcription is compute intensive, so running
     // chunks in parallel would not finish the early ones any sooner — and the
     // early ones are the cues the viewer needs first.
     // eslint-disable-next-line no-await-in-loop
