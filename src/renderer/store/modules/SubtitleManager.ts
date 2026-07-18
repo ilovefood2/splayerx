@@ -406,9 +406,6 @@ function trackAIProgress(key: string, describe: (translated: number, total: numb
     updateAIProgress(describe(translated, total));
   }, 500);
 }
-/** Guards the first chunk: without it two chunks landing close together would
- *  each create a track. */
-let creatingTranscribedTrack = false;
 /** Aborts the in-flight transcription, killing its ffmpeg/whisper children. */
 let transcribeAbort: AbortController | undefined;
 
@@ -1061,7 +1058,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     const { signal } = transcribeAbort;
     let added: ISubtitleControlListItem | undefined;
     let key = '';
-    let pending: TimedText[] = [];
+    let trackCreationFailed = false;
     try {
       const { cues } = await transcribeVideo(originSrc, env, {
         tmpDir: remote.app.getPath('temp'),
@@ -1070,8 +1067,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         // Each chunk is shown as soon as it lands: whisper runs far faster than
         // playback, so the viewer starts watching in seconds instead of waiting
         // for a three-hour file to finish.
-        onCues: (chunk, info) => {
-          if (state.mediaHash !== mediaHash) return;
+        onCues: async (chunk, info) => {
+          if (signal.aborted || state.mediaHash !== mediaHash) return;
           // Report transcription progress even for a silent chunk, otherwise a
           // long musical opening looks like a hang.
           if (aiProgressTimer === undefined) {
@@ -1084,33 +1081,26 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
             appendAITranslationCues(key, chunk);
             return;
           }
-          // The first chunk creates the track; queue anything that arrives while
-          // that is still in flight.
-          pending = pending.concat(chunk);
-          if (creatingTranscribedTrack) return;
-          creatingTranscribedTrack = true;
-          const first = pending;
-          pending = [];
-          dispatch(a.addTranscribedSubtitle, {
-            targetCode, language: info.language, cues: first,
-          }).then((entity) => {
+          if (trackCreationFailed) return;
+          try {
+            const entity = await dispatch(a.addTranscribedSubtitle, {
+              targetCode, language: info.language, cues: chunk, mediaHash,
+            });
+            if (signal.aborted || state.mediaHash !== mediaHash) return;
             added = entity;
-            if (entity) {
-              key = makeAITranslationKey(`whisper-${mediaHash}`, targetCode);
-              // Speech is found; from here the wait is the translation.
-              trackAIProgress(key, (done, total) => progressText(
-                'errorFile.aiProgress.translating', { done, total },
-              ));
+            if (!entity) {
+              trackCreationFailed = true;
+              return;
             }
-            if (key && pending.length) {
-              appendAITranslationCues(key, pending);
-              pending = [];
-            }
-          }).catch((error) => {
+            key = makeAITranslationKey(`whisper-${mediaHash}`, targetCode);
+            // Speech is found; from here the wait is the translation.
+            trackAIProgress(key, (done, total) => progressText(
+              'errorFile.aiProgress.translating', { done, total },
+            ));
+          } catch (error) {
+            trackCreationFailed = true;
             log.warn('SubtitleManager', error);
-          }).then(() => {
-            creatingTranscribedTrack = false;
-          });
+          }
         },
       });
       if (signal.aborted || state.mediaHash !== mediaHash) return undefined;
@@ -1129,7 +1119,6 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       return undefined;
     } finally {
       transcribingMediaHash = '';
-      creatingTranscribedTrack = false;
       transcribeAbort = undefined;
     }
   },
@@ -1138,8 +1127,14 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
    * existing translator, cache and cue rendering are reused as-is.
    */
   async [a.addTranscribedSubtitle]({ state, getters, dispatch }, {
-    targetCode, language, cues,
-  }: { targetCode: LanguageCode, language: string, cues: TimedText[] }) {
+    targetCode, language, cues, mediaHash,
+  }: {
+    targetCode: LanguageCode,
+    language: string,
+    cues: TimedText[],
+    mediaHash: string,
+  }) {
+    if (state.mediaHash !== mediaHash) return undefined;
     const sourceCode = normalizeCode(language);
     const languages = languagesFor(targetCode, sourceCode);
     const resolution = await resolveAIProvider(aiPrefsOf(getters));
@@ -1149,9 +1144,10 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       log.warn('SubtitleManager', `AI transcribe: no provider (${resolution.reason})`);
       return undefined;
     }
+    if (state.mediaHash !== mediaHash) return undefined;
     // A distinct reference hash per media, so a transcript is never confused
     // with a translation of a real subtitle track.
-    const referenceHash = `whisper-${state.mediaHash}`;
+    const referenceHash = `whisper-${mediaHash}`;
     registerAITranslation(
       makeAITranslationKey(referenceHash, targetCode),
       cues,
@@ -1160,8 +1156,9 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     );
     await dispatch(a.addSubtitle, {
       generator: new AITranslatedGenerator(referenceHash, targetCode),
-      mediaHash: state.mediaHash,
+      mediaHash,
     });
+    if (state.mediaHash !== mediaHash) return undefined;
     const targetHash = `ai-${referenceHash}-${targetCode}`;
     const added = (getters.list as ISubtitleControlListItem[]).find(sub => sub.hash === targetHash);
     if (added) dispatch(a.manualChangePrimarySubtitle, added.id);

@@ -132,6 +132,10 @@ function fetchToFile(
   redirects = 0,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal && signal.aborted) {
+      reject(new Error('aborted'));
+      return;
+    }
     // eslint-disable-next-line global-require
     const https = require('https');
     const request = https.get(url, (res: IncomingMessage) => {
@@ -203,6 +207,10 @@ export async function downloadModel(
     }
     vadModelPath = vadDest;
   } catch (error) {
+    // Cancelling the operation must cancel the whole setup. Only ordinary VAD
+    // download failures are optional; swallowing an abort would immediately
+    // start a long transcription after the user had asked it to stop.
+    if (signal && signal.aborted) throw error;
     vadModelPath = undefined;
   }
 
@@ -287,6 +295,7 @@ function run(command: string, args: string[], options: RunOptions = {}): Promise
   return new Promise((resolve, reject) => {
     const child = spawn(command, args);
     let stderr = '';
+    const onAbort = () => child.kill();
     child.stderr.on('data', (data: Buffer) => {
       const text = data.toString();
       // whisper-cli reports progress on stderr; keep only the tail for errors.
@@ -295,9 +304,11 @@ function run(command: string, args: string[], options: RunOptions = {}): Promise
     });
     child.on('error', reject);
     if (options.signal) {
-      options.signal.addEventListener('abort', () => child.kill(), { once: true });
+      if (options.signal.aborted) onAbort();
+      else options.signal.addEventListener('abort', onAbort, { once: true });
     }
     child.on('close', (code) => {
+      if (options.signal) options.signal.removeEventListener('abort', onAbort);
       if (code === 0) resolve();
       else reject(new Error(`${command} exited with ${code}: ${stderr.slice(-400)}`));
     });
@@ -376,7 +387,10 @@ export interface TranscribeOptions {
   /** Decoding threads. */
   threads?: number;
   /** Called with each chunk's cues as soon as they are ready. */
-  onCues?: (cues: TimedText[], info: { language: string, done: number, total: number }) => void;
+  onCues?: (
+    cues: TimedText[],
+    info: { language: string, done: number, total: number },
+  ) => void | Promise<void>;
   signal?: AbortSignal;
 }
 
@@ -521,7 +535,10 @@ export async function transcribeVideo(
     if (!language && chunk.language) language = chunk.language;
     all.push(...chunk.cues);
     if (options.onCues) {
-      options.onCues(chunk.cues, { language, done: i + 1, total: plan.length });
+      // Keep chunk delivery ordered. In particular, callers may need to create
+      // a subtitle track before the next chunk can be appended to it.
+      // eslint-disable-next-line no-await-in-loop
+      await options.onCues(chunk.cues, { language, done: i + 1, total: plan.length });
     }
   }
   return { language, cues: all };

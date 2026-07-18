@@ -126,7 +126,11 @@ export class CastDevice extends EventEmitter {
   }
 
   private onFrame(frame: CastFrame): void {
-    let payload: { requestId?: number, type?: string, status?: object };
+    let payload: {
+      requestId?: number,
+      type?: string,
+      status?: { mediaSessionId?: number }[],
+    };
     try {
       payload = JSON.parse(frame.payload);
     } catch (e) {
@@ -143,7 +147,17 @@ export class CastDevice extends EventEmitter {
         resolver(payload);
       }
     }
-    if (frame.namespace === NS_MEDIA) this.emit('media-status', payload);
+    if (frame.namespace === NS_MEDIA) {
+      // A few receivers start playback successfully but omit the media session
+      // from the direct LOAD reply. They announce it in the following
+      // MEDIA_STATUS frame instead. Without capturing that frame, transport
+      // controls are silently ignored because mediaCommand has no session ID.
+      const status = payload.status && payload.status[0];
+      if (status && status.mediaSessionId !== undefined) {
+        this.mediaSessionId = status.mediaSessionId;
+      }
+      this.emit('media-status', payload);
+    }
   }
 
   /** Start the Default Media Receiver and open a connection to it. */
@@ -196,6 +210,10 @@ export class CastDevice extends EventEmitter {
       throw new Error('the device refused the media (unsupported codec?)');
     }
     if (reply.status && reply.status.length) this.mediaSessionId = reply.status[0].mediaSessionId;
+
+    // GET_STATUS is valid without a mediaSessionId and covers receivers whose
+    // asynchronous MEDIA_STATUS has not arrived by the time LOAD resolves.
+    if (this.mediaSessionId === undefined) await this.getStatus();
   }
 
   private mediaCommand(type: string, extra: object = {}): void {
@@ -214,11 +232,12 @@ export class CastDevice extends EventEmitter {
 
   /** Ask the receiver for its authoritative playback position and state. */
   public async getStatus(): Promise<CastPlaybackStatus | undefined> {
-    if (!this.transportId || this.mediaSessionId === undefined) return undefined;
-    const reply = await this.request(NS_MEDIA, {
-      type: 'GET_STATUS', mediaSessionId: this.mediaSessionId,
-    }, this.transportId) as {
+    if (!this.transportId) return undefined;
+    const request: { type: string, mediaSessionId?: number } = { type: 'GET_STATUS' };
+    if (this.mediaSessionId !== undefined) request.mediaSessionId = this.mediaSessionId;
+    const reply = await this.request(NS_MEDIA, request, this.transportId) as {
       status?: {
+        mediaSessionId?: number,
         currentTime?: number,
         playerState?: string,
         media?: { duration?: number },
@@ -226,6 +245,7 @@ export class CastDevice extends EventEmitter {
     };
     const status = reply.status && reply.status[0];
     if (!status) return undefined;
+    if (status.mediaSessionId !== undefined) this.mediaSessionId = status.mediaSessionId;
     return {
       currentTime: status.currentTime || 0,
       duration: status.media && status.media.duration ? status.media.duration : 0,

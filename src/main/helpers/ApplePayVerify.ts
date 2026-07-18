@@ -21,7 +21,7 @@ type TransactionData = {
 interface IApplePayVerify {
   verifyAfterPay(transaction: TransactionData): Promise<boolean>,
   verifyAfterSignIn(): Promise<boolean>,
-  verifyAfterOpenApp(): void,
+  verifyAfterOpenApp(): Promise<void>,
   setEndpoint(endpoint: string): void,
   isWaitingSignIn(): boolean,
 }
@@ -45,24 +45,29 @@ class ApplePayVerify implements IApplePayVerify {
     });
   }
 
+  private setListCache(list: TransactionData[]): Promise<void> {
+    return new Promise((resolve) => {
+      try {
+        // The storage API is callback-based. Waiting for that callback keeps
+        // consecutive receipt removals from reading stale cache contents.
+        storage.set('apple-receipt-cache', { list }, () => resolve());
+      } catch (error) {
+        // Receipt verification must still complete if local persistence fails.
+        resolve();
+      }
+    });
+  }
+
   private async addListToCache(transaction: TransactionData) {
     const list: TransactionData[] = await this.getListFromCache();
     list.push(transaction);
-    try {
-      storage.set('apple-receipt-cache', { list });
-    } catch (error) {
-      // empty
-    }
+    await this.setListCache(list);
   }
 
   private async removeFromCache(transactionID: string) {
     const list: TransactionData[] = await this.getListFromCache();
     remove(list, (e: TransactionData) => e.payment.transactionID === transactionID);
-    try {
-      storage.set('apple-receipt-cache', { list });
-    } catch (error) {
-      // empty
-    }
+    await this.setListCache(list);
   }
 
   public setEndpoint(endpoint: string) {
@@ -77,7 +82,7 @@ class ApplePayVerify implements IApplePayVerify {
     await this.addListToCache(transaction);
     try {
       const res = await verifyReceipt(this.endpoint, transaction.payment);
-      this.removeFromCache(transaction.payment.transactionID);
+      await this.removeFromCache(transaction.payment.transactionID);
       inAppPurchase.finishTransactionByDate(transaction.date);
       if (res === 0) {
         return true;
@@ -97,7 +102,7 @@ class ApplePayVerify implements IApplePayVerify {
     if (!waitingTransaction) return false;
     try {
       const res = await verifyReceipt(this.endpoint, waitingTransaction.payment);
-      this.removeFromCache(waitingTransaction.payment.transactionID);
+      await this.removeFromCache(waitingTransaction.payment.transactionID);
       inAppPurchase.finishTransactionByDate(waitingTransaction.date);
       this.waitingTransaction = undefined;
       if (res === 0) {
@@ -112,19 +117,25 @@ class ApplePayVerify implements IApplePayVerify {
   public async verifyAfterOpenApp() {
     let success = false;
     const list = await this.getListFromCache();
-    list.forEach(async (e: TransactionData) => {
+    // Sequential on purpose: every successful verification updates the same
+    // cache file. Parallel read-modify-write operations can restore entries
+    // that a sibling operation just removed.
+    for (let i = 0; i < list.length; i += 1) {
+      const transaction = list[i];
       try {
-        const res = await verifyReceipt(this.endpoint, e.payment);
-        this.removeFromCache(e.payment.transactionID);
-        inAppPurchase.finishTransactionByDate(e.date);
-        success = res === 0;
+        // eslint-disable-next-line no-await-in-loop
+        const res = await verifyReceipt(this.endpoint, transaction.payment);
+        // eslint-disable-next-line no-await-in-loop
+        await this.removeFromCache(transaction.payment.transactionID);
+        inAppPurchase.finishTransactionByDate(transaction.date);
+        success = success || res === 0;
       } catch (error) {
         // empty
         if (error && (error.status === 401 || error.status === 403)) {
           app.emit('sign-out');
         }
       }
-    });
+    }
     if (!success) {
       throw new Error('no verifyReceipt result');
     }
