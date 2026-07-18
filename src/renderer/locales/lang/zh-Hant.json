@@ -86,9 +86,9 @@
     },
     "aiProgress": {
       "downloading": "正在準備字幕 — 下載語音模型 {percent}%",
-      "downloadingTranslationModel": "正在準備字幕 — 下載內建 Qwen3 14B 模型 {percent}%",
-      "verifyingModel": "正在準備字幕 — 驗證 Qwen3 14B 模型…",
-      "startingModel": "正在準備字幕 — 啟動內建 Qwen3 14B 模型…",
+      "downloadingTranslationModel": "正在準備字幕 — 下載內建 Qwen3 32B 模型 {percent}%",
+      "verifyingModel": "正在準備字幕 — 驗證 Qwen3 32B 模型…",
+      "startingModel": "正在準備字幕 — 啟動內建 Qwen3 32B 模型…",
       "transcribing": "正在準備字幕 — 辨識語音 {percent}%",
       "translating": "正在準備字幕 — 已翻譯 {done}/{total} 句"
     },
@@ -106,7 +106,7 @@
     },
     "aiTranslateNoProvider": {
       "title": "無法翻譯",
-      "content": "無法準備內建 Qwen3 14B 模型。請檢查網路連線和可用磁碟空間後再試一次。"
+      "content": "無法準備內建 Qwen3 32B 模型。請檢查網路連線和可用磁碟空間後再試一次。"
     },
     "localSubtitleRemoved": {
       "title": "字幕加載失敗",
@@ -468,18 +468,18 @@
       "setAsDefault": "將SPlayer設為默認播放器",
       "settings": "設置",
       "aiTranslateEnable": "AI 即時字幕翻譯",
-      "aiTranslateDescription": "使用 SPlayer 內建的高品質 Qwen3 14B 模型在本機私密翻譯字幕。9 GB 模型會在首次使用時下載一次，無需安裝 Ollama；也可選擇相容 OpenAI 的 API。預設關閉。",
+      "aiTranslateDescription": "使用 SPlayer 內建的最高品質 Qwen3 32B 模型在本機私密翻譯字幕。20 GB 模型會在首次使用時下載一次，無需安裝 Ollama；也可選擇相容 OpenAI 的 API。預設關閉。",
       "aiProvider": "服務來源",
-      "aiProviderAuto": "自動（有 API 金鑰時使用 API，否則使用內建 Qwen3 14B）",
-      "aiProviderLocal": "內建 Qwen3 14B（本機私密）",
+      "aiProviderAuto": "自動（有 API 金鑰時使用 API，否則使用內建 Qwen3 32B）",
+      "aiProviderLocal": "內建 Qwen3 32B（本機私密）",
       "aiProviderOpenai": "僅使用 OpenAI 相容 API",
       "aiRedetect": "重新偵測",
       "aiStatusDetecting": "正在檢查翻譯服務…",
-      "aiStatusLocalReady": "內建 Qwen3 14B 已就緒 · 翻譯內容不會離開這台電腦",
-      "aiStatusLocalDownload": "首次翻譯時會下載一次內建 Qwen3 14B · 9 GB · 無需 Ollama",
-      "aiStatusLocalRuntimeMissing": "這個開發版本缺少內建 Qwen3 14B 引擎",
+      "aiStatusLocalReady": "內建 Qwen3 32B 已就緒 · 翻譯內容不會離開這台電腦",
+      "aiStatusLocalDownload": "首次翻譯時會下載一次內建 Qwen3 32B · 20 GB · 無需 Ollama",
+      "aiStatusLocalRuntimeMissing": "這個開發版本缺少內建 Qwen3 32B 引擎",
       "aiStatusOpenai": "使用你的 API 金鑰 · 字幕內容會傳送到上面的端點",
-      "aiStatusMissingKey": "請輸入 API 金鑰，或把提供方切換為內建 Qwen3 14B。",
+      "aiStatusMissingKey": "請輸入 API 金鑰，或把提供方切換為內建 Qwen3 32B。",
       "aiApiUrl": "API 端點",
       "aiApiKey": "API 金鑰",
       "aiModel": "模型",

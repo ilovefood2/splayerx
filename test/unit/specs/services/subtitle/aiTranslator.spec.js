@@ -42,14 +42,19 @@ describe('services/subtitle/ai - translateLines', () => {
 
   it('translates a batch and resolves the OpenAI-style endpoint', async () => {
     let seenUrl = '';
+    let systemPrompt = '';
     global.fetch = mockFetch((url, init) => {
       seenUrl = url;
-      const { lines } = JSON.parse(JSON.parse(init.body).messages[1].content);
+      const request = JSON.parse(init.body);
+      systemPrompt = request.messages[0].content;
+      const { lines } = JSON.parse(request.messages[1].content);
       return { body: { choices: [{ message: { content: JSON.stringify({ translations: lines.map(l => `T:${l}`) }) } }] } };
     });
     const out = await translateLines(['hello', 'world'], config);
     expect(out).to.deep.equal(['T:hello', 'T:world']);
     expect(seenUrl).to.equal('https://api.openai.com/v1/chat/completions');
+    expect(systemPrompt).to.contain('whole batch as context');
+    expect(systemPrompt).to.contain('speaker intent');
   });
 
   it('does not double-append when a full completions URL is configured', async () => {
@@ -90,9 +95,9 @@ describe('services/subtitle/ai - translateLines', () => {
 });
 
 describe('services/subtitle/ai - managed Qwen3 model', () => {
-  it('uses the higher-quality 14B model and endpoint alias', () => {
-    expect(MANAGED_MODEL_NAME).to.equal('Qwen3-14B-Q4_K_M.gguf');
-    expect(MANAGED_MODEL_ALIAS).to.equal('splayer-qwen3-14b');
+  it('uses the higher-quality 32B model and endpoint alias', () => {
+    expect(MANAGED_MODEL_NAME).to.equal('Qwen3-32B-Q4_K_M.gguf');
+    expect(MANAGED_MODEL_ALIAS).to.equal('splayer-qwen3-32b');
   });
 
   it('parses total bytes from resumable download headers', () => {
@@ -112,20 +117,27 @@ describe('services/subtitle/ai - managed Qwen3 model', () => {
     expect(status.modelPath.endsWith(MANAGED_MODEL_NAME)).to.equal(true);
   });
 
-  it('removes the superseded 4B download without touching other files', () => {
+  it('removes superseded model downloads without touching other files', () => {
     const modelDir = mkdtempSync(join(tmpdir(), 'splayer-model-test-'));
-    const legacy = join(modelDir, 'Qwen3-4B-Q4_K_M.gguf');
+    const legacyModels = [
+      join(modelDir, 'Qwen3-4B-Q4_K_M.gguf'),
+      join(modelDir, 'Qwen3-14B-Q4_K_M.gguf'),
+    ];
     const unrelated = join(modelDir, 'keep.gguf');
-    writeFileSync(legacy, 'old model');
-    writeFileSync(`${legacy}.sha256`, 'old checksum');
-    writeFileSync(`${legacy}.part`, 'old partial');
+    legacyModels.forEach((legacy) => {
+      writeFileSync(legacy, 'old model');
+      writeFileSync(`${legacy}.sha256`, 'old checksum');
+      writeFileSync(`${legacy}.part`, 'old partial');
+    });
     writeFileSync(unrelated, 'keep');
 
     try {
       cleanupLegacyManagedModels(modelDir);
-      expect(existsSync(legacy)).to.equal(false);
-      expect(existsSync(`${legacy}.sha256`)).to.equal(false);
-      expect(existsSync(`${legacy}.part`)).to.equal(false);
+      legacyModels.forEach((legacy) => {
+        expect(existsSync(legacy)).to.equal(false);
+        expect(existsSync(`${legacy}.sha256`)).to.equal(false);
+        expect(existsSync(`${legacy}.part`)).to.equal(false);
+      });
       expect(existsSync(unrelated)).to.equal(true);
     } finally {
       if (existsSync(unrelated)) unlinkSync(unrelated);

@@ -1,7 +1,7 @@
 /**
- * SPlayer-owned Qwen3 14B runtime.
+ * SPlayer-owned Qwen3 32B runtime.
  *
- * The application ships llama-server, downloads the official quantized Qwen3 14B
+ * The application ships llama-server, downloads the official quantized Qwen3 32B
  * model on first use, verifies its SHA-256, and starts a private loopback API.
  * No Ollama installation or background service is required.
  */
@@ -16,15 +16,18 @@ import { IncomingMessage } from 'http';
 import { createServer } from 'net';
 import { dirname, join } from 'path';
 
-export const MANAGED_MODEL_NAME = 'Qwen3-14B-Q4_K_M.gguf';
-export const MANAGED_MODEL_ALIAS = 'splayer-qwen3-14b';
-export const MANAGED_MODEL_SHA256 = '500a8806e85ee9c83f3ae08420295592451379b4f8cf2d0f41c15dffeb6b81f0';
+export const MANAGED_MODEL_NAME = 'Qwen3-32B-Q4_K_M.gguf';
+export const MANAGED_MODEL_ALIAS = 'splayer-qwen3-32b';
+export const MANAGED_MODEL_SHA256 = 'efd971561896866f0e910cce52761ca77b1b138090c7f15fe284676d57d1f689';
 export const MANAGED_MODEL_URL = [
-  'https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/',
-  'Qwen3-14B-Q4_K_M.gguf?download=true',
+  'https://huggingface.co/Qwen/Qwen3-32B-GGUF/resolve/main/',
+  'Qwen3-32B-Q4_K_M.gguf?download=true',
 ].join('');
 
-const LEGACY_MODEL_NAMES = ['Qwen3-4B-Q4_K_M.gguf'];
+const LEGACY_MODEL_NAMES = [
+  'Qwen3-4B-Q4_K_M.gguf',
+  'Qwen3-14B-Q4_K_M.gguf',
+];
 
 export interface ManagedModelPaths {
   serverPath: string;

@@ -49,7 +49,7 @@ describe('Component - Preferences/Translate', () => {
     await flush();
     expect(wrapper.vm.aiTranslateProvider).to.equal('local');
     expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in qwen3');
-    expect(wrapper.vm.defaultModel).to.equal('splayer-qwen3-14b');
+    expect(wrapper.vm.defaultModel).to.equal('splayer-qwen3-32b');
   });
 
   it('migrates retired local-provider choices to built-in Qwen3', async () => {
@@ -68,7 +68,7 @@ describe('Component - Preferences/Translate', () => {
     if (wrapper.vm.managedStatus.runtimeAvailable
       && !wrapper.vm.managedStatus.modelDownloaded) {
       expect(wrapper.vm.providerStatus).to.contain('will download once');
-      expect(wrapper.vm.providerStatus).to.contain('9 GB');
+      expect(wrapper.vm.providerStatus).to.contain('20 GB');
     } else if (!wrapper.vm.managedStatus.runtimeAvailable) {
       expect(wrapper.vm.providerStatus).to.contain('development build');
     }

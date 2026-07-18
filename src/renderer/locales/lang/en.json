@@ -86,9 +86,9 @@
     },
     "aiProgress": {
       "downloading": "Preparing subtitles — downloading speech model {percent}%",
-      "downloadingTranslationModel": "Preparing subtitles — downloading built-in Qwen3 14B model {percent}%",
-      "verifyingModel": "Preparing subtitles — verifying the Qwen3 14B model…",
-      "startingModel": "Preparing subtitles — starting the built-in Qwen3 14B model…",
+      "downloadingTranslationModel": "Preparing subtitles — downloading built-in Qwen3 32B model {percent}%",
+      "verifyingModel": "Preparing subtitles — verifying the Qwen3 32B model…",
+      "startingModel": "Preparing subtitles — starting the built-in Qwen3 32B model…",
       "transcribing": "Preparing subtitles — recognising speech {percent}%",
       "translating": "Preparing subtitles — translated {done}/{total} lines"
     },
@@ -106,7 +106,7 @@
     },
     "aiTranslateNoProvider": {
       "title": "Cannot Translate",
-      "content": "The built-in Qwen3 14B model could not be prepared. Check your internet connection and available disk space, then try again."
+      "content": "The built-in Qwen3 32B model could not be prepared. Check your internet connection and available disk space, then try again."
     },
     "localSubtitleRemoved": {
       "title": "Load Subtitle Failed",
@@ -468,18 +468,18 @@
       "setAsDefault": "Set SPlayer as the Default Application",
       "settings": "Settings",
       "aiTranslateEnable": "AI Realtime Subtitle Translation",
-      "aiTranslateDescription": "Translate subtitles privately with SPlayer's higher-quality built-in Qwen3 14B model. The 9 GB model downloads once, on first use; Ollama is not required. An OpenAI-compatible API remains optional. Off by default.",
+      "aiTranslateDescription": "Translate subtitles privately with SPlayer's highest-quality built-in Qwen3 32B model. The 20 GB model downloads once, on first use; Ollama is not required. An OpenAI-compatible API remains optional. Off by default.",
       "aiProvider": "Provider",
-      "aiProviderAuto": "Automatic (API key, otherwise built-in Qwen3 14B)",
-      "aiProviderLocal": "Built-in Qwen3 14B (private)",
+      "aiProviderAuto": "Automatic (API key, otherwise built-in Qwen3 32B)",
+      "aiProviderLocal": "Built-in Qwen3 32B (private)",
       "aiProviderOpenai": "OpenAI-compatible API only",
       "aiRedetect": "Re-detect",
       "aiStatusDetecting": "Checking the translation provider…",
-      "aiStatusLocalReady": "Built-in Qwen3 14B is ready · translation stays on this computer",
-      "aiStatusLocalDownload": "Built-in Qwen3 14B will download once on first translation · 9 GB · no Ollama required",
-      "aiStatusLocalRuntimeMissing": "The built-in Qwen3 14B engine is missing from this development build",
+      "aiStatusLocalReady": "Built-in Qwen3 32B is ready · translation stays on this computer",
+      "aiStatusLocalDownload": "Built-in Qwen3 32B will download once on first translation · 20 GB · no Ollama required",
+      "aiStatusLocalRuntimeMissing": "The built-in Qwen3 32B engine is missing from this development build",
       "aiStatusOpenai": "Using your API key · subtitle text is sent to the endpoint above",
-      "aiStatusMissingKey": "Enter an API key, or switch the provider to built-in Qwen3 14B.",
+      "aiStatusMissingKey": "Enter an API key, or switch the provider to built-in Qwen3 32B.",
       "aiApiUrl": "API Endpoint",
       "aiApiKey": "API Key",
       "aiModel": "Model",
