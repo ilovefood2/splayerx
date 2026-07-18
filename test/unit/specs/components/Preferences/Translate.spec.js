@@ -43,21 +43,21 @@ describe('Component - Preferences/Translate', () => {
   beforeEach(() => { originalFetch = global.fetch; });
   afterEach(() => { global.fetch = originalFetch; });
 
-  it('uses the app-owned Qwen3 provider without probing another service', async () => {
+  it('uses the app-owned provider without probing another service', async () => {
     global.fetch = () => { throw new Error('managed status must not probe the network'); };
     const wrapper = mountWith({ aiTranslateEnabled: true });
     await flush();
     expect(wrapper.vm.aiTranslateProvider).to.equal('local');
-    expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in qwen3');
-    expect(wrapper.vm.defaultModel).to.equal('splayer-qwen3-32b');
-    expect(wrapper.vm.aiTranslateManagedModel).to.equal('qwen3-32b');
+    expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in tower+ 72b');
+    expect(wrapper.vm.defaultModel).to.equal('splayer-tower-plus-72b');
+    expect(wrapper.vm.aiTranslateManagedModel).to.equal('tower-plus-72b');
   });
 
-  it('migrates retired local-provider choices to built-in Qwen3', async () => {
+  it('migrates retired local-provider choices to the built-in provider', async () => {
     const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'apple' });
     await flush();
     expect(wrapper.vm.aiTranslateProvider).to.equal('local');
-    expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in qwen3');
+    expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in tower+ 72b');
     const choices = wrapper.findAll('option').wrappers.map(option => option.attributes('value'));
     expect(choices).to.include('local');
     expect(choices).to.not.include('apple');
@@ -84,14 +84,15 @@ describe('Component - Preferences/Translate', () => {
     const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'local' });
     await flush();
     const choices = wrapper.findAll('option').wrappers.map(option => option.attributes('value'));
-    expect(choices).to.include.members(['qwen3-4b', 'qwen3-14b', 'qwen3-32b']);
+    expect(choices).to.include.members(['qwen3-14b', 'qwen3-32b', 'tower-plus-72b']);
+    expect(choices).to.not.include('qwen3-4b');
 
-    wrapper.vm.aiTranslateManagedModel = 'qwen3-4b';
+    wrapper.vm.aiTranslateManagedModel = 'tower-plus-72b';
     await flush();
-    expect(wrapper.vm.defaultModel).to.equal('splayer-qwen3-4b');
-    expect(wrapper.vm.providerStatus).to.contain('Qwen3 4B');
-    expect(wrapper.vm.selectedManagedModel.downloadSize).to.equal('2.5 GB');
-    expect(wrapper.text()).to.contain('Qwen3 4B — 2.5 GB');
+    expect(wrapper.vm.defaultModel).to.equal('splayer-tower-plus-72b');
+    expect(wrapper.vm.providerStatus).to.contain('Tower+ 72B');
+    expect(wrapper.vm.selectedManagedModel.downloadSize).to.equal('35.5 GB');
+    expect(wrapper.text()).to.contain('Tower+ 72B — 35.5 GB · personal use');
   });
 
   it('reports the api key path without probing', async () => {

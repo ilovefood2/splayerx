@@ -22,12 +22,12 @@ const state = {
   isDarkMode: undefined,
   // LLM realtime subtitle translation (off by default; opt-in)
   aiTranslateEnabled: false,
-  // SPlayer-managed Qwen3 is the built-in local translation provider.
+  // SPlayer-managed models are the built-in local translation provider.
   aiTranslateProvider: 'local',
   aiTranslateApiUrl: '',
   aiTranslateApiKey: '',
   aiTranslateModel: '',
-  aiTranslateManagedModel: 'qwen3-32b',
+  aiTranslateManagedModel: 'tower-plus-72b',
   aiTranslateTargetLanguage: '',
   // Spoken language for whisper transcription; '' means auto-detect.
   aiTranscribeLanguage: '',
@@ -64,8 +64,8 @@ const getters = {
   aiTranslateApiKey: state => state.aiTranslateApiKey,
   aiTranslateModel: state => state.aiTranslateModel,
   aiTranslateManagedModel: state => (
-    ['qwen3-4b', 'qwen3-14b', 'qwen3-32b'].includes(state.aiTranslateManagedModel)
-      ? state.aiTranslateManagedModel : 'qwen3-32b'
+    ['qwen3-14b', 'qwen3-32b', 'tower-plus-72b'].includes(state.aiTranslateManagedModel)
+      ? state.aiTranslateManagedModel : 'tower-plus-72b'
   ),
   aiTranslateTargetLanguage: state => state.aiTranslateTargetLanguage,
   aiTranscribeLanguage: state => state.aiTranscribeLanguage,
@@ -108,7 +108,7 @@ const mutations = {
   getLocalPreference(state) {
     const data = syncStorage.getSync('preferences');
     Object.assign(state, data);
-    // Migrate both retired local-provider choices to SPlayer-managed Qwen3.
+    // Migrate both retired local-provider choices to SPlayer's managed runtime.
     if (state.aiTranslateProvider === 'apple' || state.aiTranslateProvider === 'ollama') {
       state.aiTranslateProvider = 'local';
     }

@@ -1018,7 +1018,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     if (!sourceCues.length) return undefined;
 
     const languages = languagesFor(targetCode, normalizeCode(reference.language));
-    // Resolve built-in Qwen3 or the configured API before registering the
+    // Resolve the built-in model or configured API before registering the
     // subtitle, so the realtime track never starts with an unusable provider.
     const plan = await translationPlan(aiPrefsOf(getters), languages);
     if (!plan.config) {

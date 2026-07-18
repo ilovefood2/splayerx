@@ -1,5 +1,5 @@
 /**
- * Decides whether translation uses SPlayer's managed Qwen3 endpoint or a
+ * Decides whether translation uses SPlayer's managed local-model endpoint or a
  * user-configured OpenAI-compatible API.
  *
  * NOTE: explicit `=== undefined` checks keep this compatible with the
@@ -50,7 +50,7 @@ export interface AIProviderResolution {
 }
 
 /**
- * Measured against local Qwen3 on this project's own prompt: a 16-line batch
+ * Measured against local models on this project's own prompt: a 16-line batch
  * takes ~5s on a non-thinking model and ~30s on a thinking one, plus up to ~30s
  * to load a cold model. The stock 30s request timeout and 20s lookahead are both
  * too tight for that.
@@ -69,7 +69,7 @@ export function isLocalhostUrl(url?: string): boolean {
  * Work out where to send translation requests.
  *
  * - A configured API key is always honoured, and costs no probe.
- * - Otherwise we use SPlayer's managed local Qwen3 runtime.
+ * - Otherwise we use SPlayer's managed local translation runtime.
  * - With neither, we report why instead of firing an unauthenticated request at
  *   OpenAI (which would 401 and permanently disable translation for the session,
  *   after having already sent the subtitle text off the machine).
@@ -144,5 +144,6 @@ export function configFor(
     model: resolution.endpoint.model,
     targetLanguage: languages.targetLanguage,
     sourceLanguage: languages.sourceLanguage,
+    temperature: resolution.kind === 'local' ? 0 : undefined,
   };
 }

@@ -1,4 +1,4 @@
-/** SPlayer-owned selectable Qwen3 runtime. */
+/** SPlayer-owned selectable local translation-model runtime. */
 
 import { ChildProcess, spawn } from 'child_process';
 import { createHash } from 'crypto';
@@ -18,18 +18,10 @@ export interface ManagedModelDefinition {
   sha256: string;
   url: string;
   downloadSize: string;
+  personalUseOnly?: boolean;
 }
 
 export const MANAGED_MODELS: ManagedModelDefinition[] = [
-  {
-    id: 'qwen3-4b',
-    name: 'Qwen3 4B',
-    fileName: 'Qwen3-4B-Q4_K_M.gguf',
-    alias: 'splayer-qwen3-4b',
-    sha256: '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
-    url: 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true',
-    downloadSize: '2.5 GB',
-  },
   {
     id: 'qwen3-14b',
     name: 'Qwen3 14B',
@@ -48,9 +40,22 @@ export const MANAGED_MODELS: ManagedModelDefinition[] = [
     url: 'https://huggingface.co/Qwen/Qwen3-32B-GGUF/resolve/main/Qwen3-32B-Q4_K_M.gguf?download=true',
     downloadSize: '20 GB',
   },
+  {
+    id: 'tower-plus-72b',
+    name: 'Tower+ 72B',
+    fileName: 'Tower-Plus-72B.i1-IQ3_M.gguf',
+    alias: 'splayer-tower-plus-72b',
+    sha256: 'fd76288e9d0908b64eb3aa0e8524498a44eec0cc8be1ed9260b8725ea57500b3',
+    url: [
+      'https://huggingface.co/mradermacher/Tower-Plus-72B-i1-GGUF/resolve/main/',
+      'Tower-Plus-72B.i1-IQ3_M.gguf?download=true',
+    ].join(''),
+    downloadSize: '35.5 GB',
+    personalUseOnly: true,
+  },
 ];
 
-export const DEFAULT_MANAGED_MODEL_ID = 'qwen3-32b';
+export const DEFAULT_MANAGED_MODEL_ID = 'tower-plus-72b';
 
 export function managedModelById(id?: string): ManagedModelDefinition {
   const selected = MANAGED_MODELS.find(model => model.id === id);
@@ -292,7 +297,7 @@ export async function ensureManagedModelFile(
   );
   if (digest !== model.sha256) {
     removeIfPresent(part);
-    throw new Error(`Qwen3 model checksum mismatch: ${digest}`);
+    throw new Error(`Translation model checksum mismatch: ${digest}`);
   }
   renameSync(part, modelPath);
   writeFileSync(markerPath(modelPath), `${model.sha256}\n`);

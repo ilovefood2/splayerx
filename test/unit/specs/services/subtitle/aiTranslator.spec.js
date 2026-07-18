@@ -94,14 +94,18 @@ describe('services/subtitle/ai - translateLines', () => {
   });
 });
 
-describe('services/subtitle/ai - managed Qwen3 model', () => {
-  it('offers three verified download sizes and defaults to the 32B model', () => {
+describe('services/subtitle/ai - managed translation model', () => {
+  it('offers three verified downloads and defaults to Tower+ 72B', () => {
     expect(MANAGED_MODELS.map(model => model.id)).to.deep.equal([
-      'qwen3-4b', 'qwen3-14b', 'qwen3-32b',
+      'qwen3-14b', 'qwen3-32b', 'tower-plus-72b',
     ]);
-    expect(DEFAULT_MANAGED_MODEL_ID).to.equal('qwen3-32b');
-    expect(MANAGED_MODEL_NAME).to.equal('Qwen3-32B-Q4_K_M.gguf');
-    expect(MANAGED_MODEL_ALIAS).to.equal('splayer-qwen3-32b');
+    expect(DEFAULT_MANAGED_MODEL_ID).to.equal('tower-plus-72b');
+    expect(MANAGED_MODEL_NAME).to.equal('Tower-Plus-72B.i1-IQ3_M.gguf');
+    expect(MANAGED_MODEL_ALIAS).to.equal('splayer-tower-plus-72b');
+    expect(managedModelById('tower-plus-72b').sha256)
+      .to.equal('fd76288e9d0908b64eb3aa0e8524498a44eec0cc8be1ed9260b8725ea57500b3');
+    expect(managedModelById('tower-plus-72b').url)
+      .to.contain('mradermacher/Tower-Plus-72B-i1-GGUF');
     MANAGED_MODELS.forEach((model) => {
       expect(model.sha256).to.match(/^[a-f0-9]{64}$/);
       expect(model.url).to.contain(model.fileName);
@@ -109,8 +113,10 @@ describe('services/subtitle/ai - managed Qwen3 model', () => {
   });
 
   it('resolves a selected model and safely falls back for old preferences', () => {
-    expect(managedModelById('qwen3-4b').alias).to.equal('splayer-qwen3-4b');
     expect(managedModelById('qwen3-14b').downloadSize).to.equal('9 GB');
+    expect(managedModelById('tower-plus-72b').downloadSize).to.equal('35.5 GB');
+    expect(managedModelById('tower-plus-72b').personalUseOnly).to.equal(true);
+    expect(managedModelById('qwen3-4b').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
     expect(managedModelById('unknown').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
   });
 
@@ -156,17 +162,17 @@ describe('services/subtitle/ai - managed Qwen3 model', () => {
 
   it('inspects each selected download independently', () => {
     const modelDir = mkdtempSync(join(tmpdir(), 'splayer-model-test-'));
-    const smallModel = join(modelDir, managedModelById('qwen3-4b').fileName);
-    writeFileSync(smallModel, 'downloaded model');
+    const qwenModel = join(modelDir, managedModelById('qwen3-14b').fileName);
+    writeFileSync(qwenModel, 'downloaded model');
 
     try {
-      expect(inspectManagedModel({ serverPath: __filename, modelDir }, 'qwen3-4b')
-        .modelDownloaded).to.equal(true);
       expect(inspectManagedModel({ serverPath: __filename, modelDir }, 'qwen3-14b')
+        .modelDownloaded).to.equal(true);
+      expect(inspectManagedModel({ serverPath: __filename, modelDir }, 'tower-plus-72b')
         .modelDownloaded).to.equal(false);
-      expect(existsSync(smallModel)).to.equal(true);
+      expect(existsSync(qwenModel)).to.equal(true);
     } finally {
-      unlinkSync(smallModel);
+      unlinkSync(qwenModel);
       rmdirSync(modelDir);
     }
   });
@@ -177,7 +183,7 @@ describe('services/subtitle/ai - resolveAIProvider', () => {
   beforeEach(() => { originalFetch = global.fetch; });
   afterEach(() => { global.fetch = originalFetch; });
 
-  it('uses SPlayer-managed Qwen3 when its private endpoint is ready', async () => {
+  it('uses SPlayer-managed translation when its private endpoint is ready', async () => {
     global.fetch = () => { throw new Error('provider resolution must not probe the network'); };
     const resolved = await resolveAIProvider({}, {
       localEndpoint: { baseUrl: 'http://127.0.0.1:43123/v1', model: MANAGED_MODEL_ALIAS },
