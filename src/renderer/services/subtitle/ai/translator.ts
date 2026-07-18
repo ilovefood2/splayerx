@@ -6,7 +6,8 @@
  * their translations in the same order, preserving line breaks.
  *
  * Works with any endpoint exposing the OpenAI Chat Completions API shape, e.g.
- * OpenAI, Azure OpenAI (gateway), Groq, Ollama (`/v1`), OpenRouter, etc.
+ * SPlayer's bundled llama.cpp server, OpenAI, Azure OpenAI gateways, Groq,
+ * OpenRouter, and other compatible services.
  */
 
 export interface AITranslatorConfig {
@@ -20,9 +21,6 @@ export interface AITranslatorConfig {
   targetLanguage: string;
   /** Optional human-readable source language name. Auto-detected when omitted. */
   sourceLanguage?: string;
-  /** BCP-47 codes used by native translation providers. */
-  sourceLanguageCode?: string;
-  targetLanguageCode?: string;
   /** Sampling temperature. Defaults to a low value for deterministic output. */
   temperature?: number;
 }

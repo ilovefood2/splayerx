@@ -11,7 +11,8 @@
  * does NOT inherit the shell PATH, so everything is resolved by absolute path —
  * bundled dirs first — and reported precisely when missing.
  *
- * NOTE: explicit `=== undefined` checks rather than `??`/`?.` — see ollama.ts.
+ * NOTE: explicit `=== undefined` checks keep this compatible with the
+ * project's legacy TypeScript/Babel toolchain.
  */
 
 import { spawn } from 'child_process';

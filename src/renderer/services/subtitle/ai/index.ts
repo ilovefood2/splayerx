@@ -14,17 +14,6 @@ export {
   AuthFailover,
 } from './realtimeTranslator';
 export {
-  OLLAMA_DEFAULT_BASE_URL,
-  OllamaModel,
-  OllamaProbe,
-  OllamaProbeReason,
-  apiRootOf,
-  parseParameterSize,
-  isEmbeddingModel,
-  pickChatModel,
-  probeOllama,
-} from './ollama';
-export {
   TranscribeTool,
   TranscribeEnvironment,
   BundledPaths,
@@ -54,8 +43,24 @@ export {
   isLocalhostUrl,
   resolveAIProvider,
   configFor,
-  ollamaRootOf,
 } from './provider';
+export {
+  MANAGED_MODEL_NAME,
+  MANAGED_MODEL_ALIAS,
+  MANAGED_MODEL_SHA256,
+  MANAGED_MODEL_URL,
+  ManagedModelPaths,
+  ManagedModelStage,
+  ManagedModelProgress,
+  ManagedModelStatus,
+  ManagedModelEndpoint,
+  EnsureManagedModelOptions,
+  contentRangeTotal,
+  inspectManagedModel,
+  ensureManagedModelFile,
+  ensureManagedModelServer,
+  stopManagedModelServer,
+} from './managedModel';
 export {
   makeAITranslationKey,
   registerAITranslation,

@@ -32,7 +32,7 @@ export interface RealtimeTranslatorOptions {
   requestTimeout?: number;
   /**
    * Called once if the endpoint rejects our credentials, to obtain a different
-   * provider to continue with (in practice: fall back to a local Ollama).
+   * provider to continue with (for example, a private local endpoint).
    * Resolving with undefined leaves translation disabled, as before.
    */
   onAuthFailure?: () => Promise<AuthFailover | undefined>;
@@ -319,7 +319,7 @@ export class RealtimeSubtitleTranslator {
         }
         // Do not retry auth/permission errors automatically: the credentials are
         // not going to fix themselves. Stop, then give the owner one chance to
-        // hand us a different provider (in practice, a local Ollama).
+        // hand us a different provider.
         if (isAuthError(e)) {
           this.disabledUntil = Number.MAX_SAFE_INTEGER;
           this.tryAuthFailover();

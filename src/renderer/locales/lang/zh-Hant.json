@@ -86,6 +86,9 @@
     },
     "aiProgress": {
       "downloading": "正在準備字幕 — 下載語音模型 {percent}%",
+      "downloadingTranslationModel": "正在準備字幕 — 下載內建 Qwen3 模型 {percent}%",
+      "verifyingModel": "正在準備字幕 — 驗證 Qwen3 模型…",
+      "startingModel": "正在準備字幕 — 啟動內建 Qwen3 模型…",
       "transcribing": "正在準備字幕 — 辨識語音 {percent}%",
       "translating": "正在準備字幕 — 已翻譯 {done}/{total} 句"
     },
@@ -103,7 +106,7 @@
     },
     "aiTranslateNoProvider": {
       "title": "無法翻譯",
-      "content": "找不到本機 Ollama，也沒有填寫 API 金鑰。請從 ollama.com 安裝 Ollama 後執行：ollama pull qwen3"
+      "content": "無法準備內建 Qwen3 模型。請檢查網路連線和可用磁碟空間後再試一次。"
     },
     "localSubtitleRemoved": {
       "title": "字幕加載失敗",
@@ -465,19 +468,18 @@
       "setAsDefault": "將SPlayer設為默認播放器",
       "settings": "設置",
       "aiTranslateEnable": "AI 即時字幕翻譯",
-      "aiTranslateDescription": "當影片沒有你所用語言的字幕時，使用電腦上的 Ollama 或相容 OpenAI 的 API 即時翻譯現有字幕。預設關閉。",
+      "aiTranslateDescription": "使用 SPlayer 內建的 Qwen3 模型在本機私密翻譯字幕。2.5 GB 模型會在首次使用時下載一次，無需安裝 Ollama；也可選擇相容 OpenAI 的 API。預設關閉。",
       "aiProvider": "服務來源",
-      "aiProviderAuto": "自動（有 API 金鑰時使用 API，否則使用 Ollama）",
-      "aiProviderOllama": "僅使用本機 Ollama",
+      "aiProviderAuto": "自動（有 API 金鑰時使用 API，否則使用內建 Qwen3）",
+      "aiProviderLocal": "內建 Qwen3（本機私密）",
       "aiProviderOpenai": "僅使用 OpenAI 相容 API",
       "aiRedetect": "重新偵測",
-      "aiStatusDetecting": "正在偵測本機 Ollama…",
-      "aiStatusOllama": "使用本機 Ollama · {model} · 字幕不會離開你的電腦",
-      "aiStatusOllamaRemote": "使用 {host} 上的 Ollama · {model} · 字幕內容會透過網路傳送到該電腦",
+      "aiStatusDetecting": "正在檢查翻譯服務…",
+      "aiStatusLocalReady": "內建 Qwen3 已就緒 · 翻譯內容不會離開這台電腦",
+      "aiStatusLocalDownload": "首次翻譯時會下載一次內建 Qwen3 · 2.5 GB · 無需 Ollama",
+      "aiStatusLocalRuntimeMissing": "此開發版本缺少內建 Qwen3 引擎",
       "aiStatusOpenai": "使用你的 API 金鑰 · 字幕內容會傳送到上面的端點",
-      "aiStatusMissingKey": "請填寫 API 金鑰，或將服務來源切換為本機 Ollama。",
-      "aiStatusNoOllama": "在 {url} 找不到 Ollama。請從 ollama.com 安裝後執行：ollama pull qwen3",
-      "aiStatusNoChatModel": "Ollama 正在執行，但沒有可用於對話的模型。請執行：ollama pull qwen3",
+      "aiStatusMissingKey": "請填寫 API 金鑰，或將服務來源切換為內建 Qwen3。",
       "aiApiUrl": "API 端點",
       "aiApiKey": "API 金鑰",
       "aiModel": "模型",

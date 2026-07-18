@@ -1,8 +1,8 @@
 import {
   translateLines, AITranslationError,
   RealtimeSubtitleTranslator, TranslationCache,
-  probeOllama, pickChatModel, isEmbeddingModel, parseParameterSize, apiRootOf,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
+  contentRangeTotal, inspectManagedModel, MANAGED_MODEL_NAME, MANAGED_MODEL_ALIAS,
   parseWhisperCues, parseWhisperProgress, parseFfmpegProgress, checkTranscribeEnvironment,
   chunkPlanOf, whisperArgs,
 } from '@/services/subtitle/ai';
@@ -83,120 +83,22 @@ describe('services/subtitle/ai - translateLines', () => {
   });
 });
 
-// Captured verbatim from a real `GET /api/tags` on a machine running Ollama.
-const TAGS_FIXTURE = {
-  models: [
-    {
-      name: 'bge-m3:latest',
-      capabilities: ['embedding'],
-      details: { family: 'bert', parameter_size: '566.70M' },
-    },
-    {
-      name: 'qwen3:14b',
-      capabilities: ['completion', 'tools', 'thinking'],
-      details: { family: 'qwen3', parameter_size: '14.8B' },
-    },
-    {
-      name: 'qwen3-coder:latest',
-      capabilities: ['completion', 'tools'],
-      details: { family: 'qwen3moe', parameter_size: '30.5B' },
-    },
-  ],
-};
-
-function mockJsonFetch(routes) {
-  return (url) => {
-    const key = Object.keys(routes).find(k => url.indexOf(k) !== -1);
-    if (key === undefined) {
-      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
-    }
-    const body = routes[key];
-    if (body === 'error') return Promise.reject(new TypeError('Failed to fetch'));
-    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
-  };
-}
-
-describe('services/subtitle/ai - ollama detection', () => {
-  let originalFetch;
-  beforeEach(() => { originalFetch = global.fetch; });
-  afterEach(() => { global.fetch = originalFetch; });
-
-  it('parses the suffixed parameter_size string', () => {
-    // Naive parseFloat would score a 0.57B embedding model as 566B.
-    expect(parseParameterSize('14.8B')).to.equal(14.8);
-    expect(parseParameterSize('566.70M')).to.be.closeTo(0.5667, 1e-6);
-    expect(parseParameterSize('30.5B')).to.equal(30.5);
-    expect(parseParameterSize(undefined)).to.equal(undefined);
+describe('services/subtitle/ai - managed Qwen3 model', () => {
+  it('parses total bytes from resumable download headers', () => {
+    expect(contentRangeTotal('bytes 1048576-2097151/2621440')).to.equal(2621440);
+    expect(contentRangeTotal(undefined)).to.equal(0);
+    expect(contentRangeTotal('invalid')).to.equal(0);
   });
 
-  it('normalises any endpoint shape to the api root', () => {
-    expect(apiRootOf('http://127.0.0.1:11434/v1')).to.equal('http://127.0.0.1:11434');
-    expect(apiRootOf('http://127.0.0.1:11434/v1/chat/completions')).to.equal('http://127.0.0.1:11434');
-    expect(apiRootOf('http://127.0.0.1:11434/')).to.equal('http://127.0.0.1:11434');
-    expect(apiRootOf('')).to.equal('http://127.0.0.1:11434');
-  });
-
-  it('excludes embedding models, which cannot chat', () => {
-    expect(isEmbeddingModel({ id: 'bge-m3:latest', family: 'bert', capabilities: ['embedding'] })).to.equal(true);
-    expect(isEmbeddingModel({ id: 'bge-m3:latest' })).to.equal(true); // name only
-    expect(isEmbeddingModel({ id: 'x', family: 'bert' })).to.equal(true);
-    expect(isEmbeddingModel({ id: 'qwen3:14b', capabilities: ['completion', 'tools'] })).to.equal(false);
-    // declared capabilities beat the name heuristic
-    expect(isEmbeddingModel({ id: 'nomic-embed-odd', capabilities: ['completion'] })).to.equal(false);
-  });
-
-  it('prefers a non-thinking model even when it is much larger', async () => {
-    // Measured: qwen3:14b (thinking) takes ~29s for a 16-line batch while the
-    // 30.5B qwen3-coder takes ~5s. Reasoning tokens dominate; size does not.
-    global.fetch = mockJsonFetch({ '/api/tags': TAGS_FIXTURE });
-    const probe = await probeOllama();
-    expect(probe.available).to.equal(true);
-    expect(probe.recommended).to.equal('qwen3-coder:latest');
-    expect(probe.chatModels.map(m => m.id)).to.not.include('bge-m3:latest');
-    expect(probe.degraded).to.equal(false);
-  });
-
-  it('never recommends an embedding model', () => {
-    expect(pickChatModel([
-      {
-        id: 'bge-m3:latest', chatCapable: false, thinking: false,
-      },
-    ])).to.equal(undefined);
-    expect(pickChatModel([])).to.equal(undefined);
-  });
-
-  it('falls back to /v1/models when /api/tags is unavailable', async () => {
-    global.fetch = mockJsonFetch({
-      '/v1/models': { data: [{ id: 'bge-m3:latest' }, { id: 'qwen3-coder:latest' }] },
+  it('reports missing app-owned runtime and model without probing the network', () => {
+    const status = inspectManagedModel({
+      serverPath: '/path/that/does/not/exist/llama-server',
+      modelDir: '/path/that/does/not/exist/models',
     });
-    const probe = await probeOllama();
-    expect(probe.available).to.equal(true);
-    expect(probe.degraded).to.equal(true);
-    // bge-m3 must still be excluded, by name, without capabilities to consult.
-    expect(probe.recommended).to.equal('qwen3-coder:latest');
-  });
-
-  it('reports unreachable instead of throwing when ollama is absent', async () => {
-    global.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
-    const probe = await probeOllama();
-    expect(probe.reachable).to.equal(false);
-    expect(probe.reason).to.equal('unreachable');
-  });
-
-  it('does not hang when the endpoint never answers', async () => {
-    global.fetch = () => new Promise(() => {}); // never settles
-    const probe = await probeOllama(undefined, { timeout: 30 });
-    expect(probe.reachable).to.equal(false);
-  });
-
-  it('reports no-chat-model when only embedding models are installed', async () => {
-    global.fetch = mockJsonFetch({
-      '/api/tags': { models: [TAGS_FIXTURE.models[0]] },
-    });
-    const probe = await probeOllama();
-    expect(probe.reachable).to.equal(true);
-    expect(probe.available).to.equal(false);
-    expect(probe.reason).to.equal('no-chat-model');
+    expect(status.runtimeAvailable).to.equal(false);
+    expect(status.modelDownloaded).to.equal(false);
+    expect(status.ready).to.equal(false);
+    expect(status.modelPath.endsWith(MANAGED_MODEL_NAME)).to.equal(true);
   });
 });
 
@@ -205,16 +107,17 @@ describe('services/subtitle/ai - resolveAIProvider', () => {
   beforeEach(() => { originalFetch = global.fetch; });
   afterEach(() => { global.fetch = originalFetch; });
 
-  it('uses a local ollama when no api key is configured', async () => {
-    global.fetch = mockJsonFetch({ '/api/tags': TAGS_FIXTURE });
-    const resolved = await resolveAIProvider({});
+  it('uses SPlayer-managed Qwen3 when its private endpoint is ready', async () => {
+    global.fetch = () => { throw new Error('provider resolution must not probe the network'); };
+    const resolved = await resolveAIProvider({}, {
+      localEndpoint: { baseUrl: 'http://127.0.0.1:43123/v1', model: MANAGED_MODEL_ALIAS },
+    });
     expect(resolved.ok).to.equal(true);
-    expect(resolved.kind).to.equal('ollama');
-    expect(resolved.reason).to.equal('ollama-detected');
+    expect(resolved.kind).to.equal('local');
+    expect(resolved.reason).to.equal('local-ready');
     expect(resolved.endpoint.apiKey).to.equal('');
-    expect(resolved.endpoint.baseUrl).to.equal('http://127.0.0.1:11434/v1');
-    expect(resolved.endpoint.model).to.equal('qwen3-coder:latest');
-    // A local model is far slower than a hosted one.
+    expect(resolved.endpoint.baseUrl).to.equal('http://127.0.0.1:43123/v1');
+    expect(resolved.endpoint.model).to.equal(MANAGED_MODEL_ALIAS);
     expect(resolved.tuning.requestTimeout).to.equal(LOCAL_TUNING.requestTimeout);
   });
 
@@ -238,25 +141,10 @@ describe('services/subtitle/ai - resolveAIProvider', () => {
   });
 
   it('reports why it could not use a local model', async () => {
-    global.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
-    const resolved = await resolveAIProvider({});
+    global.fetch = () => { throw new Error('should not probe'); };
+    const resolved = await resolveAIProvider({}, { localReason: 'local-runtime-missing' });
     expect(resolved.ok).to.equal(false);
-    expect(resolved.reason).to.equal('ollama-unreachable');
-  });
-
-  it('lets an explicit model override the recommendation', async () => {
-    global.fetch = mockJsonFetch({ '/api/tags': TAGS_FIXTURE });
-    const resolved = await resolveAIProvider({ aiTranslateModel: 'llama3.2' });
-    expect(resolved.endpoint.model).to.equal('llama3.2');
-  });
-
-  it('normalises a custom ollama url so the endpoint is not doubled', async () => {
-    global.fetch = mockJsonFetch({ '/api/tags': TAGS_FIXTURE });
-    const resolved = await resolveAIProvider({
-      aiTranslateProvider: 'ollama', aiTranslateApiUrl: 'http://127.0.0.1:11434',
-    });
-    expect(resolved.endpoint.baseUrl).to.equal('http://127.0.0.1:11434/v1');
-    expect(resolved.reason).to.equal('ollama-forced');
+    expect(resolved.reason).to.equal('local-runtime-missing');
   });
 
   it('treats a localhost key endpoint as local for tuning', () => {

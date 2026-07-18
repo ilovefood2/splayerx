@@ -12,22 +12,6 @@ localVue.use(VueI18n);
 // Use the real English strings: this also proves the new keys exist.
 const i18n = new VueI18n({ locale: 'en', messages: { en: enMessages } });
 
-// Captured from a real `GET /api/tags`.
-const TAGS_FIXTURE = {
-  models: [
-    {
-      name: 'bge-m3:latest',
-      capabilities: ['embedding'],
-      details: { family: 'bert', parameter_size: '566.70M' },
-    },
-    {
-      name: 'qwen3-coder:latest',
-      capabilities: ['completion', 'tools'],
-      details: { family: 'qwen3moe', parameter_size: '30.5B' },
-    },
-  ],
-};
-
 const flush = () => new Promise(resolve => setTimeout(resolve, 10));
 
 describe('Component - Preferences/Translate', () => {
@@ -59,55 +43,36 @@ describe('Component - Preferences/Translate', () => {
   beforeEach(() => { originalFetch = global.fetch; });
   afterEach(() => { global.fetch = originalFetch; });
 
-  it('detects and integrates a local ollama model', async () => {
-    global.fetch = () => Promise.resolve({
-      ok: true, status: 200, json: () => Promise.resolve(TAGS_FIXTURE),
-    });
+  it('uses the app-owned Qwen3 provider without probing another service', async () => {
+    global.fetch = () => { throw new Error('managed status must not probe the network'); };
     const wrapper = mountWith({ aiTranslateEnabled: true });
     await flush();
-    expect(wrapper.vm.providerStatus).to.contain('Using local Ollama');
-    expect(wrapper.vm.providerStatus).to.contain('nothing leaves your computer');
-    expect(wrapper.vm.defaultModel).to.equal('qwen3-coder:latest');
+    expect(wrapper.vm.aiTranslateProvider).to.equal('local');
+    expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in qwen3');
+    expect(wrapper.vm.defaultModel).to.equal('splayer-qwen3');
   });
 
-  it('migrates the retired apple choice to ollama', async () => {
-    global.fetch = () => Promise.resolve({
-      ok: true, status: 200, json: () => Promise.resolve(TAGS_FIXTURE),
-    });
+  it('migrates retired local-provider choices to built-in Qwen3', async () => {
     const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'apple' });
     await flush();
-    expect(wrapper.vm.aiTranslateProvider).to.equal('ollama');
-    expect(wrapper.vm.providerStatus).to.contain('Using local Ollama');
+    expect(wrapper.vm.aiTranslateProvider).to.equal('local');
+    expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in qwen3');
     const choices = wrapper.findAll('option').wrappers.map(option => option.attributes('value'));
-    expect(choices).to.include('ollama');
+    expect(choices).to.include('local');
     expect(choices).to.not.include('apple');
   });
 
-  it('tells the user how to install ollama when none is running', async () => {
-    global.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
-    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'ollama' });
+  it('explains the one-time model download before first translation', async () => {
+    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'local' });
     await flush();
-    expect(wrapper.vm.providerStatus).to.contain('No Ollama found');
-    expect(wrapper.vm.providerStatus).to.contain('ollama pull');
-  });
-
-  it('names the host it actually probed, not the default one', async () => {
-    // A user pointing at an Ollama on another machine must not be told that
-    // 127.0.0.1 is unreachable — they would go looking in the wrong place.
-    const probedUrls = [];
-    global.fetch = (url) => {
-      probedUrls.push(url);
-      return Promise.reject(new TypeError('Failed to fetch'));
-    };
-    const wrapper = mountWith({
-      aiTranslateEnabled: true,
-      aiTranslateProvider: 'ollama',
-      aiTranslateApiUrl: 'http://192.168.1.9:11434',
-    });
-    await flush();
-    expect(probedUrls.join(' ')).to.contain('192.168.1.9');
-    expect(wrapper.vm.providerStatus).to.contain('192.168.1.9');
-    expect(wrapper.vm.providerStatus).to.not.contain('127.0.0.1');
+    if (wrapper.vm.managedStatus.runtimeAvailable
+      && !wrapper.vm.managedStatus.modelDownloaded) {
+      expect(wrapper.vm.providerStatus).to.contain('will download once');
+      expect(wrapper.vm.providerStatus).to.contain('2.5 GB');
+    } else if (!wrapper.vm.managedStatus.runtimeAvailable) {
+      expect(wrapper.vm.providerStatus).to.contain('development build');
+    }
+    expect(wrapper.text()).to.contain('Ollama is not required');
   });
 
   it('reports the api key path without probing', async () => {
@@ -119,63 +84,14 @@ describe('Component - Preferences/Translate', () => {
     expect(wrapper.vm.providerStatus).to.contain('your API key');
   });
 
-  it('does not claim "nothing leaves your computer" for a remote ollama host', async () => {
-    // The endpoint field is honoured in forced-ollama mode, so "Ollama" does not
-    // imply "on this machine" — subtitle text really does cross the network here.
-    global.fetch = () => Promise.resolve({
-      ok: true, status: 200, json: () => Promise.resolve(TAGS_FIXTURE),
-    });
-    const wrapper = mountWith({
-      aiTranslateEnabled: true,
-      aiTranslateProvider: 'ollama',
-      aiTranslateApiUrl: 'http://192.168.1.50:11434',
-    });
-    await flush();
-    expect(wrapper.vm.providerStatus).to.not.contain('nothing leaves your computer');
-    expect(wrapper.vm.providerStatus).to.contain('192.168.1.50');
-    expect(wrapper.vm.providerStatus).to.contain('over your network');
-  });
-
-  it('still says nothing leaves your computer for a genuinely local ollama', async () => {
-    global.fetch = () => Promise.resolve({
-      ok: true, status: 200, json: () => Promise.resolve(TAGS_FIXTURE),
-    });
-    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'ollama' });
-    await flush();
-    expect(wrapper.vm.providerStatus).to.contain('nothing leaves your computer');
-  });
-
-  it('ignores a stale probe that lands after a newer one', async () => {
-    // Typing in the endpoint field fires a probe per keystroke; they can finish
-    // out of order, and the slow early one must not overwrite the newer answer.
-    let call = 0;
-    global.fetch = () => {
-      call += 1;
-      if (call === 1) {
-        // slow probe that reports a working local ollama
-        return new Promise(resolve => setTimeout(() => resolve({
-          ok: true, status: 200, json: () => Promise.resolve(TAGS_FIXTURE),
-        }), 60));
-      }
-      return Promise.reject(new TypeError('Failed to fetch')); // fast, fails
-    };
-    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'ollama' });
-    wrapper.vm.detectProvider(); // supersedes the mounted() probe
-    await flush();
-    await new Promise(resolve => setTimeout(resolve, 120)); // let the stale one land
-    expect(wrapper.vm.providerStatus).to.contain('No Ollama found');
-  });
-
   it('does not let an in-flight probe repopulate the status after being disabled', async () => {
-    global.fetch = () => new Promise(resolve => setTimeout(() => resolve({
-      ok: true, status: 200, json: () => Promise.resolve(TAGS_FIXTURE),
-    }), 40));
-    const wrapper = mountWith({ aiTranslateEnabled: true });
+    const wrapper = mountWith({
+      aiTranslateEnabled: true, aiTranslateProvider: 'openai', aiTranslateApiKey: 'sk-test',
+    });
     wrapper.vm.detectProvider();
-    wrapper.vm.aiTranslateEnabled = false; // disable while the probe is in flight
+    wrapper.vm.aiTranslateEnabled = false;
     await flush();
-    expect(wrapper.vm.aiTranslateEnabled).to.equal(false); // the store really moved
-    await new Promise(resolve => setTimeout(resolve, 100)); // let the stale probe land
+    expect(wrapper.vm.aiTranslateEnabled).to.equal(false);
     expect(wrapper.vm.resolution).to.equal(null);
     expect(wrapper.vm.providerStatus).to.equal('');
   });

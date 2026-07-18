@@ -148,6 +148,21 @@ if (fs.existsSync(path.join(whisperBundleDir, 'whisper-cli'))) {
   );
 }
 
+const llamaBundleDir = path.join(__dirname, '../build/llama');
+if (fs.existsSync(path.join(llamaBundleDir, 'llama-server'))) {
+  config.extraResources.push({
+    from: 'build/llama',
+    to: 'llama',
+    filter: ['**/*'],
+  });
+} else {
+  // eslint-disable-next-line no-console
+  console.warn(
+    'gen-electron-builder-config: build/llama not found — '
+    + 'run scripts/bundle-llama.sh to bundle Qwen3 inference.',
+  );
+}
+
 const json = JSON.stringify(config, null, 2);
 fs.writeFileSync(path.join(__dirname, '../electron-builder.json'), json, {
   encoding: 'utf-8',

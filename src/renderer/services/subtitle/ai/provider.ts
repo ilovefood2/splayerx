@@ -1,31 +1,26 @@
 /**
- * Decides which LLM endpoint the subtitle translator should talk to.
+ * Decides whether translation uses SPlayer's managed Qwen3 endpoint or a
+ * user-configured OpenAI-compatible API.
  *
- * The rule the user cares about: if translating would require an API key they
- * have not given us, use their local Ollama instead of failing. Resolution
- * happens once, before a translator is constructed, so the rest of the pipeline
- * only ever sees a concrete config and `getCuesAt()` stays synchronous.
- *
- * NOTE: explicit `=== undefined` checks rather than `??`/`?.` — see ollama.ts.
+ * NOTE: explicit `=== undefined` checks keep this compatible with the
+ * project's legacy TypeScript/Babel toolchain.
  */
 
 import { AITranslatorConfig, DEFAULT_BASE_URL, DEFAULT_MODEL } from './translator';
-import {
-  OLLAMA_DEFAULT_BASE_URL, OllamaProbe, apiRootOf, probeOllama,
-} from './ollama';
+import { ManagedModelEndpoint } from './managedModel';
 
-export type AIProviderPreference = 'auto' | 'openai' | 'ollama';
+export type AIProviderPreference = 'auto' | 'openai' | 'local';
 
-export type AIProviderKind = 'openai' | 'ollama';
+export type AIProviderKind = 'openai' | 'local';
 
 export type AIProviderReason =
   | 'user-key'
   | 'user-endpoint'
-  | 'ollama-detected'
-  | 'ollama-forced'
-  | 'missing-key'
-  | 'ollama-unreachable'
-  | 'ollama-no-chat-model';
+  | 'local-ready'
+  | 'local-model-missing'
+  | 'local-runtime-missing'
+  | 'local-start-failed'
+  | 'missing-key';
 
 export interface AIProviderPrefs {
   aiTranslateProvider?: AIProviderPreference;
@@ -51,11 +46,10 @@ export interface AIProviderResolution {
   /** Present when ok. */
   endpoint?: { baseUrl: string, apiKey: string, model: string };
   tuning: AIProviderTuning;
-  probe?: OllamaProbe;
 }
 
 /**
- * Measured against a local qwen3 on this project's own prompt: a 16-line batch
+ * Measured against local Qwen3 on this project's own prompt: a 16-line batch
  * takes ~5s on a non-thinking model and ~30s on a thinking one, plus up to ~30s
  * to load a cold model. The stock 30s request timeout and 20s lookahead are both
  * too tight for that.
@@ -70,18 +64,11 @@ export function isLocalhostUrl(url?: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|\/|$)/i.test(url.trim());
 }
 
-function localEndpoint(probe: OllamaProbe, prefs: AIProviderPrefs) {
-  // An explicit model always wins: the user may have pulled something we rank
-  // poorly, and second-guessing them here would be surprising.
-  const model = prefs.aiTranslateModel || probe.recommended || '';
-  return { baseUrl: probe.baseUrl, apiKey: '', model };
-}
-
 /**
  * Work out where to send translation requests.
  *
  * - A configured API key is always honoured, and costs no probe.
- * - Otherwise we look for a local Ollama and use it.
+ * - Otherwise we use SPlayer's managed local Qwen3 runtime.
  * - With neither, we report why instead of firing an unauthenticated request at
  *   OpenAI (which would 401 and permanently disable translation for the session,
  *   after having already sent the subtitle text off the machine).
@@ -105,7 +92,7 @@ function remoteResolution(
 /** The remote decision, or undefined when we should look for a local model. */
 function resolveRemote(prefs: AIProviderPrefs): AIProviderResolution | undefined {
   const provider: AIProviderPreference = prefs.aiTranslateProvider || 'auto';
-  if (provider === 'ollama') return undefined;
+  if (provider === 'local') return undefined;
   const apiKey = prefs.aiTranslateApiKey || '';
   if (apiKey) return remoteResolution(prefs, 'user-key', apiKey);
   if (provider !== 'openai') return undefined;
@@ -117,32 +104,30 @@ function resolveRemote(prefs: AIProviderPrefs): AIProviderResolution | undefined
 
 export async function resolveAIProvider(
   prefs: AIProviderPrefs,
-  options: { timeout?: number } = {},
+  options: {
+    localEndpoint?: ManagedModelEndpoint,
+    localReason?: 'local-model-missing' | 'local-runtime-missing' | 'local-start-failed',
+  } = {},
 ): Promise<AIProviderResolution> {
   const remote = resolveRemote(prefs);
   if (remote) return remote;
-
-  // 'auto' with no key, or 'ollama' explicitly: look for a local model.
-  const provider: AIProviderPreference = prefs.aiTranslateProvider || 'auto';
-  const apiUrl = prefs.aiTranslateApiUrl || '';
-  const forced = provider === 'ollama';
-  const base = forced && apiUrl ? apiUrl : OLLAMA_DEFAULT_BASE_URL;
-  const probe = await probeOllama(base, options);
-  if (probe.available) {
+  if (options.localEndpoint) {
     return {
       ok: true,
-      kind: 'ollama',
-      reason: forced ? 'ollama-forced' : 'ollama-detected',
-      endpoint: localEndpoint(probe, prefs),
+      kind: 'local',
+      reason: 'local-ready',
+      endpoint: {
+        baseUrl: options.localEndpoint.baseUrl,
+        apiKey: '',
+        model: options.localEndpoint.model,
+      },
       tuning: LOCAL_TUNING,
-      probe,
     };
   }
   return {
     ok: false,
-    reason: probe.reachable ? 'ollama-no-chat-model' : 'ollama-unreachable',
+    reason: options.localReason || 'local-model-missing',
     tuning: {},
-    probe,
   };
 }
 
@@ -159,11 +144,4 @@ export function configFor(
     targetLanguage: languages.targetLanguage,
     sourceLanguage: languages.sourceLanguage,
   };
-}
-
-/** Exposed so the Preferences UI can show the same host it will actually use. */
-export function ollamaRootOf(prefs: AIProviderPrefs): string {
-  const provider: AIProviderPreference = prefs.aiTranslateProvider || 'auto';
-  const apiUrl = prefs.aiTranslateApiUrl || '';
-  return apiRootOf(provider === 'ollama' && apiUrl ? apiUrl : OLLAMA_DEFAULT_BASE_URL);
 }

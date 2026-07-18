@@ -22,8 +22,8 @@ const state = {
   isDarkMode: undefined,
   // LLM realtime subtitle translation (off by default; opt-in)
   aiTranslateEnabled: false,
-  // Ollama is the built-in local translation provider.
-  aiTranslateProvider: 'ollama',
+  // SPlayer-managed Qwen3 is the built-in local translation provider.
+  aiTranslateProvider: 'local',
   aiTranslateApiUrl: '',
   aiTranslateApiKey: '',
   aiTranslateModel: '',
@@ -56,8 +56,8 @@ const getters = {
   isDarkMode: state => state.isDarkMode,
   aiTranslateEnabled: state => !!state.aiTranslateEnabled,
   aiTranslateProvider: state => (
-    ['auto', 'ollama', 'openai'].includes(state.aiTranslateProvider)
-      ? state.aiTranslateProvider : 'ollama'
+    ['auto', 'local', 'openai'].includes(state.aiTranslateProvider)
+      ? state.aiTranslateProvider : 'local'
   ),
   aiTranslateApiUrl: state => state.aiTranslateApiUrl,
   aiTranslateApiKey: state => state.aiTranslateApiKey,
@@ -103,9 +103,10 @@ const mutations = {
   getLocalPreference(state) {
     const data = syncStorage.getSync('preferences');
     Object.assign(state, data);
-    // Apple Translation was removed. Migrate the retired choice to the local
-    // Ollama provider so existing users never land on an invalid blank option.
-    if (state.aiTranslateProvider === 'apple') state.aiTranslateProvider = 'ollama';
+    // Migrate both retired local-provider choices to SPlayer-managed Qwen3.
+    if (state.aiTranslateProvider === 'apple' || state.aiTranslateProvider === 'ollama') {
+      state.aiTranslateProvider = 'local';
+    }
   },
   subtitleOff(state, payload) {
     state.subtitleOff = !!payload;

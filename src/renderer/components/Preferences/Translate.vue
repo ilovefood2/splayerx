@@ -135,8 +135,8 @@
                 <option value="auto">
                   {{ $t('preferences.translate.aiProviderAuto') }}
                 </option>
-                <option value="ollama">
-                  {{ $t('preferences.translate.aiProviderOllama') }}
+                <option value="local">
+                  {{ $t('preferences.translate.aiProviderLocal') }}
                 </option>
                 <option value="openai">
                   {{ $t('preferences.translate.aiProviderOpenai') }}
@@ -165,7 +165,7 @@
             <td>
               <input
                 v-model.trim="aiTranslateApiUrl"
-                :disabled="!aiTranslateEnabled"
+                :disabled="!aiTranslateEnabled || aiTranslateProvider === 'local'"
                 :placeholder="defaultApiUrl"
                 class="aiTranslate__input"
                 spellcheck="false"
@@ -179,7 +179,7 @@
             <td>
               <input
                 v-model.trim="aiTranslateApiKey"
-                :disabled="!aiTranslateEnabled"
+                :disabled="!aiTranslateEnabled || aiTranslateProvider === 'local'"
                 type="password"
                 class="aiTranslate__input"
                 spellcheck="false"
@@ -194,7 +194,7 @@
             <td>
               <input
                 v-model.trim="aiTranslateModel"
-                :disabled="!aiTranslateEnabled"
+                :disabled="!aiTranslateEnabled || aiTranslateProvider === 'local'"
                 :placeholder="defaultModel"
                 class="aiTranslate__input"
                 spellcheck="false"
@@ -258,8 +258,8 @@ import { concat } from 'lodash';
 import electron from 'electron';
 import { codeToLanguageName, LanguageCode } from '@/libs/language';
 import {
-  DEFAULT_BASE_URL, DEFAULT_MODEL, resolveAIProvider, ollamaRootOf,
-  isLocalhostUrl, apiRootOf,
+  DEFAULT_BASE_URL, DEFAULT_MODEL, MANAGED_MODEL_ALIAS,
+  inspectManagedModel, resolveAIProvider,
 } from '@/services/subtitle/ai';
 import Icon from '@/components/BaseIconContainer.vue';
 import BaseCheckBox from './BaseCheckBox.vue';
@@ -303,6 +303,7 @@ export default {
       noLanguage: this.$t('preferences.translate.none'),
       detecting: false,
       resolution: null,
+      managedStatus: null,
       detectToken: 0,
     };
   },
@@ -365,47 +366,37 @@ export default {
         });
       },
     },
-    /** The host we would actually probe, honouring a custom endpoint. */
-    ollamaHost() {
-      return ollamaRootOf({
-        aiTranslateProvider: this.aiTranslateProvider,
-        aiTranslateApiUrl: this.aiTranslateApiUrl,
-      });
+    usesManagedModel() {
+      return this.aiTranslateProvider === 'local'
+        || (this.aiTranslateProvider === 'auto' && !this.aiTranslateApiKey);
     },
     defaultApiUrl() {
-      // Placeholder for an empty field: show what will be used if left blank.
-      return this.aiTranslateProvider === 'ollama' ? ollamaRootOf({}) : DEFAULT_BASE_URL;
+      return DEFAULT_BASE_URL;
     },
     defaultModel() {
-      const detected = this.resolution && this.resolution.ok && this.resolution.endpoint;
-      if (detected && this.resolution.kind === 'ollama') return this.resolution.endpoint.model;
+      if (this.usesManagedModel) return MANAGED_MODEL_ALIAS;
       return DEFAULT_MODEL;
     },
     /** Plain-language summary of which provider will actually be used, and why. */
     providerStatus() {
       if (!this.aiTranslateEnabled) return '';
+      if (this.usesManagedModel) {
+        const status = this.managedStatus;
+        if (!status) return '';
+        if (!status.runtimeAvailable) {
+          return this.$t('preferences.translate.aiStatusLocalRuntimeMissing');
+        }
+        if (status.modelDownloaded) {
+          return this.$t('preferences.translate.aiStatusLocalReady');
+        }
+        return this.$t('preferences.translate.aiStatusLocalDownload');
+      }
       if (this.detecting) return this.$t('preferences.translate.aiStatusDetecting');
       const resolved = this.resolution;
       if (!resolved) return '';
-      if (resolved.ok && resolved.kind === 'ollama') {
-        const { baseUrl, model } = resolved.endpoint;
-        // "Ollama" does not imply "on this machine": the endpoint field lets the
-        // user point at another host, and then the subtitle text does leave.
-        if (!isLocalhostUrl(baseUrl)) {
-          return this.$t('preferences.translate.aiStatusOllamaRemote', {
-            model, host: apiRootOf(baseUrl),
-          });
-        }
-        return this.$t('preferences.translate.aiStatusOllama', { model });
-      }
       if (resolved.ok) return this.$t('preferences.translate.aiStatusOpenai');
       if (resolved.reason === 'missing-key') return this.$t('preferences.translate.aiStatusMissingKey');
-      if (resolved.reason === 'ollama-no-chat-model') {
-        return this.$t('preferences.translate.aiStatusNoChatModel');
-      }
-      // Name the host we actually probed, not the default, or a user who pointed
-      // us at a remote Ollama would be told the wrong address is unreachable.
-      return this.$t('preferences.translate.aiStatusNoOllama', { url: this.ollamaHost });
+      return '';
     },
     aiTranslateEnabled: {
       get() {
@@ -505,8 +496,23 @@ export default {
       if (!this.aiTranslateEnabled) {
         this.detecting = false;
         this.resolution = null;
+        this.managedStatus = null;
         return;
       }
+      if (this.usesManagedModel) {
+        const app = electron.remote.app;
+        const runtimeDir = app.isPackaged
+          ? `${process.resourcesPath}/llama`
+          : `${app.getAppPath()}/build/llama`;
+        this.managedStatus = inspectManagedModel({
+          serverPath: `${runtimeDir}/llama-server`,
+          modelDir: `${app.getPath('userData')}/qwen3`,
+        });
+        this.resolution = null;
+        this.detecting = false;
+        return;
+      }
+      this.managedStatus = null;
       this.detecting = true;
       resolveAIProvider({
         aiTranslateProvider: this.$store.getters.aiTranslateProvider,

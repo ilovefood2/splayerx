@@ -31,8 +31,10 @@ import {
   registerAITranslation, makeAITranslationKey, clearAllAITranslations,
   appendAITranslationCues, getAITranslator, resolveAIProvider, configFor,
   checkTranscribeEnvironment, transcribeVideo, downloadModel,
+  ensureManagedModelServer, stopManagedModelServer,
   AIProviderResolution, AIProviderTuning, AIProviderPrefs, AITranslatorConfig,
   RealtimeTranslatorOptions, TimedText, BundledPaths, TranscribeEnvironment,
+  ManagedModelPaths, ManagedModelProgress,
 } from '@/services/subtitle/ai';
 import { generateHints, calculatedName } from '@/libs/utils';
 import { log } from '@/libs/Log';
@@ -116,7 +118,7 @@ function aiPrefsOf(getters: {
 }) {
   return {
     aiTranslateProvider: getters.aiTranslateProvider as
-      'auto' | 'openai' | 'ollama' | undefined,
+      'auto' | 'openai' | 'local' | undefined,
     aiTranslateApiUrl: getters.aiTranslateApiUrl,
     aiTranslateApiKey: getters.aiTranslateApiKey,
     aiTranslateModel: getters.aiTranslateModel,
@@ -169,40 +171,72 @@ function tuningOptions(tuning: AIProviderTuning) {
 /**
  * Translator options for a resolved provider.
  *
- * When we are using the user's own API key we also arm a one-shot failover: if
- * the endpoint rejects the key, retry on a local Ollama rather than silently
- * giving up for the rest of the session.
+ * Provider-dependent timing for the realtime translator.
  */
 function buildTranslatorOptions(
   resolution: AIProviderResolution,
-  languages: { targetLanguage: string, sourceLanguage?: string },
 ) {
-  const options = tuningOptions(resolution.tuning);
-  if (resolution.kind !== 'openai') return options;
-  return Object.assign({}, options, {
-    onAuthFailure: async () => {
-      const local = await resolveAIProvider({ aiTranslateProvider: 'ollama' });
-      const localConfig = configFor(local, languages);
-      if (!localConfig) {
-        log.warn('SubtitleManager', `AI translate: key rejected and no local fallback (${local.reason})`);
-        return undefined;
-      }
-      log.warn('SubtitleManager', `AI translate: key rejected, falling back to local ${localConfig.model}`);
-      // Reuse tuningOptions so the failover and the direct-local path cannot drift:
-      // the local model needs the bigger look-ahead as much as the longer timeout.
-      return Object.assign({ config: localConfig }, tuningOptions(local.tuning));
-    },
-  });
+  return tuningOptions(resolution.tuning);
+}
+
+function managedPaths(): ManagedModelPaths {
+  const runtimeDir = remote.app.isPackaged
+    ? join(process.resourcesPath, 'llama')
+    : join(remote.app.getAppPath(), 'build', 'llama');
+  return {
+    serverPath: join(runtimeDir, 'llama-server'),
+    modelDir: join(remote.app.getPath('userData'), 'qwen3'),
+  };
+}
+
+function managedProgressText(progress: ManagedModelProgress): string {
+  if (progress.stage === 'verifying') {
+    return progressText('errorFile.aiProgress.verifyingModel', {});
+  }
+  if (progress.stage === 'starting') {
+    return progressText('errorFile.aiProgress.startingModel', {});
+  }
+  const received = progress.received || 0;
+  const total = progress.total || 0;
+  const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
+  return progressText('errorFile.aiProgress.downloadingTranslationModel', { percent });
 }
 
 async function translationPlan(
   prefs: AIProviderPrefs,
   languages: ReturnType<typeof languagesFor>,
 ): Promise<{ config?: AITranslatorConfig, options?: RealtimeTranslatorOptions, reason: string }> {
-  const resolution = await resolveAIProvider(prefs);
+  let resolution: AIProviderResolution;
+  const preference = prefs.aiTranslateProvider || 'auto';
+  const useManaged = preference === 'local'
+    || (preference === 'auto' && !prefs.aiTranslateApiKey);
+  if (useManaged) {
+    let stage: string | undefined;
+    try {
+      const endpoint = await ensureManagedModelServer({
+        paths: managedPaths(),
+        onProgress: (progress) => {
+          const content = managedProgressText(progress);
+          if (stage !== progress.stage) {
+            stage = progress.stage;
+            showAIProgress(content);
+          } else {
+            updateAIProgress(content);
+          }
+        },
+      });
+      resolution = await resolveAIProvider(prefs, { localEndpoint: endpoint });
+    } catch (error) {
+      endAIProgress();
+      log.warn('SubtitleManager', `Managed Qwen3 unavailable: ${(error as Error).message}`);
+      resolution = await resolveAIProvider(prefs, { localReason: 'local-start-failed' });
+    }
+  } else {
+    resolution = await resolveAIProvider(prefs);
+  }
   return {
     config: configFor(resolution, languages),
-    options: buildTranslatorOptions(resolution, languages),
+    options: buildTranslatorOptions(resolution),
     reason: resolution.reason,
   };
 }
@@ -273,7 +307,7 @@ const getters: GetterTree<ISubtitleManagerState, {}> = {
   canTranslateWithAI(state, getters): boolean {
     if (!getters.aiTranslateEnabled) return false;
     // 'openai' means the user explicitly wants the hosted API, which needs a key
-    // or a custom endpoint. 'auto'/'ollama' can run entirely on a local model,
+    // or a custom endpoint. 'auto'/'local' can run entirely on a local model,
     // so they need no configuration at all — whether one is actually reachable
     // is settled by resolveAIProvider when a translation is requested.
     if (getters.aiTranslateProvider === 'openai') {
@@ -409,6 +443,7 @@ function endAIProgress(): void {
 // on both, and is the only hook that covers quitting mid-transcription.
 window.addEventListener('beforeunload', () => {
   abortTranscription();
+  stopManagedModelServer();
   if (aiProgressTimer !== undefined) clearInterval(aiProgressTimer);
 });
 
@@ -974,8 +1009,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     if (!sourceCues.length) return undefined;
 
     const languages = languagesFor(targetCode, normalizeCode(reference.language));
-    // Resolve Ollama or the configured API before registering the subtitle, so
-    // the realtime track never starts with an unusable provider.
+    // Resolve built-in Qwen3 or the configured API before registering the
+    // subtitle, so the realtime track never starts with an unusable provider.
     const plan = await translationPlan(aiPrefsOf(getters), languages);
     if (!plan.config) {
       log.warn('SubtitleManager', `AI translate: no provider available (${plan.reason})`);
@@ -1030,7 +1065,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     });
     if (!added) {
       endAIProgress();
-      // A source exists, so anything left is the provider: no Ollama and no key.
+      // A source exists, so anything left is a provider startup/configuration
+      // failure.
       addBubble(AI_TRANSLATE_NO_PROVIDER);
       return undefined;
     }
