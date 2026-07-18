@@ -452,7 +452,7 @@ export default class Menubar {
       }) => {
         const item = new MenuItem({
           id: `subtitle.mainSubtitle.${id}`,
-          type: 'checkbox',
+          type: 'radio',
           label,
           checked,
           click: () => {
@@ -485,7 +485,7 @@ export default class Menubar {
       this.secondarySubs.forEach(({
         id, label, checked, enabled, subtitleItem,
       }) => {
-        let type: ('normal' | 'separator' | 'submenu' | 'checkbox' | 'radio') = 'checkbox';
+        let type: ('normal' | 'separator' | 'submenu' | 'checkbox' | 'radio') = 'radio';
         if (id === 'secondarySub') type = 'normal';
         else if (id === 'menubar.separator') type = 'separator';
         const item = new MenuItem({

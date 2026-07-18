@@ -975,10 +975,11 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     }
   },
   async [a.manualChangePrimarySubtitle]({ dispatch, commit, state }, id: string) {
-    await dispatch('setSubtitleOff', !id);
-    if (!id) dispatch(a.autoChangeSecondarySubtitle, '');
+    dispatch('setSubtitleOff', !id)
+      .catch(error => log.warn('SubtitleManager store subtitle preference', error));
+    if (!id) await dispatch(a.autoChangeSecondarySubtitle, '');
     else if (!state.secondarySubtitleId) commit(m.setNotSelectedSubtitle, 'secondary');
-    dispatch(a.autoChangePrimarySubtitle, id);
+    await dispatch(a.autoChangePrimarySubtitle, id);
   },
   /**
    * Create (or re-select) an LLM realtime translation of an existing subtitle
@@ -1009,7 +1010,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     const targetHash = `ai-${reference.hash}-${targetCode}`;
     const existing = list.find(sub => sub.hash === targetHash);
     if (existing) {
-      dispatch(a.manualChangePrimarySubtitle, existing.id);
+      await dispatch(a.manualChangePrimarySubtitle, existing.id);
       return existing;
     }
     if (!store.hasModule(reference.id)) return undefined;
@@ -1036,7 +1037,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       mediaHash: state.mediaHash,
     });
     const added = (getters.list as ISubtitleControlListItem[]).find(sub => sub.hash === targetHash);
-    if (added) dispatch(a.manualChangePrimarySubtitle, added.id);
+    if (added) await dispatch(a.manualChangePrimarySubtitle, added.id);
     return added;
   },
   /**
@@ -1235,7 +1236,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     if (state.mediaHash !== mediaHash) return undefined;
     const targetHash = `ai-${referenceHash}-${targetCode}`;
     const added = (getters.list as ISubtitleControlListItem[]).find(sub => sub.hash === targetHash);
-    if (added) dispatch(a.manualChangePrimarySubtitle, added.id);
+    if (added) await dispatch(a.manualChangePrimarySubtitle, added.id);
     return added;
   },
   async [a.ensureAITranslation]({ getters, dispatch }) {
@@ -1290,10 +1291,11 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     }
   },
   async [a.manualChangeSecondarySubtitle]({ dispatch, commit, state }, id: string) {
-    await dispatch('setSubtitleOff', !id);
-    if (!id) dispatch(a.autoChangePrimarySubtitle, '');
+    dispatch('setSubtitleOff', !id)
+      .catch(error => log.warn('SubtitleManager store subtitle preference', error));
+    if (!id) await dispatch(a.autoChangePrimarySubtitle, '');
     else if (!state.primarySubtitleId) commit(m.setNotSelectedSubtitle, 'primary');
-    dispatch(a.autoChangeSecondarySubtitle, id);
+    await dispatch(a.autoChangeSecondarySubtitle, id);
   },
   async [a.storeSelectedSubtitles]({ state }, ids: string[]) {
     const { allSubtitles, mediaHash } = state;

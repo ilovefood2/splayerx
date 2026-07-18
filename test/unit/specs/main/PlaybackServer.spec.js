@@ -6,6 +6,7 @@ import {
   buildVirtualMp4,
   parseByteRange,
   PlaybackServer,
+  shouldUsePlaybackServer,
 } from '@/../main/helpers/PlaybackServer';
 
 function request(url, headers = {}) {
@@ -88,6 +89,12 @@ describe('PlaybackServer', () => {
     expect(parseByteRange('bytes=5-', 20)).to.deep.equal({ start: 5, end: 19 });
     expect(parseByteRange('bytes=-5', 20)).to.deep.equal({ start: 15, end: 19 });
     expect(parseByteRange('bytes=20-', 20)).to.equal(null);
+  });
+
+  it('uses the virtual server only for mounted MP4-family files', () => {
+    expect(shouldUsePlaybackServer('/Volumes/Videos/movie.mp4')).to.equal(true);
+    expect(shouldUsePlaybackServer('/Volumes/Videos/movie.mkv')).to.equal(false);
+    expect(shouldUsePlaybackServer('/Volumes/Videos/movie.webm')).to.equal(false);
   });
 
   it('builds a contiguous virtual MP4 from fragmented media blocks', () => {

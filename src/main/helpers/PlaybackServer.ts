@@ -5,6 +5,7 @@ import path from 'path';
 
 const PREFIX_SIZE = 8 * 1024 * 1024;
 const MAX_FILES = 8;
+const VIRTUAL_MP4_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4']);
 
 const CONTENT_TYPES: { [extension: string]: string } = {
   avi: 'video/x-msvideo',
@@ -46,6 +47,11 @@ export function isMountedMediaPath(filePath: string): boolean {
   if (process.platform === 'darwin') return filePath.indexOf('/Volumes/') === 0;
   if (process.platform === 'win32') return /^\\\\/.test(filePath);
   return false;
+}
+
+export function shouldUsePlaybackServer(filePath: string): boolean {
+  return isMountedMediaPath(filePath)
+    && VIRTUAL_MP4_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
 
 export function parseByteRange(

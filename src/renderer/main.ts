@@ -53,9 +53,7 @@ import MenuService from './services/menu/MenuService';
 import {
   isSubtitle, getSystemLocale, getClientUUID, getEnvironmentName, getIP,
 } from '../shared/utils';
-import {
-  ISubtitleControlListItem, Type, NOT_SELECTED_SUBTITLE, ModifiedSubtitle,
-} from './interfaces/ISubtitle';
+import { ISubtitleControlListItem, Type, ModifiedSubtitle } from './interfaces/ISubtitle';
 import { VueDevtools } from './plugins/vueDevtools.dev';
 import {
   CAST_NO_DEVICE, CAST_NOT_LOCAL, CAST_UNSUPPORTED, CAST_FAILED,
@@ -303,37 +301,17 @@ new Vue({
       this.menuService.updateMenuItemEnabled('subtitle.decreaseSecondarySubtitleDelay', !!this.secondarySubtitleId);
       this.menuService.updateMenuItemEnabled('subtitle.uploadSelectedSubtitle', !!this.canTryToUploadCurrentSubtitle);
     },
-    primarySubtitleId(id: string, oldId: string) {
+    primarySubtitleId(id: string) {
       if (this.currentRouteName !== 'playing-view') return;
       this.menuService.updateMenuItemEnabled('subtitle.increasePrimarySubtitleDelay', !!id);
       this.menuService.updateMenuItemEnabled('subtitle.decreasePrimarySubtitleDelay', !!id);
-      if (id === '') {
-        this.menuService.updateMenuItemChecked('subtitle.mainSubtitle.off', true);
-        this.menuService.updateMenuItemChecked(`subtitle.mainSubtitle.${oldId}`, false);
-      } else if (id === NOT_SELECTED_SUBTITLE) {
-        this.menuService.updateMenuItemChecked('subtitle.mainSubtitle.off', false);
-        this.menuService.updateMenuItemChecked(`subtitle.mainSubtitle.${oldId}`, false);
-      } else if (id) {
-        this.menuService.updateMenuItemChecked('subtitle.mainSubtitle.off', false);
-        this.menuService.updateMenuItemChecked(`subtitle.mainSubtitle.${id}`, true);
-        this.menuService.updateMenuItemChecked(`subtitle.mainSubtitle.${oldId}`, false);
-      }
+      this.menuService.addPrimarySub(this.recentSubMenu());
     },
-    secondarySubtitleId(id: string, oldId: string) {
+    secondarySubtitleId(id: string) {
       if (this.currentRouteName !== 'playing-view') return;
       this.menuService.updateMenuItemEnabled('subtitle.increaseSecondarySubtitleDelay', !!id);
       this.menuService.updateMenuItemEnabled('subtitle.decreaseSecondarySubtitleDelay', !!id);
-      if (id === '') {
-        this.menuService.updateMenuItemChecked('subtitle.secondarySubtitle.off', true);
-        this.menuService.updateMenuItemChecked(`subtitle.secondarySubtitle.${oldId}`, false);
-      } else if (id === NOT_SELECTED_SUBTITLE) {
-        this.menuService.updateMenuItemChecked('subtitle.secondarySubtitle.off', false);
-        this.menuService.updateMenuItemChecked(`subtitle.secondarySubtitle.${oldId}`, false);
-      } else if (id) {
-        this.menuService.updateMenuItemChecked('subtitle.secondarySubtitle.off', false);
-        this.menuService.updateMenuItemChecked(`subtitle.secondarySubtitle.${id}`, true);
-        this.menuService.updateMenuItemChecked(`subtitle.secondarySubtitle.${oldId}`, false);
-      }
+      this.menuService.addSecondarySub(this.recentSecondarySubMenu());
     },
     audioTrackList(val, oldval) {
       if (this.currentRouteName !== 'playing-view') return;

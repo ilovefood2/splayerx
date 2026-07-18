@@ -5,7 +5,7 @@ import {
 } from 'fs';
 import path from 'path';
 import { runMediaBinary } from './ffmpeg';
-import { isMountedMediaPath, PlaybackServer } from './PlaybackServer';
+import { PlaybackServer, shouldUsePlaybackServer } from './PlaybackServer';
 
 function reply(event: IpcMainEvent, channel: string, ...args: unknown[]) {
   if (event.sender && !event.sender.isDestroyed()) event.reply(channel, ...args);
@@ -42,7 +42,7 @@ function compatibilityOutputPath(videoPath: string): string {
 
 async function preparePlaybackSource(videoPath: string): Promise<string> {
   if (path.extname(videoPath).toLowerCase() !== '.ts') {
-    return isMountedMediaPath(videoPath) ? playbackServer.urlFor(videoPath) : videoPath;
+    return shouldUsePlaybackServer(videoPath) ? playbackServer.urlFor(videoPath) : videoPath;
   }
   if (!existsSync(videoPath)) throw new Error('File does not exist.');
 
