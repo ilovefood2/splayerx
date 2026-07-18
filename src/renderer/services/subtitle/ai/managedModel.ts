@@ -1,7 +1,7 @@
 /**
- * SPlayer-owned Qwen3 runtime.
+ * SPlayer-owned Qwen3 14B runtime.
  *
- * The application ships llama-server, downloads the official quantized Qwen3
+ * The application ships llama-server, downloads the official quantized Qwen3 14B
  * model on first use, verifies its SHA-256, and starts a private loopback API.
  * No Ollama installation or background service is required.
  */
@@ -16,13 +16,15 @@ import { IncomingMessage } from 'http';
 import { createServer } from 'net';
 import { dirname, join } from 'path';
 
-export const MANAGED_MODEL_NAME = 'Qwen3-4B-Q4_K_M.gguf';
-export const MANAGED_MODEL_ALIAS = 'splayer-qwen3';
-export const MANAGED_MODEL_SHA256 = '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5';
+export const MANAGED_MODEL_NAME = 'Qwen3-14B-Q4_K_M.gguf';
+export const MANAGED_MODEL_ALIAS = 'splayer-qwen3-14b';
+export const MANAGED_MODEL_SHA256 = '500a8806e85ee9c83f3ae08420295592451379b4f8cf2d0f41c15dffeb6b81f0';
 export const MANAGED_MODEL_URL = [
-  'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/',
-  'Qwen3-4B-Q4_K_M.gguf?download=true',
+  'https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/',
+  'Qwen3-14B-Q4_K_M.gguf?download=true',
 ].join('');
+
+const LEGACY_MODEL_NAMES = ['Qwen3-4B-Q4_K_M.gguf'];
 
 export interface ManagedModelPaths {
   serverPath: string;
@@ -88,6 +90,16 @@ function removeIfPresent(path: string): void {
   } catch (error) {
     // A later open/rename will report a useful error if cleanup really failed.
   }
+}
+
+/** Reclaim superseded model storage only after the replacement is verified. */
+export function cleanupLegacyManagedModels(modelDir: string): void {
+  LEGACY_MODEL_NAMES.forEach((name) => {
+    const legacyPath = join(modelDir, name);
+    removeIfPresent(legacyPath);
+    removeIfPresent(markerPath(legacyPath));
+    removeIfPresent(`${legacyPath}.part`);
+  });
 }
 
 function sha256(path: string, signal?: AbortSignal): Promise<string> {
@@ -185,7 +197,10 @@ export async function ensureManagedModelFile(
 ): Promise<string> {
   mkdirSync(paths.modelDir, { recursive: true });
   const modelPath = join(paths.modelDir, MANAGED_MODEL_NAME);
-  if (markerMatches(modelPath)) return modelPath;
+  if (markerMatches(modelPath)) {
+    cleanupLegacyManagedModels(paths.modelDir);
+    return modelPath;
+  }
 
   // A complete file without a marker may have come from an older build. Verify
   // it once before deciding whether it needs to be downloaded again.
@@ -193,6 +208,7 @@ export async function ensureManagedModelFile(
     if (onProgress) onProgress({ stage: 'verifying' });
     if (await sha256(modelPath, signal) === MANAGED_MODEL_SHA256) {
       writeFileSync(markerPath(modelPath), `${MANAGED_MODEL_SHA256}\n`);
+      cleanupLegacyManagedModels(paths.modelDir);
       return modelPath;
     }
     removeIfPresent(modelPath);
@@ -217,6 +233,7 @@ export async function ensureManagedModelFile(
   }
   renameSync(part, modelPath);
   writeFileSync(markerPath(modelPath), `${MANAGED_MODEL_SHA256}\n`);
+  cleanupLegacyManagedModels(paths.modelDir);
   return modelPath;
 }
 

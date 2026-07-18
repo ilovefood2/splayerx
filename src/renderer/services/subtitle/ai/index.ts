@@ -57,6 +57,7 @@ export {
   EnsureManagedModelOptions,
   contentRangeTotal,
   inspectManagedModel,
+  cleanupLegacyManagedModels,
   ensureManagedModelFile,
   ensureManagedModelServer,
   stopManagedModelServer,

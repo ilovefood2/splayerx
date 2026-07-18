@@ -86,9 +86,9 @@
     },
     "aiProgress": {
       "downloading": "正在准备字幕 — 下载语音模型 {percent}%",
-      "downloadingTranslationModel": "正在准备字幕 — 下载内置 Qwen3 模型 {percent}%",
-      "verifyingModel": "正在准备字幕 — 验证 Qwen3 模型…",
-      "startingModel": "正在准备字幕 — 启动内置 Qwen3 模型…",
+      "downloadingTranslationModel": "正在准备字幕 — 下载内置 Qwen3 14B 模型 {percent}%",
+      "verifyingModel": "正在准备字幕 — 验证 Qwen3 14B 模型…",
+      "startingModel": "正在准备字幕 — 启动内置 Qwen3 14B 模型…",
       "transcribing": "正在准备字幕 — 识别语音 {percent}%",
       "translating": "正在准备字幕 — 已翻译 {done}/{total} 句"
     },
@@ -106,7 +106,7 @@
     },
     "aiTranslateNoProvider": {
       "title": "无法翻译",
-      "content": "无法准备内置 Qwen3 模型。请检查网络连接和可用磁盘空间后重试。"
+      "content": "无法准备内置 Qwen3 14B 模型。请检查网络连接和可用磁盘空间后重试。"
     },
     "localSubtitleRemoved": {
       "title": "字幕加载失败",
@@ -468,18 +468,18 @@
       "setAsDefault": "将SPlayer设为默认播放器",
       "settings": "设置",
       "aiTranslateEnable": "AI 实时字幕翻译",
-      "aiTranslateDescription": "使用 SPlayer 内置的 Qwen3 模型在本机私密翻译字幕。2.5 GB 模型会在首次使用时下载一次，无需安装 Ollama；也可选择兼容 OpenAI 的 API。默认关闭。",
+      "aiTranslateDescription": "使用 SPlayer 内置的高质量 Qwen3 14B 模型在本机私密翻译字幕。9 GB 模型会在首次使用时下载一次，无需安装 Ollama；也可选择兼容 OpenAI 的 API。默认关闭。",
       "aiProvider": "服务来源",
-      "aiProviderAuto": "自动（有 API 密钥时使用 API，否则使用内置 Qwen3）",
-      "aiProviderLocal": "内置 Qwen3（本机私密）",
+      "aiProviderAuto": "自动（有 API 密钥时使用 API，否则使用内置 Qwen3 14B）",
+      "aiProviderLocal": "内置 Qwen3 14B（本机私密）",
       "aiProviderOpenai": "仅使用 OpenAI 兼容 API",
       "aiRedetect": "重新检测",
       "aiStatusDetecting": "正在检查翻译服务…",
-      "aiStatusLocalReady": "内置 Qwen3 已就绪 · 翻译内容不会离开这台电脑",
-      "aiStatusLocalDownload": "首次翻译时会下载一次内置 Qwen3 · 2.5 GB · 无需 Ollama",
-      "aiStatusLocalRuntimeMissing": "此开发版本缺少内置 Qwen3 引擎",
+      "aiStatusLocalReady": "内置 Qwen3 14B 已就绪 · 翻译内容不会离开这台电脑",
+      "aiStatusLocalDownload": "首次翻译时会下载一次内置 Qwen3 14B · 9 GB · 无需 Ollama",
+      "aiStatusLocalRuntimeMissing": "这个开发版本缺少内置 Qwen3 14B 引擎",
       "aiStatusOpenai": "使用你的 API 密钥 · 字幕内容会发送到上面的接口",
-      "aiStatusMissingKey": "请填写 API 密钥，或将服务来源切换为内置 Qwen3。",
+      "aiStatusMissingKey": "请输入 API 密钥，或把提供方切换为内置 Qwen3 14B。",
       "aiApiUrl": "API 地址",
       "aiApiKey": "API 密钥",
       "aiModel": "模型",

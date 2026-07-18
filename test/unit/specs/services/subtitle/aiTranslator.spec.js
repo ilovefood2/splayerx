@@ -1,8 +1,14 @@
 import {
+  existsSync, mkdtempSync, rmdirSync, unlinkSync, writeFileSync,
+} from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import {
   translateLines, AITranslationError,
   RealtimeSubtitleTranslator, TranslationCache,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
-  contentRangeTotal, inspectManagedModel, MANAGED_MODEL_NAME, MANAGED_MODEL_ALIAS,
+  cleanupLegacyManagedModels, contentRangeTotal, inspectManagedModel,
+  MANAGED_MODEL_NAME, MANAGED_MODEL_ALIAS,
   parseWhisperCues, parseWhisperProgress, parseFfmpegProgress, checkTranscribeEnvironment,
   chunkPlanOf, whisperArgs,
 } from '@/services/subtitle/ai';
@@ -84,6 +90,11 @@ describe('services/subtitle/ai - translateLines', () => {
 });
 
 describe('services/subtitle/ai - managed Qwen3 model', () => {
+  it('uses the higher-quality 14B model and endpoint alias', () => {
+    expect(MANAGED_MODEL_NAME).to.equal('Qwen3-14B-Q4_K_M.gguf');
+    expect(MANAGED_MODEL_ALIAS).to.equal('splayer-qwen3-14b');
+  });
+
   it('parses total bytes from resumable download headers', () => {
     expect(contentRangeTotal('bytes 1048576-2097151/2621440')).to.equal(2621440);
     expect(contentRangeTotal(undefined)).to.equal(0);
@@ -99,6 +110,27 @@ describe('services/subtitle/ai - managed Qwen3 model', () => {
     expect(status.modelDownloaded).to.equal(false);
     expect(status.ready).to.equal(false);
     expect(status.modelPath.endsWith(MANAGED_MODEL_NAME)).to.equal(true);
+  });
+
+  it('removes the superseded 4B download without touching other files', () => {
+    const modelDir = mkdtempSync(join(tmpdir(), 'splayer-model-test-'));
+    const legacy = join(modelDir, 'Qwen3-4B-Q4_K_M.gguf');
+    const unrelated = join(modelDir, 'keep.gguf');
+    writeFileSync(legacy, 'old model');
+    writeFileSync(`${legacy}.sha256`, 'old checksum');
+    writeFileSync(`${legacy}.part`, 'old partial');
+    writeFileSync(unrelated, 'keep');
+
+    try {
+      cleanupLegacyManagedModels(modelDir);
+      expect(existsSync(legacy)).to.equal(false);
+      expect(existsSync(`${legacy}.sha256`)).to.equal(false);
+      expect(existsSync(`${legacy}.part`)).to.equal(false);
+      expect(existsSync(unrelated)).to.equal(true);
+    } finally {
+      if (existsSync(unrelated)) unlinkSync(unrelated);
+      rmdirSync(modelDir);
+    }
   });
 });
 
