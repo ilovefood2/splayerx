@@ -452,7 +452,11 @@ export default class Menubar {
       }) => {
         const item = new MenuItem({
           id: `subtitle.mainSubtitle.${id}`,
-          type: 'radio',
+          // Electron 11 can retain stale native radio-group state when this
+          // submenu is rebuilt.  We rebuild after every selection anyway, so
+          // checkboxes give us reliable clicks while the supplied `checked`
+          // values still keep the menu mutually exclusive.
+          type: 'checkbox',
           label,
           checked,
           click: () => {
@@ -485,7 +489,7 @@ export default class Menubar {
       this.secondarySubs.forEach(({
         id, label, checked, enabled, subtitleItem,
       }) => {
-        let type: ('normal' | 'separator' | 'submenu' | 'checkbox' | 'radio') = 'radio';
+        let type: ('normal' | 'separator' | 'submenu' | 'checkbox' | 'radio') = 'checkbox';
         if (id === 'secondarySub') type = 'normal';
         else if (id === 'menubar.separator') type = 'separator';
         const item = new MenuItem({

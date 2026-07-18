@@ -1042,11 +1042,13 @@ new Vue({
       this.menuService.on('subtitle.referenceSubtitle.load', () => {
         this.loadReferenceFromLocal();
       });
-      this.menuService.on('subtitle.mainSubtitle', (e: Event, id: string, item: ISubtitleControlListItem) => {
+      this.menuService.on('subtitle.mainSubtitle', (e: Event, id: string) => {
         if (id === 'off') this.changeFirstSubtitle('');
         else {
           this.updateSubtitleType(true);
-          this.changeFirstSubtitle(item.id);
+          // The menu id is authoritative. Native menu rebuilds can deliver an
+          // empty serialized subtitle item on older Electron versions.
+          this.changeFirstSubtitle(id);
         }
       });
       this.menuService.on('subtitle.secondarySubtitle', (e: Event, id: string, item: ISubtitleControlListItem) => {

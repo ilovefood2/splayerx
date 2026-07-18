@@ -74,6 +74,14 @@ const sortOfTypes = {
   modified: 4,
 };
 
+type SubtitleSelection = string | { id: string, explicit?: boolean };
+
+function unpackSubtitleSelection(selection: SubtitleSelection) {
+  return typeof selection === 'string'
+    ? { id: selection, explicit: false }
+    : selection;
+}
+
 let unwatch: Function;
 
 /** A list item is a candidate source for AI translation when it is not itself an
@@ -942,9 +950,10 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
   },
   async [a.autoChangePrimarySubtitle]({
     dispatch, commit, getters, state,
-  }, id: string) {
+  }, selection: SubtitleSelection) {
+    const { id, explicit } = unpackSubtitleSelection(selection);
     const lastSelected = [state.primarySubtitleId, state.secondarySubtitleId];
-    if (getters.subtitleOff) commit(m.setPrimarySubtitleId, '');
+    if (getters.subtitleOff && !explicit) commit(m.setPrimarySubtitleId, '');
     else {
       const primaryId = id;
       let secondaryId = state.secondarySubtitleId;
@@ -979,7 +988,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       .catch(error => log.warn('SubtitleManager store subtitle preference', error));
     if (!id) await dispatch(a.autoChangeSecondarySubtitle, '');
     else if (!state.secondarySubtitleId) commit(m.setNotSelectedSubtitle, 'secondary');
-    await dispatch(a.autoChangePrimarySubtitle, id);
+    await dispatch(a.autoChangePrimarySubtitle, { id, explicit: !!id });
   },
   /**
    * Create (or re-select) an LLM realtime translation of an existing subtitle
@@ -1258,9 +1267,10 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
   },
   async [a.autoChangeSecondarySubtitle]({
     dispatch, commit, getters, state,
-  }, id: string) {
+  }, selection: SubtitleSelection) {
+    const { id, explicit } = unpackSubtitleSelection(selection);
     const lastSelected = [state.primarySubtitleId, state.secondarySubtitleId];
-    if (getters.subtitleOff) commit(m.setSecondarySubtitleId, '');
+    if (getters.subtitleOff && !explicit) commit(m.setSecondarySubtitleId, '');
     else {
       let primaryId = state.primarySubtitleId;
       const secondaryId = id;
@@ -1295,7 +1305,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       .catch(error => log.warn('SubtitleManager store subtitle preference', error));
     if (!id) await dispatch(a.autoChangePrimarySubtitle, '');
     else if (!state.primarySubtitleId) commit(m.setNotSelectedSubtitle, 'primary');
-    await dispatch(a.autoChangeSecondarySubtitle, id);
+    await dispatch(a.autoChangeSecondarySubtitle, { id, explicit: !!id });
   },
   async [a.storeSelectedSubtitles]({ state }, ids: string[]) {
     const { allSubtitles, mediaHash } = state;
