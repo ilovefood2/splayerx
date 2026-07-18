@@ -37,6 +37,7 @@ export {
   downloadModel,
   parseWhisperCues,
   parseWhisperProgress,
+  parseFfmpegProgress,
   chunkPlanOf,
   whisperArgs,
   durationOf,

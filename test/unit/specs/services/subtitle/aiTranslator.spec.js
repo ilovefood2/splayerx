@@ -3,7 +3,7 @@ import {
   RealtimeSubtitleTranslator, TranslationCache,
   probeOllama, pickChatModel, isEmbeddingModel, parseParameterSize, apiRootOf,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
-  parseWhisperCues, parseWhisperProgress, checkTranscribeEnvironment,
+  parseWhisperCues, parseWhisperProgress, parseFfmpegProgress, checkTranscribeEnvironment,
   chunkPlanOf, whisperArgs,
 } from '@/services/subtitle/ai';
 
@@ -294,6 +294,12 @@ describe('services/subtitle/ai - whisper transcription', () => {
     const stderr = 'callback: progress =  10%\ncallback: progress =  35%\n';
     expect(parseWhisperProgress(stderr)).to.equal(35);
     expect(parseWhisperProgress('loading model')).to.equal(undefined);
+  });
+
+  it('parses ffmpeg extraction progress in both machine-readable formats', () => {
+    expect(parseFfmpegProgress('out_time_us=12500000\nprogress=continue')).to.equal(12.5);
+    expect(parseFfmpegProgress('out_time=00:01:02.500000\n')).to.equal(62.5);
+    expect(parseFfmpegProgress('opening input')).to.equal(undefined);
   });
 
   it('converts whisper millisecond offsets into second-based cues', () => {

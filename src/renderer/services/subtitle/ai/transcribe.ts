@@ -263,13 +263,24 @@ export function checkTranscribeEnvironment(
   };
 }
 
-function capture(command: string, args: string[]): Promise<string> {
+function capture(command: string, args: string[], timeout = 15000): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args);
     let stdout = '';
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error); else resolve(stdout);
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      finish(new Error(`${command} timed out after ${timeout}ms`));
+    }, timeout);
     child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
-    child.on('error', reject);
-    child.on('close', () => resolve(stdout));
+    child.on('error', error => finish(error));
+    child.on('close', () => finish());
   });
 }
 
@@ -322,6 +333,19 @@ export function parseWhisperProgress(chunk: string): number | undefined {
   const matched = /(\d+)%/.exec(matches[matches.length - 1]);
   if (!matched) return undefined;
   return parseInt(matched[1], 10);
+}
+
+/** Parse ffmpeg's machine-readable `-progress pipe:2` timestamp. */
+export function parseFfmpegProgress(chunk: string): number | undefined {
+  const matches = chunk.match(/out_time_(?:us|ms)=\d+/ig);
+  if (matches && matches.length) {
+    const value = parseInt(matches[matches.length - 1].split('=')[1], 10);
+    if (!Number.isNaN(value)) return value / 1000000;
+  }
+  const times = chunk.match(/out_time=\d{2}:\d{2}:\d{2}(?:\.\d+)?/ig);
+  if (!times || !times.length) return undefined;
+  const parts = times[times.length - 1].split('=')[1].split(':').map(Number);
+  return parts[0] * 3600 + parts[1] * 60 + parts[2];
 }
 
 export interface WhisperJson {
@@ -378,6 +402,8 @@ export function parseWhisperCues(json: WhisperJson): TimedText[] {
 
 export interface TranscribeOptions {
   tmpDir: string;
+  /** Player-known media duration, avoiding a second probe of slow network media. */
+  duration?: number;
   /**
    * Spoken language for whisper (ISO-639-1, e.g. 'ja'). Omit to auto-detect.
    * Detection only sniffs the opening seconds, so it misfires on material that
@@ -409,7 +435,9 @@ function chunkProgressReporter(
   if (!report) return undefined;
   return (chunkPercent) => {
     const overall = ((chunkIndex + chunkPercent / 100) / chunkCount) * 100;
-    report(Math.min(100, Math.round(overall)));
+    // One decimal keeps long videos visibly moving. With integer rounding a
+    // two-minute chunk is less than 1% of a long recording and looks frozen.
+    report(Math.min(100, Math.round(overall * 10) / 10));
   };
 }
 
@@ -419,6 +447,31 @@ function reportCompletedChunk(
   total: number,
 ): void {
   if (report) report(Math.round((completed / total) * 100));
+}
+
+function monotonicProgressReporter(
+  report: ((percent: number) => void) | undefined,
+): ((percent: number) => void) | undefined {
+  if (!report) return undefined;
+  let last = 0;
+  return (percent) => {
+    if (percent <= last) return;
+    last = percent;
+    report(percent);
+  };
+}
+
+function reportInitialProgress(report: ((percent: number) => void) | undefined): void {
+  if (report) report(0.1);
+}
+
+async function mediaDuration(
+  known: number | undefined,
+  ffprobePath: string,
+  videoPath: string,
+): Promise<number> {
+  if (known !== undefined && Number.isFinite(known) && known > 0) return known;
+  return durationOf(ffprobePath, videoPath);
 }
 
 /**
@@ -500,6 +553,24 @@ async function transcribeChunk(
   const outPrefix = join(options.tmpDir, stamp);
   const jsonPath = `${outPrefix}.json`;
   const threads = options.threads === undefined ? DEFAULT_THREADS : options.threads;
+  let lastProgress = 0;
+  let heartbeat: NodeJS.Timer | undefined;
+  const emitProgress = (percent: number) => {
+    if (!onProgress || percent <= lastProgress) return;
+    lastProgress = Math.min(100, Math.round(percent * 10) / 10);
+    onProgress(lastProgress);
+  };
+  const startHeartbeat = (from: number, to: number, estimatedMs: number) => {
+    if (!onProgress) return;
+    if (heartbeat) clearInterval(heartbeat);
+    const started = Date.now();
+    heartbeat = setInterval(() => {
+      // An estimate is used only while native tools are silent. It never reaches
+      // the end of a phase; actual output or process completion does that.
+      const fraction = Math.min(0.95, (Date.now() - started) / estimatedMs);
+      emitProgress(from + (to - from) * fraction);
+    }, 1000);
+  };
 
   try {
     // -ss before -i seeks instead of decoding everything up to `start`.
@@ -507,17 +578,35 @@ async function transcribeChunk(
     // `-t 0` would extract nothing.
     const seek = ['-y', '-ss', String(start)];
     const span = length > 0 ? ['-t', String(length)] : [];
-    await run(env.ffmpegPath as string, seek.concat(span, [
+    emitProgress(0.1);
+    startHeartbeat(0.1, 9, length > 0 ? Math.max(5000, length * 80) : 15000);
+    let ffmpegProgressBuffer = '';
+    await run(env.ffmpegPath as string, ['-nostats', '-progress', 'pipe:2'].concat(seek, span, [
       '-i', videoPath,
       '-vn', // no video
       '-ac', '1', // mono
       '-ar', '16000', // whisper's native rate
       '-c:a', 'pcm_s16le',
       wavPath,
-    ]), { signal: options.signal });
+    ]), {
+      signal: options.signal,
+      onStderr: onProgress ? (text) => {
+        ffmpegProgressBuffer = (ffmpegProgressBuffer + text).slice(-500);
+        const seconds = parseFfmpegProgress(ffmpegProgressBuffer);
+        if (seconds !== undefined && length > 0) {
+          emitProgress(0.1 + Math.min(1, seconds / length) * 9.9);
+        }
+      } : undefined,
+    });
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = undefined;
+    emitProgress(10);
 
     let progressBuffer = '';
-    let lastProgress = -1;
+    let lastNativeProgress = -1;
+    // Model loading, VAD and sparse-speech decoding can produce no native
+    // percentage for tens of seconds. Keep the UI moving during those phases.
+    startHeartbeat(10, 90, length > 0 ? Math.max(15000, length * 350) : 60000);
     await run(
       env.whisperPath as string,
       whisperArgs(env, wavPath, outPrefix, language, threads),
@@ -528,13 +617,16 @@ async function transcribeChunk(
           // short tail and report only changes.
           progressBuffer = (progressBuffer + text).slice(-300);
           const progress = parseWhisperProgress(progressBuffer);
-          if (progress !== undefined && progress !== lastProgress) {
-            lastProgress = progress;
-            onProgress(progress);
+          if (progress !== undefined && progress !== lastNativeProgress) {
+            lastNativeProgress = progress;
+            emitProgress(10 + progress * 0.9);
           }
         } : undefined,
       },
     );
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = undefined;
+    emitProgress(100);
 
     if (!existsSync(jsonPath)) return { cues: [], language };
     const json = JSON.parse(readFileSync(jsonPath, 'utf8')) as WhisperJson;
@@ -547,6 +639,7 @@ async function transcribeChunk(
     }));
     return { cues, language: detected };
   } finally {
+    if (heartbeat) clearInterval(heartbeat);
     [wavPath, jsonPath].forEach((file) => {
       try {
         if (existsSync(file)) unlinkSync(file);
@@ -575,10 +668,13 @@ export async function transcribeVideo(
   }
   const chunkSeconds = options.chunkSeconds === undefined
     ? DEFAULT_CHUNK_SECONDS : options.chunkSeconds;
-  const duration = await durationOf(env.ffprobePath, videoPath);
+  const reportProgress = monotonicProgressReporter(options.onProgress);
+  // ffprobe itself can take several seconds on a network source. Do not leave
+  // the first visible state at 0 while duration detection is in progress.
+  reportInitialProgress(reportProgress);
+  const duration = await mediaDuration(options.duration, env.ffprobePath, videoPath);
   const plan = chunkPlanOf(duration, chunkSeconds);
   const all: TimedText[] = [];
-  const reportProgress = options.onProgress;
   let language = options.language === undefined ? '' : options.language;
 
   for (let i = 0; i < plan.length; i += 1) {

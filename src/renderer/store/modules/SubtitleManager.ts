@@ -461,6 +461,13 @@ function progressText(key: string, values: object): string {
 }
 
 function showAIProgress(content: string): void {
+  // A previous translation timer may still be alive after a failed attempt on
+  // the same media. It would suppress every transcription update below and
+  // recreate the exact "0% forever" symptom on retry.
+  if (aiProgressTimer !== undefined) {
+    clearInterval(aiProgressTimer);
+    aiProgressTimer = undefined;
+  }
   store.dispatch('addMessages', { id: AI_PROGRESS_ID, content });
 }
 
@@ -1154,6 +1161,9 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     try {
       const { cues } = await transcribeVideo(originSrc, env, {
         tmpDir: remote.app.getPath('temp'),
+        // The player already opened the source, so reuse its duration instead
+        // of probing a network share or URL a second time before progress starts.
+        duration: getters.duration,
         language: whisperLanguageOf(getters.aiTranscribeLanguage),
         signal,
         onProgress: (percent) => {
