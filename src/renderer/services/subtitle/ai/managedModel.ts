@@ -6,7 +6,9 @@ import {
   createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync,
   renameSync, statSync, unlinkSync, writeFileSync,
 } from 'fs';
-import { IncomingMessage } from 'http';
+import {
+  createServer as createHTTPServer, IncomingMessage, Server as HTTPServer, ServerResponse,
+} from 'http';
 import { createServer } from 'net';
 import { dirname, join } from 'path';
 
@@ -18,7 +20,6 @@ export interface ManagedModelDefinition {
   sha256: string;
   url: string;
   downloadSize: string;
-  personalUseOnly?: boolean;
 }
 
 export const MANAGED_MODELS: ManagedModelDefinition[] = [
@@ -41,21 +42,20 @@ export const MANAGED_MODELS: ManagedModelDefinition[] = [
     downloadSize: '20 GB',
   },
   {
-    id: 'tower-plus-72b',
-    name: 'Tower+ 72B',
-    fileName: 'Tower-Plus-72B.i1-IQ3_M.gguf',
-    alias: 'splayer-tower-plus-72b',
-    sha256: 'fd76288e9d0908b64eb3aa0e8524498a44eec0cc8be1ed9260b8725ea57500b3',
+    id: 'madlad400-10b-mt',
+    name: 'MADLAD-400 10B-MT',
+    fileName: 'model-q6_k.gguf',
+    alias: 'splayer-madlad400-10b-mt',
+    sha256: '1bae3de3d35a08c900de28c165e5f59cfe9a59a1b20e53d441caf36ce43cf169',
     url: [
-      'https://huggingface.co/mradermacher/Tower-Plus-72B-i1-GGUF/resolve/main/',
-      'Tower-Plus-72B.i1-IQ3_M.gguf?download=true',
+      'https://huggingface.co/thirteenbit/madlad400-10b-mt-gguf/resolve/main/',
+      'model-q6_k.gguf?download=true',
     ].join(''),
-    downloadSize: '35.5 GB',
-    personalUseOnly: true,
+    downloadSize: '8.79 GB',
   },
 ];
 
-export const DEFAULT_MANAGED_MODEL_ID = 'tower-plus-72b';
+export const DEFAULT_MANAGED_MODEL_ID = 'madlad400-10b-mt';
 
 export function managedModelById(id?: string): ManagedModelDefinition {
   const selected = MANAGED_MODELS.find(model => model.id === id);
@@ -123,7 +123,10 @@ export function inspectManagedModel(
 ): ManagedModelStatus {
   const model = managedModelById(modelId);
   const modelPath = join(paths.modelDir, model.fileName);
-  const runtimeAvailable = existsSync(paths.serverPath);
+  const runtimePath = model.id === 'madlad400-10b-mt'
+    ? join(dirname(paths.serverPath), 'madlad-worker')
+    : paths.serverPath;
+  const runtimeAvailable = existsSync(runtimePath);
   const modelDownloaded = existsSync(modelPath);
   return {
     runtimeAvailable,
@@ -309,6 +312,9 @@ let serverEndpoint: ManagedModelEndpoint | undefined;
 let serverPromise: Promise<ManagedModelEndpoint> | undefined;
 let serverModelId: string | undefined;
 let serverPromiseModelId: string | undefined;
+let madladProxy: HTTPServer | undefined;
+let madladRequestId = 0;
+const madladResponses = new Map<string, ServerResponse>();
 
 function freeLoopbackPort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -336,6 +342,170 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function sendJSON(response: ServerResponse, status: number, body: object): void {
+  if (response.finished) return;
+  response.statusCode = status;
+  response.setHeader('Content-Type', 'application/json');
+  response.end(JSON.stringify(body));
+}
+
+function failMadladResponses(message: string): void {
+  madladResponses.forEach(response => sendJSON(response, 500, { error: message }));
+  madladResponses.clear();
+}
+
+function handleMadladRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  child: ChildProcess,
+): void {
+  if (request.method === 'GET' && request.url === '/health') {
+    sendJSON(response, 200, { status: 'ok' });
+    return;
+  }
+  if (request.method !== 'POST' || request.url !== '/v1/completions') {
+    sendJSON(response, 404, { error: 'not found' });
+    return;
+  }
+  let body = '';
+  request.on('data', (chunk: Buffer) => {
+    body += chunk.toString();
+    if (body.length > 1024 * 1024) request.destroy(new Error('request is too large'));
+  });
+  request.on('error', error => sendJSON(response, 400, { error: error.message }));
+  request.on('end', () => {
+    try {
+      const parsed = JSON.parse(body);
+      if (typeof parsed.prompt !== 'string') throw new Error('prompt must be a string');
+      madladRequestId += 1;
+      const id = String(madladRequestId);
+      madladResponses.set(id, response);
+      response.on('close', () => madladResponses.delete(id));
+      if (!child.stdin) throw new Error('MADLAD runtime input is unavailable');
+      child.stdin.write(`${JSON.stringify({
+        id,
+        prompt: parsed.prompt,
+        maxTokens: parsed.max_tokens,
+      })}\n`);
+    } catch (error) {
+      sendJSON(response, 400, { error: (error as Error).message });
+    }
+  });
+}
+
+async function startMadladServer(
+  paths: ManagedModelPaths,
+  modelPath: string,
+  model: ManagedModelDefinition,
+  timeout: number,
+  signal?: AbortSignal,
+): Promise<ManagedModelEndpoint> {
+  const workerPath = join(dirname(paths.serverPath), 'madlad-worker');
+  if (!existsSync(workerPath)) throw new Error('bundled MADLAD runtime is missing');
+  const port = await freeLoopbackPort();
+  const baseUrl = `http://127.0.0.1:${port}/v1`;
+  let stderr = '';
+  let stdout = '';
+  let startupSettled = false;
+  let resolveReady: () => void;
+  let rejectReady: (error: Error) => void;
+  const ready = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  const child = spawn(workerPath, [modelPath], {
+    env: Object.assign({}, process.env, { DYLD_LIBRARY_PATH: dirname(workerPath) }),
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  serverChild = child;
+  if (!child.stderr || !child.stdout) throw new Error('MADLAD runtime streams are unavailable');
+  child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-6000); });
+  child.stdout.on('data', (chunk: Buffer) => {
+    stdout += chunk.toString();
+    let newline = stdout.indexOf('\n');
+    while (newline >= 0) {
+      const line = stdout.slice(0, newline).trim();
+      stdout = stdout.slice(newline + 1);
+      if (line) {
+        try {
+          const message = JSON.parse(line);
+          if (message.ready && !startupSettled) {
+            startupSettled = true;
+            resolveReady();
+          } else if (message.id) {
+            const response = madladResponses.get(String(message.id));
+            madladResponses.delete(String(message.id));
+            if (response) {
+              if (message.error) {
+                sendJSON(response, 500, { error: message.error });
+              } else {
+                sendJSON(response, 200, {
+                  choices: [{ text: message.text || '' }], model: model.alias,
+                });
+              }
+            }
+          }
+        } catch (error) {
+          stderr = `${stderr}\ninvalid MADLAD response: ${line}`.slice(-6000);
+        }
+      }
+      newline = stdout.indexOf('\n');
+    }
+  });
+  child.on('error', (error: Error) => {
+    if (!startupSettled) {
+      startupSettled = true;
+      rejectReady(error);
+    }
+  });
+  child.on('close', () => {
+    if (!startupSettled) {
+      startupSettled = true;
+      rejectReady(new Error(`MADLAD runtime exited: ${stderr.slice(-500)}`));
+    }
+    failMadladResponses('MADLAD runtime stopped');
+    if (madladProxy) madladProxy.close();
+    madladProxy = undefined;
+    if (serverChild === child) {
+      serverChild = undefined;
+      serverEndpoint = undefined;
+      serverModelId = undefined;
+    }
+  });
+  const abort = () => child.kill();
+  if (signal) {
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      ready,
+      new Promise<void>((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(
+          `MADLAD runtime did not become ready: ${stderr.slice(-500)}`,
+        )), timeout);
+      }),
+    ]);
+    if (signal && signal.aborted) throw new Error('aborted');
+    const proxy = createHTTPServer((request, response) => {
+      handleMadladRequest(request, response, child);
+    });
+    madladProxy = proxy;
+    await new Promise<void>((resolve, reject) => {
+      proxy.once('error', reject);
+      proxy.listen(port, '127.0.0.1', resolve);
+    });
+    if (signal) signal.removeEventListener('abort', abort);
+    return { baseUrl, model: model.alias };
+  } catch (error) {
+    child.kill();
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function startManagedServer(
   paths: ManagedModelPaths,
   modelPath: string,
@@ -343,6 +513,9 @@ async function startManagedServer(
   timeout: number,
   signal?: AbortSignal,
 ): Promise<ManagedModelEndpoint> {
+  if (model.id === 'madlad400-10b-mt') {
+    return startMadladServer(paths, modelPath, model, timeout, signal);
+  }
   if (!existsSync(paths.serverPath)) throw new Error('bundled llama-server is missing');
   const port = await freeLoopbackPort();
   const baseUrl = `http://127.0.0.1:${port}/v1`;
@@ -433,6 +606,9 @@ export async function ensureManagedModelServer(
 }
 
 export function stopManagedModelServer(): void {
+  if (madladProxy) madladProxy.close();
+  madladProxy = undefined;
+  failMadladResponses('MADLAD runtime stopped');
   if (serverChild && serverChild.exitCode === null) serverChild.kill();
   serverChild = undefined;
   serverEndpoint = undefined;

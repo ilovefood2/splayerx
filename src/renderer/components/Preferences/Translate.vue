@@ -173,8 +173,7 @@
                   :key="model.id"
                   :value="model.id"
                 >
-                  {{ model.name }} — {{ model.downloadSize }}{{ model.personalUseOnly
-                    ? ` · ${$t('preferences.translate.aiManagedPersonalUse')}` : '' }}
+                  {{ model.name }} — {{ model.downloadSize }}
                 </option>
               </select>
             </td>

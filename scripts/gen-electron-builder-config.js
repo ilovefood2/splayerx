@@ -149,7 +149,8 @@ if (fs.existsSync(path.join(whisperBundleDir, 'whisper-cli'))) {
 }
 
 const llamaBundleDir = path.join(__dirname, '../build/llama');
-if (fs.existsSync(path.join(llamaBundleDir, 'llama-server'))) {
+if (fs.existsSync(path.join(llamaBundleDir, 'llama-server'))
+  && fs.existsSync(path.join(llamaBundleDir, 'madlad-worker'))) {
   config.extraResources.push({
     from: 'build/llama',
     to: 'llama',
@@ -159,7 +160,7 @@ if (fs.existsSync(path.join(llamaBundleDir, 'llama-server'))) {
   // eslint-disable-next-line no-console
   console.warn(
     'gen-electron-builder-config: build/llama not found — '
-    + 'run scripts/bundle-llama.sh to bundle Qwen3 inference.',
+    + 'run scripts/bundle-llama.sh to bundle local translation inference.',
   );
 }
 
