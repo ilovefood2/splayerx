@@ -59,22 +59,21 @@ describe('Component - Preferences/Translate', () => {
   beforeEach(() => { originalFetch = global.fetch; });
   afterEach(() => { global.fetch = originalFetch; });
 
-  it('renders and reports the detected local ollama when no api key is set', async () => {
+  it('reports Apple first while detecting the local fallback', async () => {
     global.fetch = () => Promise.resolve({
       ok: true, status: 200, json: () => Promise.resolve(TAGS_FIXTURE),
     });
     const wrapper = mountWith({ aiTranslateEnabled: true });
     await flush();
-    expect(wrapper.vm.providerStatus).to.contain('local Ollama');
-    // the model it will actually use, not a hardcoded default
-    expect(wrapper.vm.providerStatus).to.contain('qwen3-coder:latest');
+    expect(wrapper.vm.providerStatus).to.contain('Apple Translation is preferred');
+    expect(wrapper.vm.providerStatus).to.contain('automatically if unavailable');
+    // The detected fallback model is still exposed as the input placeholder.
     expect(wrapper.vm.defaultModel).to.equal('qwen3-coder:latest');
-    expect(wrapper.text()).to.contain('qwen3-coder:latest');
   });
 
   it('tells the user how to install ollama when none is running', async () => {
     global.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
-    const wrapper = mountWith({ aiTranslateEnabled: true });
+    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'ollama' });
     await flush();
     expect(wrapper.vm.providerStatus).to.contain('No Ollama found');
     expect(wrapper.vm.providerStatus).to.contain('ollama pull');
@@ -101,7 +100,9 @@ describe('Component - Preferences/Translate', () => {
 
   it('reports the api key path without probing', async () => {
     global.fetch = () => { throw new Error('should not probe'); };
-    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateApiKey: 'sk-test' });
+    const wrapper = mountWith({
+      aiTranslateEnabled: true, aiTranslateProvider: 'openai', aiTranslateApiKey: 'sk-test',
+    });
     await flush();
     expect(wrapper.vm.providerStatus).to.contain('your API key');
   });
@@ -146,7 +147,7 @@ describe('Component - Preferences/Translate', () => {
       }
       return Promise.reject(new TypeError('Failed to fetch')); // fast, fails
     };
-    const wrapper = mountWith({ aiTranslateEnabled: true });
+    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'ollama' });
     wrapper.vm.detectProvider(); // supersedes the mounted() probe
     await flush();
     await new Promise(resolve => setTimeout(resolve, 120)); // let the stale one land

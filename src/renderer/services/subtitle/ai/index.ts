@@ -64,3 +64,8 @@ export {
   clearAITranslation,
   clearAllAITranslations,
 } from './registry';
+export {
+  AppleTranslationProbe,
+  probeAppleTranslation,
+  translateWithApple,
+} from './appleTranslation';

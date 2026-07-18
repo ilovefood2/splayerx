@@ -135,6 +135,9 @@
                 <option value="auto">
                   {{ $t('preferences.translate.aiProviderAuto') }}
                 </option>
+                <option value="apple">
+                  {{ $t('preferences.translate.aiProviderApple') }}
+                </option>
                 <option value="ollama">
                   {{ $t('preferences.translate.aiProviderOllama') }}
                 </option>
@@ -383,6 +386,10 @@ export default {
     },
     /** Plain-language summary of which provider will actually be used, and why. */
     providerStatus() {
+      if (!this.aiTranslateEnabled) return '';
+      if (this.aiTranslateProvider === 'auto' || this.aiTranslateProvider === 'apple') {
+        return this.$t('preferences.translate.aiStatusApplePreferred');
+      }
       if (this.detecting) return this.$t('preferences.translate.aiStatusDetecting');
       const resolved = this.resolution;
       if (!resolved) return '';

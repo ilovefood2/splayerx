@@ -148,6 +148,15 @@ if (fs.existsSync(path.join(whisperBundleDir, 'whisper-cli'))) {
   );
 }
 
+const appleTranslationDir = path.join(__dirname, '../build/apple-translation');
+if (fs.existsSync(path.join(appleTranslationDir, 'apple-translation-helper'))) {
+  config.extraResources.push({
+    from: 'build/apple-translation',
+    to: 'apple-translation',
+    filter: ['**/*'],
+  });
+}
+
 const json = JSON.stringify(config, null, 2);
 fs.writeFileSync(path.join(__dirname, '../electron-builder.json'), json, {
   encoding: 'utf-8',

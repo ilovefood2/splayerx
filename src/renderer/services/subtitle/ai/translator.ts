@@ -20,6 +20,9 @@ export interface AITranslatorConfig {
   targetLanguage: string;
   /** Optional human-readable source language name. Auto-detected when omitted. */
   sourceLanguage?: string;
+  /** BCP-47 codes used by native translation providers. */
+  sourceLanguageCode?: string;
+  targetLanguageCode?: string;
   /** Sampling temperature. Defaults to a low value for deterministic output. */
   temperature?: number;
 }
