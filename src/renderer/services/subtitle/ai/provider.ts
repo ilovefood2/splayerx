@@ -27,6 +27,7 @@ export interface AIProviderPrefs {
   aiTranslateApiUrl?: string;
   aiTranslateApiKey?: string;
   aiTranslateModel?: string;
+  aiTranslateManagedModel?: string;
 }
 
 /**

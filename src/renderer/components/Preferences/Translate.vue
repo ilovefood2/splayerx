@@ -160,6 +160,26 @@
           </tr>
           <tr>
             <td class="aiTranslate__label">
+              {{ $t('preferences.translate.aiManagedModel') }}
+            </td>
+            <td>
+              <select
+                v-model="aiTranslateManagedModel"
+                :disabled="!aiTranslateEnabled || !usesManagedModel"
+                class="aiTranslate__input"
+              >
+                <option
+                  v-for="model in managedModels"
+                  :key="model.id"
+                  :value="model.id"
+                >
+                  {{ model.name }} — {{ model.downloadSize }}
+                </option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td class="aiTranslate__label">
               {{ $t('preferences.translate.aiApiUrl') }}
             </td>
             <td>
@@ -258,8 +278,8 @@ import { concat } from 'lodash';
 import electron from 'electron';
 import { codeToLanguageName, LanguageCode } from '@/libs/language';
 import {
-  DEFAULT_BASE_URL, DEFAULT_MODEL, MANAGED_MODEL_ALIAS,
-  inspectManagedModel, resolveAIProvider,
+  DEFAULT_BASE_URL, DEFAULT_MODEL, MANAGED_MODELS,
+  inspectManagedModel, managedModelById, resolveAIProvider,
 } from '@/services/subtitle/ai';
 import Icon from '@/components/BaseIconContainer.vue';
 import BaseCheckBox from './BaseCheckBox.vue';
@@ -373,8 +393,14 @@ export default {
     defaultApiUrl() {
       return DEFAULT_BASE_URL;
     },
+    managedModels() {
+      return MANAGED_MODELS;
+    },
+    selectedManagedModel() {
+      return managedModelById(this.aiTranslateManagedModel);
+    },
     defaultModel() {
-      if (this.usesManagedModel) return MANAGED_MODEL_ALIAS;
+      if (this.usesManagedModel) return this.selectedManagedModel.alias;
       return DEFAULT_MODEL;
     },
     /** Plain-language summary of which provider will actually be used, and why. */
@@ -384,12 +410,19 @@ export default {
         const status = this.managedStatus;
         if (!status) return '';
         if (!status.runtimeAvailable) {
-          return this.$t('preferences.translate.aiStatusLocalRuntimeMissing');
+          return this.$t('preferences.translate.aiStatusLocalRuntimeMissing', {
+            model: this.selectedManagedModel.name,
+          });
         }
         if (status.modelDownloaded) {
-          return this.$t('preferences.translate.aiStatusLocalReady');
+          return this.$t('preferences.translate.aiStatusLocalReady', {
+            model: this.selectedManagedModel.name,
+          });
         }
-        return this.$t('preferences.translate.aiStatusLocalDownload');
+        return this.$t('preferences.translate.aiStatusLocalDownload', {
+          model: this.selectedManagedModel.name,
+          size: this.selectedManagedModel.downloadSize,
+        });
       }
       if (this.detecting) return this.$t('preferences.translate.aiStatusDetecting');
       const resolved = this.resolution;
@@ -439,6 +472,15 @@ export default {
       },
       set(val) {
         this.persistAI({ aiTranslateModel: val });
+      },
+    },
+    aiTranslateManagedModel: {
+      get() {
+        return this.$store.getters.aiTranslateManagedModel;
+      },
+      set(val) {
+        this.persistAI({ aiTranslateManagedModel: val });
+        this.detectProvider();
       },
     },
     aiTranslateTargetLanguage: {
@@ -507,7 +549,7 @@ export default {
         this.managedStatus = inspectManagedModel({
           serverPath: `${runtimeDir}/llama-server`,
           modelDir: `${app.getPath('userData')}/qwen3`,
-        });
+        }, this.aiTranslateManagedModel);
         this.resolution = null;
         this.detecting = false;
         return;
@@ -519,6 +561,7 @@ export default {
         aiTranslateApiUrl: this.$store.getters.aiTranslateApiUrl,
         aiTranslateApiKey: this.$store.getters.aiTranslateApiKey,
         aiTranslateModel: this.$store.getters.aiTranslateModel,
+        aiTranslateManagedModel: this.$store.getters.aiTranslateManagedModel,
       }).then((resolution) => {
         if (token !== this.detectToken) return;
         this.resolution = resolution;

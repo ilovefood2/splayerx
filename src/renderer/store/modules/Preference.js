@@ -27,6 +27,7 @@ const state = {
   aiTranslateApiUrl: '',
   aiTranslateApiKey: '',
   aiTranslateModel: '',
+  aiTranslateManagedModel: 'qwen3-32b',
   aiTranslateTargetLanguage: '',
   // Spoken language for whisper transcription; '' means auto-detect.
   aiTranscribeLanguage: '',
@@ -62,6 +63,10 @@ const getters = {
   aiTranslateApiUrl: state => state.aiTranslateApiUrl,
   aiTranslateApiKey: state => state.aiTranslateApiKey,
   aiTranslateModel: state => state.aiTranslateModel,
+  aiTranslateManagedModel: state => (
+    ['qwen3-4b', 'qwen3-14b', 'qwen3-32b'].includes(state.aiTranslateManagedModel)
+      ? state.aiTranslateManagedModel : 'qwen3-32b'
+  ),
   aiTranslateTargetLanguage: state => state.aiTranslateTargetLanguage,
   aiTranscribeLanguage: state => state.aiTranscribeLanguage,
 };

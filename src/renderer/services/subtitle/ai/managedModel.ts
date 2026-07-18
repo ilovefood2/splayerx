@@ -1,10 +1,4 @@
-/**
- * SPlayer-owned Qwen3 32B runtime.
- *
- * The application ships llama-server, downloads the official quantized Qwen3 32B
- * model on first use, verifies its SHA-256, and starts a private loopback API.
- * No Ollama installation or background service is required.
- */
+/** SPlayer-owned selectable Qwen3 runtime. */
 
 import { ChildProcess, spawn } from 'child_process';
 import { createHash } from 'crypto';
@@ -16,18 +10,60 @@ import { IncomingMessage } from 'http';
 import { createServer } from 'net';
 import { dirname, join } from 'path';
 
-export const MANAGED_MODEL_NAME = 'Qwen3-32B-Q4_K_M.gguf';
-export const MANAGED_MODEL_ALIAS = 'splayer-qwen3-32b';
-export const MANAGED_MODEL_SHA256 = 'efd971561896866f0e910cce52761ca77b1b138090c7f15fe284676d57d1f689';
-export const MANAGED_MODEL_URL = [
-  'https://huggingface.co/Qwen/Qwen3-32B-GGUF/resolve/main/',
-  'Qwen3-32B-Q4_K_M.gguf?download=true',
-].join('');
+export interface ManagedModelDefinition {
+  id: string;
+  name: string;
+  fileName: string;
+  alias: string;
+  sha256: string;
+  url: string;
+  downloadSize: string;
+}
 
-const LEGACY_MODEL_NAMES = [
-  'Qwen3-4B-Q4_K_M.gguf',
-  'Qwen3-14B-Q4_K_M.gguf',
+export const MANAGED_MODELS: ManagedModelDefinition[] = [
+  {
+    id: 'qwen3-4b',
+    name: 'Qwen3 4B',
+    fileName: 'Qwen3-4B-Q4_K_M.gguf',
+    alias: 'splayer-qwen3-4b',
+    sha256: '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
+    url: 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true',
+    downloadSize: '2.5 GB',
+  },
+  {
+    id: 'qwen3-14b',
+    name: 'Qwen3 14B',
+    fileName: 'Qwen3-14B-Q4_K_M.gguf',
+    alias: 'splayer-qwen3-14b',
+    sha256: '500a8806e85ee9c83f3ae08420295592451379b4f8cf2d0f41c15dffeb6b81f0',
+    url: 'https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q4_K_M.gguf?download=true',
+    downloadSize: '9 GB',
+  },
+  {
+    id: 'qwen3-32b',
+    name: 'Qwen3 32B',
+    fileName: 'Qwen3-32B-Q4_K_M.gguf',
+    alias: 'splayer-qwen3-32b',
+    sha256: 'efd971561896866f0e910cce52761ca77b1b138090c7f15fe284676d57d1f689',
+    url: 'https://huggingface.co/Qwen/Qwen3-32B-GGUF/resolve/main/Qwen3-32B-Q4_K_M.gguf?download=true',
+    downloadSize: '20 GB',
+  },
 ];
+
+export const DEFAULT_MANAGED_MODEL_ID = 'qwen3-32b';
+
+export function managedModelById(id?: string): ManagedModelDefinition {
+  const selected = MANAGED_MODELS.find(model => model.id === id);
+  const fallback = MANAGED_MODELS.find(model => model.id === DEFAULT_MANAGED_MODEL_ID);
+  return (selected || fallback) as ManagedModelDefinition;
+}
+
+// Compatibility exports for callers that mean the default built-in model.
+const DEFAULT_MANAGED_MODEL = managedModelById(DEFAULT_MANAGED_MODEL_ID);
+export const MANAGED_MODEL_NAME = DEFAULT_MANAGED_MODEL.fileName;
+export const MANAGED_MODEL_ALIAS = DEFAULT_MANAGED_MODEL.alias;
+export const MANAGED_MODEL_SHA256 = DEFAULT_MANAGED_MODEL.sha256;
+export const MANAGED_MODEL_URL = DEFAULT_MANAGED_MODEL.url;
 
 export interface ManagedModelPaths {
   serverPath: string;
@@ -56,6 +92,7 @@ export interface ManagedModelEndpoint {
 
 export interface EnsureManagedModelOptions {
   paths: ManagedModelPaths;
+  modelId?: string;
   onProgress?: (progress: ManagedModelProgress) => void;
   signal?: AbortSignal;
   startupTimeout?: number;
@@ -65,18 +102,22 @@ function markerPath(modelPath: string): string {
   return `${modelPath}.sha256`;
 }
 
-function markerMatches(modelPath: string): boolean {
+function markerMatches(modelPath: string, model: ManagedModelDefinition): boolean {
   const marker = markerPath(modelPath);
   if (!existsSync(modelPath) || !existsSync(marker)) return false;
   try {
-    return readFileSync(marker, 'utf8').trim() === MANAGED_MODEL_SHA256;
+    return readFileSync(marker, 'utf8').trim() === model.sha256;
   } catch (error) {
     return false;
   }
 }
 
-export function inspectManagedModel(paths: ManagedModelPaths): ManagedModelStatus {
-  const modelPath = join(paths.modelDir, MANAGED_MODEL_NAME);
+export function inspectManagedModel(
+  paths: ManagedModelPaths,
+  modelId?: string,
+): ManagedModelStatus {
+  const model = managedModelById(modelId);
+  const modelPath = join(paths.modelDir, model.fileName);
   const runtimeAvailable = existsSync(paths.serverPath);
   const modelDownloaded = existsSync(modelPath);
   return {
@@ -93,16 +134,6 @@ function removeIfPresent(path: string): void {
   } catch (error) {
     // A later open/rename will report a useful error if cleanup really failed.
   }
-}
-
-/** Reclaim superseded model storage only after the replacement is verified. */
-export function cleanupLegacyManagedModels(modelDir: string): void {
-  LEGACY_MODEL_NAMES.forEach((name) => {
-    const legacyPath = join(modelDir, name);
-    removeIfPresent(legacyPath);
-    removeIfPresent(markerPath(legacyPath));
-    removeIfPresent(`${legacyPath}.part`);
-  });
 }
 
 /** Hash a model while reporting coarse progress so multi-gigabyte verification stays visible. */
@@ -217,13 +248,12 @@ export async function ensureManagedModelFile(
   paths: ManagedModelPaths,
   onProgress?: (progress: ManagedModelProgress) => void,
   signal?: AbortSignal,
+  modelId?: string,
 ): Promise<string> {
   mkdirSync(paths.modelDir, { recursive: true });
-  const modelPath = join(paths.modelDir, MANAGED_MODEL_NAME);
-  if (markerMatches(modelPath)) {
-    cleanupLegacyManagedModels(paths.modelDir);
-    return modelPath;
-  }
+  const model = managedModelById(modelId);
+  const modelPath = join(paths.modelDir, model.fileName);
+  if (markerMatches(modelPath, model)) return modelPath;
 
   // A complete file without a marker may have come from an older build. Verify
   // it once before deciding whether it needs to be downloaded again.
@@ -235,9 +265,8 @@ export async function ensureManagedModelFile(
         ? (received, total) => onProgress({ stage: 'verifying', received, total })
         : undefined,
     );
-    if (digest === MANAGED_MODEL_SHA256) {
-      writeFileSync(markerPath(modelPath), `${MANAGED_MODEL_SHA256}\n`);
-      cleanupLegacyManagedModels(paths.modelDir);
+    if (digest === model.sha256) {
+      writeFileSync(markerPath(modelPath), `${model.sha256}\n`);
       return modelPath;
     }
     removeIfPresent(modelPath);
@@ -249,7 +278,7 @@ export async function ensureManagedModelFile(
     onProgress({ stage: 'downloading', received, total: 0 });
   }
   await fetchResumable(
-    MANAGED_MODEL_URL,
+    model.url,
     part,
     onProgress ? (received, total) => onProgress({ stage: 'downloading', received, total }) : undefined,
     signal,
@@ -261,19 +290,20 @@ export async function ensureManagedModelFile(
       ? (received, total) => onProgress({ stage: 'verifying', received, total })
       : undefined,
   );
-  if (digest !== MANAGED_MODEL_SHA256) {
+  if (digest !== model.sha256) {
     removeIfPresent(part);
     throw new Error(`Qwen3 model checksum mismatch: ${digest}`);
   }
   renameSync(part, modelPath);
-  writeFileSync(markerPath(modelPath), `${MANAGED_MODEL_SHA256}\n`);
-  cleanupLegacyManagedModels(paths.modelDir);
+  writeFileSync(markerPath(modelPath), `${model.sha256}\n`);
   return modelPath;
 }
 
 let serverChild: ChildProcess | undefined;
 let serverEndpoint: ManagedModelEndpoint | undefined;
 let serverPromise: Promise<ManagedModelEndpoint> | undefined;
+let serverModelId: string | undefined;
+let serverPromiseModelId: string | undefined;
 
 function freeLoopbackPort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -304,6 +334,7 @@ function delay(ms: number): Promise<void> {
 async function startManagedServer(
   paths: ManagedModelPaths,
   modelPath: string,
+  model: ManagedModelDefinition,
   timeout: number,
   signal?: AbortSignal,
 ): Promise<ManagedModelEndpoint> {
@@ -312,7 +343,7 @@ async function startManagedServer(
   const baseUrl = `http://127.0.0.1:${port}/v1`;
   const args = [
     '-m', modelPath,
-    '--alias', MANAGED_MODEL_ALIAS,
+    '--alias', model.alias,
     '--host', '127.0.0.1',
     '--port', String(port),
     '--ctx-size', '4096',
@@ -334,6 +365,7 @@ async function startManagedServer(
     if (serverChild === child) {
       serverChild = undefined;
       serverEndpoint = undefined;
+      serverModelId = undefined;
     }
   });
   const abort = () => child.kill();
@@ -348,7 +380,7 @@ async function startManagedServer(
     if (child.exitCode !== null) throw new Error(`llama-server exited: ${stderr.slice(-500)}`);
     if (await healthReady(baseUrl)) {
       if (signal) signal.removeEventListener('abort', abort);
-      return { baseUrl, model: MANAGED_MODEL_ALIAS };
+      return { baseUrl, model: model.alias };
     }
     await delay(250);
   }
@@ -359,22 +391,39 @@ async function startManagedServer(
 export async function ensureManagedModelServer(
   options: EnsureManagedModelOptions,
 ): Promise<ManagedModelEndpoint> {
-  if (serverChild && serverEndpoint && serverChild.exitCode === null) return serverEndpoint;
-  if (serverPromise) return serverPromise;
+  const model = managedModelById(options.modelId);
+  if (serverChild && serverEndpoint && serverChild.exitCode === null
+    && serverModelId === model.id) return serverEndpoint;
+  if (serverPromise) {
+    if (serverPromiseModelId === model.id) return serverPromise;
+    try { await serverPromise; } catch (error) { /* Start the newly selected model below. */ }
+    stopManagedModelServer();
+  }
+  if (serverChild && serverChild.exitCode === null && serverModelId !== model.id) {
+    stopManagedModelServer();
+  }
   const timeout = options.startupTimeout === undefined ? 120000 : options.startupTimeout;
-  serverPromise = (async () => {
+  const pending = (async () => {
     const modelPath = await ensureManagedModelFile(
-      options.paths, options.onProgress, options.signal,
+      options.paths, options.onProgress, options.signal, model.id,
     );
     if (options.onProgress) options.onProgress({ stage: 'starting' });
-    const endpoint = await startManagedServer(options.paths, modelPath, timeout, options.signal);
+    const endpoint = await startManagedServer(
+      options.paths, modelPath, model, timeout, options.signal,
+    );
     serverEndpoint = endpoint;
+    serverModelId = model.id;
     return endpoint;
   })();
+  serverPromise = pending;
+  serverPromiseModelId = model.id;
   try {
-    return await serverPromise;
+    return await pending;
   } finally {
-    serverPromise = undefined;
+    if (serverPromise === pending) {
+      serverPromise = undefined;
+      serverPromiseModelId = undefined;
+    }
   }
 }
 
@@ -382,5 +431,7 @@ export function stopManagedModelServer(): void {
   if (serverChild && serverChild.exitCode === null) serverChild.kill();
   serverChild = undefined;
   serverEndpoint = undefined;
+  serverModelId = undefined;
   serverPromise = undefined;
+  serverPromiseModelId = undefined;
 }

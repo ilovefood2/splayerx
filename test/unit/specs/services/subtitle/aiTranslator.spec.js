@@ -7,8 +7,8 @@ import {
   translateLines, AITranslationError,
   RealtimeSubtitleTranslator, TranslationCache,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
-  cleanupLegacyManagedModels, contentRangeTotal, sha256File, inspectManagedModel,
-  MANAGED_MODEL_NAME, MANAGED_MODEL_ALIAS,
+  contentRangeTotal, sha256File, inspectManagedModel, managedModelById,
+  MANAGED_MODELS, DEFAULT_MANAGED_MODEL_ID, MANAGED_MODEL_NAME, MANAGED_MODEL_ALIAS,
   parseWhisperCues, parseWhisperProgress, parseFfmpegProgress, checkTranscribeEnvironment,
   chunkPlanOf, whisperArgs,
 } from '@/services/subtitle/ai';
@@ -95,9 +95,23 @@ describe('services/subtitle/ai - translateLines', () => {
 });
 
 describe('services/subtitle/ai - managed Qwen3 model', () => {
-  it('uses the higher-quality 32B model and endpoint alias', () => {
+  it('offers three verified download sizes and defaults to the 32B model', () => {
+    expect(MANAGED_MODELS.map(model => model.id)).to.deep.equal([
+      'qwen3-4b', 'qwen3-14b', 'qwen3-32b',
+    ]);
+    expect(DEFAULT_MANAGED_MODEL_ID).to.equal('qwen3-32b');
     expect(MANAGED_MODEL_NAME).to.equal('Qwen3-32B-Q4_K_M.gguf');
     expect(MANAGED_MODEL_ALIAS).to.equal('splayer-qwen3-32b');
+    MANAGED_MODELS.forEach((model) => {
+      expect(model.sha256).to.match(/^[a-f0-9]{64}$/);
+      expect(model.url).to.contain(model.fileName);
+    });
+  });
+
+  it('resolves a selected model and safely falls back for old preferences', () => {
+    expect(managedModelById('qwen3-4b').alias).to.equal('splayer-qwen3-4b');
+    expect(managedModelById('qwen3-14b').downloadSize).to.equal('9 GB');
+    expect(managedModelById('unknown').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
   });
 
   it('parses total bytes from resumable download headers', () => {
@@ -140,30 +154,19 @@ describe('services/subtitle/ai - managed Qwen3 model', () => {
     expect(status.modelPath.endsWith(MANAGED_MODEL_NAME)).to.equal(true);
   });
 
-  it('removes superseded model downloads without touching other files', () => {
+  it('inspects each selected download independently', () => {
     const modelDir = mkdtempSync(join(tmpdir(), 'splayer-model-test-'));
-    const legacyModels = [
-      join(modelDir, 'Qwen3-4B-Q4_K_M.gguf'),
-      join(modelDir, 'Qwen3-14B-Q4_K_M.gguf'),
-    ];
-    const unrelated = join(modelDir, 'keep.gguf');
-    legacyModels.forEach((legacy) => {
-      writeFileSync(legacy, 'old model');
-      writeFileSync(`${legacy}.sha256`, 'old checksum');
-      writeFileSync(`${legacy}.part`, 'old partial');
-    });
-    writeFileSync(unrelated, 'keep');
+    const smallModel = join(modelDir, managedModelById('qwen3-4b').fileName);
+    writeFileSync(smallModel, 'downloaded model');
 
     try {
-      cleanupLegacyManagedModels(modelDir);
-      legacyModels.forEach((legacy) => {
-        expect(existsSync(legacy)).to.equal(false);
-        expect(existsSync(`${legacy}.sha256`)).to.equal(false);
-        expect(existsSync(`${legacy}.part`)).to.equal(false);
-      });
-      expect(existsSync(unrelated)).to.equal(true);
+      expect(inspectManagedModel({ serverPath: __filename, modelDir }, 'qwen3-4b')
+        .modelDownloaded).to.equal(true);
+      expect(inspectManagedModel({ serverPath: __filename, modelDir }, 'qwen3-14b')
+        .modelDownloaded).to.equal(false);
+      expect(existsSync(smallModel)).to.equal(true);
     } finally {
-      if (existsSync(unrelated)) unlinkSync(unrelated);
+      unlinkSync(smallModel);
       rmdirSync(modelDir);
     }
   });

@@ -32,6 +32,7 @@ import {
   appendAITranslationCues, getAITranslator, resolveAIProvider, configFor,
   checkTranscribeEnvironment, transcribeVideo, downloadModel,
   ensureManagedModelServer, stopManagedModelServer,
+  managedModelById,
   AIProviderResolution, AIProviderTuning, AIProviderPrefs, AITranslatorConfig,
   RealtimeTranslatorOptions, TimedText, BundledPaths, TranscribeEnvironment,
   ManagedModelPaths, ManagedModelProgress,
@@ -114,7 +115,7 @@ function languagesFor(
 
 function aiPrefsOf(getters: {
   aiTranslateProvider?: string, aiTranslateApiUrl?: string,
-  aiTranslateApiKey?: string, aiTranslateModel?: string,
+  aiTranslateApiKey?: string, aiTranslateModel?: string, aiTranslateManagedModel?: string,
 }) {
   return {
     aiTranslateProvider: getters.aiTranslateProvider as
@@ -122,6 +123,7 @@ function aiPrefsOf(getters: {
     aiTranslateApiUrl: getters.aiTranslateApiUrl,
     aiTranslateApiKey: getters.aiTranslateApiKey,
     aiTranslateModel: getters.aiTranslateModel,
+    aiTranslateManagedModel: getters.aiTranslateManagedModel,
   };
 }
 
@@ -189,20 +191,22 @@ function managedPaths(): ManagedModelPaths {
   };
 }
 
-function managedProgressText(progress: ManagedModelProgress): string {
+function managedProgressText(progress: ManagedModelProgress, modelName: string): string {
   if (progress.stage === 'verifying') {
     const received = progress.received || 0;
     const total = progress.total || 0;
     const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
-    return progressText('errorFile.aiProgress.verifyingModel', { percent });
+    return progressText('errorFile.aiProgress.verifyingModel', { model: modelName, percent });
   }
   if (progress.stage === 'starting') {
-    return progressText('errorFile.aiProgress.startingModel', {});
+    return progressText('errorFile.aiProgress.startingModel', { model: modelName });
   }
   const received = progress.received || 0;
   const total = progress.total || 0;
   const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
-  return progressText('errorFile.aiProgress.downloadingTranslationModel', { percent });
+  return progressText('errorFile.aiProgress.downloadingTranslationModel', {
+    model: modelName, percent,
+  });
 }
 
 async function translationPlan(
@@ -214,12 +218,14 @@ async function translationPlan(
   const useManaged = preference === 'local'
     || (preference === 'auto' && !prefs.aiTranslateApiKey);
   if (useManaged) {
+    const managedModel = managedModelById(prefs.aiTranslateManagedModel);
     let progressShown = false;
     try {
       const endpoint = await ensureManagedModelServer({
         paths: managedPaths(),
+        modelId: managedModel.id,
         onProgress: (progress) => {
-          const content = managedProgressText(progress);
+          const content = managedProgressText(progress, managedModel.name);
           if (!progressShown) {
             progressShown = true;
             showAIProgress(content);
@@ -231,7 +237,7 @@ async function translationPlan(
       resolution = await resolveAIProvider(prefs, { localEndpoint: endpoint });
     } catch (error) {
       endAIProgress();
-      log.warn('SubtitleManager', `Managed Qwen3 unavailable: ${(error as Error).message}`);
+      log.warn('SubtitleManager', `Managed ${managedModel.name} unavailable: ${(error as Error).message}`);
       resolution = await resolveAIProvider(prefs, { localReason: 'local-start-failed' });
     }
   } else {

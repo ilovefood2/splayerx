@@ -50,6 +50,7 @@ describe('Component - Preferences/Translate', () => {
     expect(wrapper.vm.aiTranslateProvider).to.equal('local');
     expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in qwen3');
     expect(wrapper.vm.defaultModel).to.equal('splayer-qwen3-32b');
+    expect(wrapper.vm.aiTranslateManagedModel).to.equal('qwen3-32b');
   });
 
   it('migrates retired local-provider choices to built-in Qwen3', async () => {
@@ -63,16 +64,34 @@ describe('Component - Preferences/Translate', () => {
   });
 
   it('explains the one-time model download before first translation', async () => {
-    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'local' });
+    const wrapper = mountWith({
+      aiTranslateEnabled: true,
+      aiTranslateProvider: 'local',
+      aiTranslateManagedModel: 'qwen3-14b',
+    });
     await flush();
     if (wrapper.vm.managedStatus.runtimeAvailable
       && !wrapper.vm.managedStatus.modelDownloaded) {
       expect(wrapper.vm.providerStatus).to.contain('will download once');
-      expect(wrapper.vm.providerStatus).to.contain('20 GB');
+      expect(wrapper.vm.providerStatus).to.contain('9 GB');
     } else if (!wrapper.vm.managedStatus.runtimeAvailable) {
       expect(wrapper.vm.providerStatus).to.contain('development build');
     }
     expect(wrapper.text()).to.contain('Ollama is not required');
+  });
+
+  it('lets the user select which built-in model will be downloaded', async () => {
+    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'local' });
+    await flush();
+    const choices = wrapper.findAll('option').wrappers.map(option => option.attributes('value'));
+    expect(choices).to.include.members(['qwen3-4b', 'qwen3-14b', 'qwen3-32b']);
+
+    wrapper.vm.aiTranslateManagedModel = 'qwen3-4b';
+    await flush();
+    expect(wrapper.vm.defaultModel).to.equal('splayer-qwen3-4b');
+    expect(wrapper.vm.providerStatus).to.contain('Qwen3 4B');
+    expect(wrapper.vm.selectedManagedModel.downloadSize).to.equal('2.5 GB');
+    expect(wrapper.text()).to.contain('Qwen3 4B — 2.5 GB');
   });
 
   it('reports the api key path without probing', async () => {
