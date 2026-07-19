@@ -300,6 +300,9 @@ const app = createApp({
     },
   },
   created() {
+    // Vue 3 may flush preference-backed watchers before mounted(). Menu
+    // updates must therefore be ready before preferences are restored.
+    this.menuService = new MenuService();
     downloadDB.getAll('download').then((data: { id: string, name: string, path: string, progress: number, size: number, url: string }[]) => {
       if (data.length) {
         this.$electron.ipcRenderer.send('continue-download-list', data);
@@ -376,7 +379,6 @@ const app = createApp({
     // https://github.com/electron/electron/issues/3609
     // Disable Zooming
     this.$electron.webFrame.setVisualZoomLevelLimits(1, 1);
-    this.menuService = new MenuService();
     this.menuService.updateRouteName(this.currentRouteName);
     this.registeMenuActions();
     ipcRenderer.on('restore-window-menu', () => this.restoreFocusedWindowMenu());

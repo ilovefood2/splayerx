@@ -24,6 +24,7 @@ import {
 import { mouse } from './helpers/mouse';
 import MenuService from './menu/MenuService';
 import registerMediaTasks from './helpers/mediaTasksPlugin';
+import { registerScrollTouchBridge } from './helpers/scrollTouchBridge';
 import { WebContentsViewManager } from './helpers/WebContentsViewManager';
 import InjectJSManager from '../../src/shared/pip/InjectJSManager';
 import Locale from '../shared/common/localize';
@@ -987,14 +988,7 @@ function registerMainWindowEvent(playerWindow) {
     if (!isUsableMainWindow(playerWindow)) return;
     playerWindow.webContents.send('mainCommit', 'isFocused', false);
   });
-  playerWindow.on('scroll-touch-begin', () => {
-    if (!isUsableMainWindow(playerWindow)) return;
-    playerWindow.webContents.send('scroll-touch-begin');
-  });
-  playerWindow.on('scroll-touch-end', () => {
-    if (!isUsableMainWindow(playerWindow)) return;
-    playerWindow.webContents.send('scroll-touch-end');
-  });
+  registerScrollTouchBridge(playerWindow.webContents);
 
   if (mainProcessEventsRegistered) return;
   mainProcessEventsRegistered = true;

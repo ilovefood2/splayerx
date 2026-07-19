@@ -36,7 +36,7 @@ export function generateMousedownAndMouseupListener(options = o.mouse.mousedown,
       if (buttons) dispatch(nameHelper(t.UPDATE_MOUSEDOWN_BUTTONS), event);
       if (component) dispatch(nameHelper(t.UPDATE_MOUSEDOWN_COMPONENT), event);
     },
-    mosueup: (event) => {
+    mouseup: (event) => {
       if (buttons) dispatch(nameHelper(t.UPDATE_MOUSEUP_BUTTONS), event);
       if (component) dispatch(nameHelper(t.UPDATE_MOUSEUP_COMPONENT), event);
     },

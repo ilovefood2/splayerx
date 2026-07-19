@@ -123,10 +123,7 @@ const allActions = {
     if (!wheelDetector.listeners('phase-change').length) {
       wheelDetector.on('phase-change', (phase) => {
         commit(mt.WHEEL_PHASE, phase);
-        if (
-          phase === wheelStopped
-          && ((process.platform === 'darwin' && wheelDetector.scrollEnd) || process.platform !== 'darwin')
-        ) {
+        if (phase === wheelStopped) {
           commit(mt.WHEEL_DIRECTION, no);
         }
       });
@@ -186,7 +183,7 @@ export default function actions(options = defaultOptions) {
   if (get(mouse, 'mousedown.component')) {
     result[at.UPDATE_MOUSEDOWN_COMPONENT] = allActions[at.UPDATE_MOUSEDOWN_COMPONENT];
   }
-  if (get(mouse, 'mosueup.component')) {
+  if (get(mouse, 'mousedown.component')) {
     result[at.UPDATE_MOUSEUP_COMPONENT] = allActions[at.UPDATE_MOUSEUP_COMPONENT];
   }
   if (get(keyboard, 'keys')) {

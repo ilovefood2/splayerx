@@ -56,7 +56,7 @@ const allMutations = {
     state.wheelDeltaX = deltaX;
   },
   [t.WHEEL_DELTA_Y]: (state, deltaY) => {
-    state.wheelDeltaX = deltaY;
+    state.wheelDeltaY = deltaY;
   },
   [t.WHEEL_DELTA_Z]: (state, deltaZ) => {
     state.wheelDeltaZ = deltaZ;
@@ -82,7 +82,7 @@ export default function mutations(options = defaultOptions) {
   if (get(mouse, 'mousedown.component')) {
     result[t.MOUSEDOWN_COMPONENT_NAME] = allMutations[t.MOUSEDOWN_COMPONENT_NAME];
   }
-  if (get(mouse, 'mosueup.component')) {
+  if (get(mouse, 'mousedown.component')) {
     result[t.MOUSEUP_COMPONENT_NAME] = allMutations[t.MOUSEUP_COMPONENT_NAME];
   }
   if (get(keyboard, 'keys')) {
