@@ -1,6 +1,8 @@
-import SubtitleManager from '@/store/modules/SubtitleManager';
+import SubtitleManager, { findAITextReference } from '@/store/modules/SubtitleManager';
 import { SubtitleManager as subtitleActions } from '@/store/actionTypes';
 import { SubtitleManager as subtitleMutations } from '@/store/mutationTypes';
+import { Type } from '@/interfaces/ISubtitle';
+import { LanguageCode } from '@/libs/language';
 
 describe('store/modules/SubtitleManager', () => {
   it('selects an AI subtitle without waiting for preference storage', async () => {
@@ -59,5 +61,44 @@ describe('store/modules/SubtitleManager', () => {
     expect(dispatches).to.include.deep.members([
       [subtitleActions.storeSelectedSubtitles, ['chinese', 'NOT_SELECTED_SUBTITLE']],
     ]);
+  });
+
+  it('skips an image-only selected subtitle and uses the next text track', async () => {
+    const list = [
+      {
+        id: 'pgs-japanese', hash: 'pgs', type: Type.Embedded, language: LanguageCode.ja,
+      },
+      {
+        id: 'text-english', hash: 'text', type: Type.Embedded, language: LanguageCode.en,
+      },
+    ];
+    const checked = [];
+    const source = await findAITextReference(
+      list,
+      LanguageCode['zh-CN'],
+      'pgs-japanese',
+      (id) => {
+        checked.push(id);
+        return Promise.resolve(id === 'text-english'
+          ? [{ start: 0, end: 1, text: 'Hello' }] : []);
+      },
+    );
+
+    expect(checked).to.deep.equal(['pgs-japanese', 'text-english']);
+    expect(source.reference.id).to.equal('text-english');
+    expect(source.cues[0].text).to.equal('Hello');
+  });
+
+  it('reports no text source when all candidate subtitles are images', async () => {
+    const source = await findAITextReference(
+      [{
+        id: 'pgs-japanese', hash: 'pgs', type: Type.Embedded, language: LanguageCode.ja,
+      }],
+      LanguageCode['zh-CN'],
+      'pgs-japanese',
+      () => Promise.resolve([]),
+    );
+
+    expect(source).to.equal(undefined);
   });
 });

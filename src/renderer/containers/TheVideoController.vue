@@ -84,7 +84,7 @@
         class="control-buttons"
       >
         <playlist-control
-          v-fade-in="displayState.PlaylistControl"
+          v-show="displayState.PlaylistControl"
           v-bind.sync="widgetsStatus.PlaylistControl"
           class="button no-drag playlist"
         />
@@ -97,7 +97,7 @@
         </div>
         <advance-control
           ref="advance"
-          v-fade-in="displayState.AdvanceControl"
+          v-show="displayState.AdvanceControl"
           v-bind.sync="widgetsStatus.AdvanceControl"
           :last-dragging.sync="lastDragging"
           @conflict-resolve="conflictResolve"

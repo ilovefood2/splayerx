@@ -53,4 +53,20 @@ describe('Component - TheVideoController Unit Test', () => {
   it('Sanity - should component be properly mounted', () => {
     expect(wrapper.contains(TheVideoController)).to.equal(true);
   });
+
+  it('lets the parent controller hide every bottom-right control together', async () => {
+    wrapper.setData({
+      displayState: { PlaylistControl: false, AdvanceControl: false },
+    });
+    await localVue.nextTick();
+    expect(wrapper.find('.playlist').element.style.display).to.equal('none');
+    expect(wrapper.find('.advance').element.style.display).to.equal('none');
+
+    wrapper.setData({
+      displayState: { PlaylistControl: true, AdvanceControl: true },
+    });
+    await localVue.nextTick();
+    expect(wrapper.find('.playlist').element.style.display).to.not.equal('none');
+    expect(wrapper.find('.advance').element.style.display).to.not.equal('none');
+  });
 });

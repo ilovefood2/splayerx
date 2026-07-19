@@ -156,6 +156,35 @@ async function collectSourceCues(
   return cues;
 }
 
+export interface AITextReference {
+  reference: ISubtitleControlListItem,
+  cues: TimedText[],
+}
+
+/**
+ * Resolve the first candidate that actually exposes text. Blu-ray subtitles
+ * are commonly PGS images: they look selectable in the menu, but an LLM cannot
+ * translate their bitmap payload. Prefer the selected track, then try the
+ * remaining language-compatible tracks before falling back to speech.
+ */
+export async function findAITextReference(
+  list: ISubtitleControlListItem[],
+  targetCode: LanguageCode,
+  preferredId: string | undefined,
+  collect: (referenceId: string) => Promise<TimedText[]>,
+): Promise<AITextReference | undefined> {
+  const preferred = pickAIReference(list, targetCode, preferredId);
+  const candidates = list.filter(item => isAITranslatable(item, targetCode));
+  const ordered = preferred
+    ? [preferred, ...candidates.filter(item => item.id !== preferred.id)]
+    : candidates;
+  for (const reference of ordered) {
+    const cues = await collect(reference.id);
+    if (cues.length) return { reference, cues };
+  }
+  return undefined;
+}
+
 /**
  * whisper wants a bare ISO-639-1 code ('ja'), not our regional codes ('zh-CN').
  * Returns undefined for "auto", which lets whisper detect — less reliable, since
@@ -1008,13 +1037,17 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     if (targetCode === LanguageCode.No || targetCode === LanguageCode.Default) return undefined;
 
     const list = getters.list as ISubtitleControlListItem[];
-    const reference = pickAIReference(
-      list, targetCode, payload.referenceId || getters.primarySubtitleId,
+    const source = await findAITextReference(
+      list,
+      targetCode,
+      payload.referenceId || getters.primarySubtitleId,
+      referenceId => collectSourceCues(dispatch, referenceId),
     );
-    if (!reference) {
+    if (!source) {
       log.warn('SubtitleManager', 'AI translate: no translatable source subtitle available');
       return undefined;
     }
+    const { reference, cues: sourceCues } = source;
 
     const targetHash = `ai-${reference.hash}-${targetCode}`;
     const existing = list.find(sub => sub.hash === targetHash);
@@ -1023,9 +1056,6 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       return existing;
     }
     if (!store.hasModule(reference.id)) return undefined;
-
-    const sourceCues = await collectSourceCues(dispatch, reference.id);
-    if (!sourceCues.length) return undefined;
 
     const languages = languagesFor(targetCode, normalizeCode(reference.language));
     // Resolve the built-in model or configured API before registering the
@@ -1070,17 +1100,20 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       addBubble(AI_TRANSLATE_NO_SOURCE, { target: codeToLanguageName(targetCode) });
       return undefined;
     }
-    const reference = pickAIReference(
-      getters.list as ISubtitleControlListItem[], targetCode, getters.primarySubtitleId,
+    const source = await findAITextReference(
+      getters.list as ISubtitleControlListItem[],
+      targetCode,
+      getters.primarySubtitleId,
+      referenceId => collectSourceCues(dispatch, referenceId),
     );
-    // Nothing to translate from: transcribe the audio and translate that instead.
-    // This is the whole point for a video that ships with no subtitles.
-    if (!reference) return dispatch(a.transcribeAndTranslate, { targetCode });
+    // Nothing textual to translate from: image-only PGS subtitles need the same
+    // speech-transcription fallback as a video that ships with no subtitles.
+    if (!source) return dispatch(a.transcribeAndTranslate, { targetCode });
 
     // Nothing shows until a line is translated, so say so while it happens.
     showAIProgress(progressText('errorFile.aiProgress.translating', { done: 0, total: '?' }));
     const added = await dispatch(a.addAITranslatedSubtitle, {
-      force: true, referenceId: reference.id,
+      force: true, referenceId: source.reference.id,
     });
     if (!added) {
       endAIProgress();
@@ -1090,7 +1123,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       return undefined;
     }
     trackAIProgress(
-      makeAITranslationKey(reference.hash, targetCode),
+      makeAITranslationKey(source.reference.hash, targetCode),
       (done, total) => progressText('errorFile.aiProgress.translating', { done, total }),
     );
     return added;
