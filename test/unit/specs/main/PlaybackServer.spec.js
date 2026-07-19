@@ -145,9 +145,10 @@ describe('PlaybackServer', () => {
     );
     const filter = args[args.indexOf('-vf') + 1];
 
-    expect(filter).to.contain('zscale=t=linear:npl=100');
-    expect(filter).to.contain('tonemap=tonemap=mobius:param=0.3:desat=0');
-    expect(filter).to.contain('eq=saturation=1.12:contrast=1.03');
+    expect(filter).to.contain('zscale=t=linear:npl=203');
+    expect(filter).to.contain('tonemap=tonemap=hable:desat=0');
+    expect(filter).to.contain('vibrance=intensity=0.30');
+    expect(filter).not.to.contain('eq=saturation');
     expect(args).to.include.members([
       '-colorspace', 'bt709', '-color_primaries', 'bt709',
       '-color_trc', 'bt709', '-color_range', 'tv',

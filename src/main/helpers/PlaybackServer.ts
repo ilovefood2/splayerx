@@ -9,16 +9,16 @@ const PREFIX_SIZE = 8 * 1024 * 1024;
 const MAX_FILES = 8;
 const VIRTUAL_MP4_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4']);
 const HDR_TO_SDR_FILTER = [
-  'zscale=t=linear:npl=100',
+  'zscale=t=linear:npl=203',
   'format=gbrpf32le',
   'zscale=p=bt709',
-  // Mobius preserves SDR-range brightness and colour instead of flattening the
-  // whole image as Hable does. A small saturation/contrast correction offsets
-  // the final BT.2020-to-BT.709 gamut compression without clipping highlights.
-  'tonemap=tonemap=mobius:param=0.3:desat=0',
+  // A 203-nit reference white and Hable highlight roll-off match the native
+  // macOS HDR rendering more closely than the brighter, yellow-shifted Mobius
+  // output. Vibrance restores compressed colour without changing white balance.
+  'tonemap=tonemap=hable:desat=0',
   'zscale=t=bt709:m=bt709:r=tv',
   'format=yuv420p',
-  'eq=saturation=1.12:contrast=1.03',
+  'vibrance=intensity=0.30',
 ].join(',');
 
 const CONTENT_TYPES: { [extension: string]: string } = {
