@@ -517,16 +517,13 @@ const app = createApp({
           break;
       }
     });
-    ipcRenderer.on('scroll-touch-wheel', (ipcEvent, event) => {
+    window.addEventListener('wheel', (event) => {
       if (this.currentRouteName !== 'playing-view') return;
 
-      const target = Number.isFinite(event.x) && Number.isFinite(event.y)
-        ? document.elementFromPoint(event.x, event.y)
-        : null;
+      const target = event.target as Node;
       const advance = document.querySelector('.mainMenu');
       const subtitle = document.querySelector('.subtitle-scroll-items');
-      if (target
-        && ((advance && advance.contains(target)) || (subtitle && subtitle.contains(target)))) return;
+      if ((advance && advance.contains(target)) || (subtitle && subtitle.contains(target))) return;
 
       const adjustment = getVolumeWheelAdjustment(event, {
         platform: process.platform,
@@ -551,7 +548,7 @@ const app = createApp({
       } else {
         this.$store.dispatch(videoActions.DECREASE_VOLUME, adjustment.step);
       }
-    });
+    }, { capture: true, passive: true });
     window.addEventListener('wheel', (event) => {
       const { deltaX: x, ctrlKey, target } = event;
       let isAdvanceColumeItem;
