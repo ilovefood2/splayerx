@@ -98,6 +98,10 @@ let rendererConfig = {
         use: 'vue-html-loader',
       },
       {
+        test: /\.py$/,
+        use: 'raw-loader',
+      },
+      {
         test: /\.tsx?$/,
         exclude: /node_modules/,
         use: [

@@ -147,8 +147,9 @@ describe('PlaybackServer', () => {
 
     expect(filter).to.contain('zscale=t=linear:npl=203');
     expect(filter).to.contain('tonemap=tonemap=hable:desat=0');
-    expect(filter).to.contain('vibrance=intensity=0.30');
-    expect(filter).not.to.contain('eq=saturation');
+    expect(filter).to.contain('vibrance=intensity=0.50');
+    expect(filter).to.contain('eq=brightness=0.045:contrast=1.04:saturation=1.10');
+    expect(filter).to.contain('colorbalance=bm=0.025:bh=0.020:pl=1');
     expect(args).to.include.members([
       '-colorspace', 'bt709', '-color_primaries', 'bt709',
       '-color_trc', 'bt709', '-color_range', 'tv',

@@ -1,7 +1,7 @@
-import helpers from '@/helpers';
 import fs from 'fs';
 import path from 'path';
 import sinon from 'sinon';
+import helpers from '@/helpers';
 
 describe('index.js', () => {
   describe('timecodeFromSeconds method works fine', () => {

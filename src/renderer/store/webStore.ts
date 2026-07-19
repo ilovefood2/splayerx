@@ -4,7 +4,7 @@ import Vuex from 'vuex';
 Vue.use(Vuex);
 
 const modules = {
-  UserInfo: require('@/store/modules/UserInfo.ts').default,
+  UserInfo: require('@/store/modules/UserInfo').default,
 };
 
 // @ts-ignore

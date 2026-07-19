@@ -14,8 +14,8 @@ import { remote } from 'electron';
 import { promises as fsPromises } from 'fs';
 // @ts-ignore
 import nzh from 'nzh';
-import { ISubtitleControlListItem, Type } from '@/interfaces/ISubtitle';
 import { version } from '@/../../package.json';
+import { ISubtitleControlListItem, Type } from '@/interfaces/ISubtitle';
 import {
   DEFAULT_DIRNAME,
   VIDEO_DIRNAME, SUBTITLE_DIRNAME,
@@ -269,7 +269,7 @@ export function parseNameFromPath(path: string) {
         return '';
       }
       if ($4) {
-        const p = nzh.cn.decodeS($4);
+        const p = parseInt(String(nzh.cn.decodeS($4)), 10);
         if (p > 0) result[item.section] = p < 10 ? `0${p}` : `${p}`;
         return '';
       }

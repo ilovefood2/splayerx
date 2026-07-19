@@ -18,7 +18,11 @@ const HDR_TO_SDR_FILTER = [
   'tonemap=tonemap=hable:desat=0',
   'zscale=t=bt709:m=bt709:r=tv',
   'format=yuv420p',
-  'vibrance=intensity=0.30',
+  // Lift the SDR result without flattening contrast, strengthen muted colours,
+  // and cool midtones/highlights just enough to cancel the remaining yellow cast.
+  'vibrance=intensity=0.50',
+  'eq=brightness=0.045:contrast=1.04:saturation=1.10',
+  'colorbalance=bm=0.025:bh=0.020:pl=1',
 ].join(',');
 
 const CONTENT_TYPES: { [extension: string]: string } = {

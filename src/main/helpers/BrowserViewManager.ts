@@ -19,6 +19,7 @@ function createBrowserView(): BrowserView {
   const view = new BrowserView({
     webPreferences: {
       enableRemoteModule: true,
+      contextIsolation: false,
       preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
       nativeWindowOpen: true,
       // disableHtmlFullscreenWindowResize: true, // Electron 6 required
@@ -171,6 +172,7 @@ export class BrowserViewManager implements IBrowserViewManager {
         view: new BrowserView({
           webPreferences: {
             enableRemoteModule: true,
+            contextIsolation: false,
             preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
             nativeWindowOpen: true,
             // disableHtmlFullscreenWindowResize: true, // Electron 6 required
@@ -251,6 +253,7 @@ export class BrowserViewManager implements IBrowserViewManager {
           view: new BrowserView({
             webPreferences: {
               enableRemoteModule: true,
+              contextIsolation: false,
               preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
               nativeWindowOpen: true,
             },

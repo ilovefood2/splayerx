@@ -1,5 +1,6 @@
 import { shell } from 'electron';
 import { getAllValidExtensions } from './utils';
+import setAsDefaultAppForMac from './python/setAsDefaultAppForMac.py';
 
 async function spawn(...args) {
   return new Promise((resolve, reject) => {
@@ -13,7 +14,7 @@ async function spawn(...args) {
 export async function setAsDefaultApp() {
   const exts = getAllValidExtensions();
   if (process.platform === 'darwin') {
-    let { default: code } = await import('raw-loader!./python/setAsDefaultAppForMac.py');
+    let code = setAsDefaultAppForMac;
     code = code.replace('$EXTS', exts.map(ext => `'${ext}'`).join(', '));
     await spawn('python', ['-c', code]);
   } else if (process.platform === 'win32') {
