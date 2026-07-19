@@ -8,6 +8,18 @@ import { Transform, TransformCallback } from 'stream';
 const PREFIX_SIZE = 8 * 1024 * 1024;
 const MAX_FILES = 8;
 const VIRTUAL_MP4_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4']);
+const HDR_TO_SDR_FILTER = [
+  'zscale=t=linear:npl=100',
+  'format=gbrpf32le',
+  'zscale=p=bt709',
+  // Mobius preserves SDR-range brightness and colour instead of flattening the
+  // whole image as Hable does. A small saturation/contrast correction offsets
+  // the final BT.2020-to-BT.709 gamut compression without clipping highlights.
+  'tonemap=tonemap=mobius:param=0.3:desat=0',
+  'zscale=t=bt709:m=bt709:r=tv',
+  'format=yuv420p',
+  'eq=saturation=1.12:contrast=1.03',
+].join(',');
 
 const CONTENT_TYPES: { [extension: string]: string } = {
   avi: 'video/x-msvideo',
@@ -33,6 +45,7 @@ interface SharedMedia {
   compatibility?: {
     duration: number,
     ffmpegPath: string,
+    hdr: boolean,
   },
   activeCompatibilityProcess?: ChildProcess,
 }
@@ -176,14 +189,36 @@ export function shouldUsePlaybackServer(filePath: string): boolean {
     && VIRTUAL_MP4_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
 
+export interface VideoColorMetadata {
+  colorTransfer?: string,
+}
+
+/** HDR10 uses PQ and broadcast HDR uses HLG. Both need tone mapping before
+ *  they are encoded into the 8-bit SDR compatibility stream. */
+export function isHdrColorMetadata(metadata?: VideoColorMetadata): boolean {
+  const transfer = ((metadata && metadata.colorTransfer) || '').toLowerCase();
+  return transfer === 'smpte2084' || transfer === 'arib-std-b67';
+}
+
 export function compatibilityFfmpegArgs(
   filePath: string,
   start: number,
   platform = process.platform,
+  hdr = false,
 ): string[] {
   const args = ['-v', 'error', '-nostdin'];
   if (start > 0) args.push('-ss', start.toFixed(3));
   args.push('-i', filePath, '-map', '0:v:0', '-map', '0:a?');
+  if (hdr) {
+    // The source is linearized in its tagged BT.2020/PQ or HLG space, mapped
+    // into the BT.709 gamut, then compressed to SDR. Explicit output tags stop
+    // Chromium from treating the 8-bit H.264 stream as untagged HDR.
+    args.push(
+      '-vf', HDR_TO_SDR_FILTER,
+      '-colorspace', 'bt709', '-color_primaries', 'bt709',
+      '-color_trc', 'bt709', '-color_range', 'tv',
+    );
+  }
   if (platform === 'darwin') {
     // Electron 11 cannot decode the source file's 10-bit HEVC stream. Apple
     // VideoToolbox converts it faster than real time without first copying the
@@ -363,6 +398,7 @@ export class PlaybackServer {
     filePath: string,
     duration: number,
     ffmpegPath: string,
+    hdr = false,
   ): Promise<string> {
     const token = createHash('sha1').update(`compatibility\u0000${filePath}`).digest('hex');
     const existing = this.files.get(token);
@@ -375,7 +411,7 @@ export class PlaybackServer {
       filePath,
       prefix: Promise.resolve(Buffer.alloc(0)),
       virtualMedia: Promise.resolve(undefined),
-      compatibility: { duration, ffmpegPath },
+      compatibility: { duration, ffmpegPath, hdr },
     });
     while (this.files.size > MAX_FILES) {
       const oldest = this.files.keys().next();
@@ -503,7 +539,9 @@ export class PlaybackServer {
       stopCompatibilityProcess(media.activeCompatibilityProcess);
     }
 
-    const args = compatibilityFfmpegArgs(media.filePath, start);
+    const args = compatibilityFfmpegArgs(
+      media.filePath, start, process.platform, compatibility.hdr,
+    );
     const child = spawn(compatibility.ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     media.activeCompatibilityProcess = child;
     const headerTransform = new FragmentedMp4HeaderTransform(compatibility.duration);

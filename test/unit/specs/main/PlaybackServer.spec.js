@@ -5,6 +5,7 @@ import path from 'path';
 import {
   buildVirtualMp4,
   compatibilityFfmpegArgs,
+  isHdrColorMetadata,
   parseByteRange,
   patchFragmentedMp4Duration,
   PlaybackServer,
@@ -136,6 +137,32 @@ describe('PlaybackServer', () => {
       '-ss', '3000.000', '-c:v', 'h264_videotoolbox', '-pix_fmt', 'yuv420p',
     ]);
     expect(args).not.to.include('copy');
+  });
+
+  it('tone-maps HDR compatibility video into tagged BT.709 SDR', () => {
+    const args = compatibilityFfmpegArgs(
+      '/Volumes/Videos/hdr.mkv', 0, 'darwin', true,
+    );
+    const filter = args[args.indexOf('-vf') + 1];
+
+    expect(filter).to.contain('zscale=t=linear:npl=100');
+    expect(filter).to.contain('tonemap=tonemap=mobius:param=0.3:desat=0');
+    expect(filter).to.contain('eq=saturation=1.12:contrast=1.03');
+    expect(args).to.include.members([
+      '-colorspace', 'bt709', '-color_primaries', 'bt709',
+      '-color_trc', 'bt709', '-color_range', 'tv',
+    ]);
+    expect(args[args.indexOf('-pix_fmt') + 1]).to.equal('yuv420p');
+  });
+
+  it('does not alter SDR colors and recognizes PQ and HLG metadata', () => {
+    const args = compatibilityFfmpegArgs('/Volumes/Videos/sdr.mkv', 0, 'darwin', false);
+
+    expect(args).not.to.include('-vf');
+    expect(isHdrColorMetadata({ colorTransfer: 'smpte2084' })).to.equal(true);
+    expect(isHdrColorMetadata({ colorTransfer: 'arib-std-b67' })).to.equal(true);
+    expect(isHdrColorMetadata({ colorTransfer: 'bt709' })).to.equal(false);
+    expect(isHdrColorMetadata(undefined)).to.equal(false);
   });
 
   it('writes the complete movie duration into fragmented MP4 track headers', () => {

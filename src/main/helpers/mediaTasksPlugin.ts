@@ -5,7 +5,9 @@ import {
 } from 'fs';
 import path from 'path';
 import { mediaBinaryPath, runMediaBinary } from './ffmpeg';
-import { PlaybackServer, shouldUsePlaybackServer } from './PlaybackServer';
+import {
+  isHdrColorMetadata, PlaybackServer, shouldUsePlaybackServer,
+} from './PlaybackServer';
 
 function reply(event: IpcMainEvent, channel: string, ...args: unknown[]) {
   if (event.sender && !event.sender.isDestroyed()) event.reply(channel, ...args);
@@ -24,6 +26,11 @@ function scaleFilter(width: number, height: number): string {
 interface ExtractedSubtitle {
   path: string,
   metadata: string,
+}
+
+interface MediaProbe {
+  format?: { duration?: string | number },
+  streams?: Array<{ [key: string]: string | undefined }>,
 }
 
 const extractedSubtitles = new Map<string, ExtractedSubtitle>();
@@ -46,17 +53,23 @@ async function preparePlaybackSource(videoPath: string): Promise<string> {
   if (extension === '.mkv') {
     if (!existsSync(videoPath)) throw new Error('File does not exist.');
     const { stdout } = await runMediaBinary('ffprobe', [
-      '-v', 'error', '-show_entries', 'format=duration',
-      '-of', 'default=noprint_wrappers=1:nokey=1', videoPath,
+      '-v', 'error',
+      '-show_entries', 'format=duration:stream=codec_type,color_transfer',
+      '-of', 'json', videoPath,
     ]);
-    const duration = Number(stdout.trim());
+    const probe = JSON.parse(stdout) as MediaProbe;
+    const duration = Number(probe.format && probe.format.duration);
     if (!Number.isFinite(duration) || duration <= 0) {
       throw new Error('Cannot determine Matroska duration.');
     }
+    const videoStream = (probe.streams || []).find(stream => stream['codec_type'] === 'video');
     return playbackServer.compatibilityUrlFor(
       videoPath,
       duration,
       mediaBinaryPath('ffmpeg'),
+      isHdrColorMetadata({
+        colorTransfer: videoStream && videoStream['color_transfer'],
+      }),
     );
   }
   if (extension !== '.ts') {
