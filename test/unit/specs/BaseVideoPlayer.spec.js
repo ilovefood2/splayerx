@@ -28,6 +28,18 @@ describe('Component - BaseVideoPlayer', () => {
     expect(wrapper.contains('video')).to.equal(true);
   });
 
+  it('applies platform-specific video compositor workarounds', () => {
+    const wrapper = mount(BaseVideoPlayer, { propsData });
+    const video = wrapper.find('video');
+
+    expect(video.classes().includes('windows-video-opacity-workaround'))
+      .to.equal(process.platform === 'win32');
+    expect(video.classes().includes('mac-video-compositor-workaround'))
+      .to.equal(process.platform === 'darwin');
+    if (process.platform === 'darwin') expect(video.element.style.opacity).to.equal('');
+    wrapper.destroy();
+  });
+
   describe('Props', () => {
     let sandbox;
     let wrapper;

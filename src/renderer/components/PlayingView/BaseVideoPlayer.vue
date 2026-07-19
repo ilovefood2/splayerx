@@ -3,6 +3,10 @@
     <video
       id="play-video"
       ref="video"
+      :class="{
+        'mac-video-compositor-workaround': isDarwin,
+        'windows-video-opacity-workaround': isWindows,
+      }"
       @error="handleError"
       class="video-element"
     />
@@ -139,6 +143,9 @@ export default {
     ...mapGetters(['audioTrackList']),
     isDarwin() {
       return process.platform === 'darwin';
+    },
+    isWindows() {
+      return process.platform === 'win32';
     },
   },
   watch: {
@@ -406,12 +413,22 @@ export default {
 <style lang="scss" scoped>
 .video-element {
   width: 100%;
-  /*
-  ** Note:
-  ** Adding the opacity properity to solve windows brightness when appling the backdrop-filter.
-  ** (This should be fixed in libcc.)
-  */
-  opacity: 0.9999;
   object-fit: cover;
+
+  /* Chromium 87 can lose the hardware-video mailbox when translucent player
+  ** controls are composited above it on macOS. Keep the video in a dedicated
+  ** compositor layer so entering the player cannot blank the decoded frame. */
+  &.mac-video-compositor-workaround {
+    backface-visibility: hidden;
+    transform: translateZ(0);
+    will-change: transform;
+  }
+
+  /* Keep the libcc backdrop-filter brightness workaround on Windows only.
+  ** Applying fractional opacity on macOS can blank hardware-decoded video
+  ** when the player controls enter their composited hover layer. */
+  &.windows-video-opacity-workaround {
+    opacity: 0.9999;
+  }
 }
 </style>
