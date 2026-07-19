@@ -10,8 +10,48 @@ function parentsHasClass(element, className) {
   return parentsHasClass(element.parentNode, className);
 }
 
-export default function drag(element) {
-  if (process.platform !== 'win32') return () => {};
+function registerDarwinDrag(element) {
+  let dragOrigin = null;
+
+  const stopDragging = () => {
+    dragOrigin = null;
+  };
+
+  const onmousedown = (event) => {
+    if (event.button !== 0 || parentsHasClass(event.target, 'no-drag')) return;
+    const currentWindow = remote.getCurrentWindow();
+    if (!currentWindow || currentWindow.isFullScreen()) return;
+    dragOrigin = {
+      pointer: [event.screenX, event.screenY],
+      window: currentWindow.getPosition(),
+    };
+  };
+
+  const onmousemove = (event) => {
+    if (!dragOrigin) return;
+    if (!(event.buttons & 1)) {
+      stopDragging();
+      return;
+    }
+    const x = Math.round(dragOrigin.window[0] + event.screenX - dragOrigin.pointer[0]);
+    const y = Math.round(dragOrigin.window[1] + event.screenY - dragOrigin.pointer[1]);
+    ipcRenderer.send('setFocusedWindowPosition', [x, y]);
+  };
+
+  element.addEventListener('mousedown', onmousedown, false);
+  window.addEventListener('mousemove', onmousemove, true);
+  window.addEventListener('mouseup', stopDragging, true);
+  window.addEventListener('blur', stopDragging);
+
+  return () => {
+    element.removeEventListener('mousedown', onmousedown);
+    window.removeEventListener('mousemove', onmousemove, true);
+    window.removeEventListener('mouseup', stopDragging, true);
+    window.removeEventListener('blur', stopDragging);
+  };
+}
+
+function registerWindowsDrag(element) {
   let offset = null;
   const onmousedown = (e) => {
     // In WebKit、Gecko which property in MouseEvent can judge if right click
@@ -50,4 +90,10 @@ export default function drag(element) {
     element.removeEventListener('mousedown', onmousedown);
     element.removeEventListener('mouseup', onmouseup);
   };
+}
+
+export default function drag(element, platform = process.platform) {
+  if (platform === 'darwin') return registerDarwinDrag(element);
+  if (platform === 'win32') return registerWindowsDrag(element);
+  return () => {};
 }

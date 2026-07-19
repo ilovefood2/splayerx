@@ -1,5 +1,5 @@
 <template>
-  <div class="player no-drag">
+  <div class="player trackpad-surface">
     <the-video-canvas
       ref="videoCanvas"
       @media-ready="onMediaReady"
