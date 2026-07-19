@@ -56,11 +56,17 @@
         class="title-button no-drag"
         type="titleBarWinResize"
       />
-      <Icon
-        @mouseup="handleClose"
-        class="title-button no-drag"
-        type="titleBarWinClose"
-      />
+      <button
+        @click="handleClose"
+        aria-label="Close Player"
+        class="title-close-button title-close-button--win no-drag"
+        type="button"
+      >
+        <Icon
+          class="title-button"
+          type="titleBarWinClose"
+        />
+      </button>
     </div>
     <div
       v-if="isDarwin"
@@ -73,13 +79,19 @@
         @mouseout="handleMouseOut"
         class="system-icons"
       >
-        <Icon
-          id="close"
-          :state="state"
+        <button
           @click="handleClose"
-          class="title-button no-drag"
-          type="titleBarClose"
-        />
+          aria-label="Close Player"
+          class="title-close-button title-close-button--mac no-drag"
+          type="button"
+        >
+          <Icon
+            id="close"
+            :state="state"
+            class="title-button"
+            type="titleBarClose"
+          />
+        </button>
         <Icon
           id="minimize"
           :class="{ disabled: middleButtonStatus === 'exit-fullscreen' }"
@@ -267,7 +279,7 @@ export default {
       this.$electron.ipcRenderer.send('callMainWindowMethod', 'maximize');
     },
     handleClose() {
-      this.$electron.ipcRenderer.send('callMainWindowMethod', 'close');
+      this.$electron.remote.getCurrentWindow().close();
     },
     handleRestore() {
       this.$electron.ipcRenderer.send('callMainWindowMethod', 'unmaximize');
@@ -330,6 +342,21 @@ export default {
     .title-button:active {
       background-color: rgba(221, 221, 221, 0.5);
     }
+    .title-close-button--win {
+      align-items: center;
+      border: 0;
+      cursor: pointer;
+      display: flex;
+      height: 36px;
+      justify-content: center;
+      padding: 0;
+      width: 45px;
+      -webkit-app-region: no-drag;
+
+      .title-button {
+        pointer-events: none;
+      }
+    }
   }
 }
 .titlebar.darwin {
@@ -345,6 +372,24 @@ export default {
     margin-left: 12px;
     .system-icons {
       display: flex;
+      align-items: center;
+    }
+    .title-close-button--mac {
+      align-items: center;
+      border: 0;
+      cursor: pointer;
+      display: flex;
+      height: 20px;
+      justify-content: center;
+      margin: 0 4px 0 -4px;
+      padding: 0;
+      width: 20px;
+      -webkit-app-region: no-drag;
+
+      .title-button {
+        margin-right: 0;
+        pointer-events: none;
+      }
     }
     .sidebar {
       margin-left: 4px;

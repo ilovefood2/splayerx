@@ -100,10 +100,8 @@
       :style="{
         marginTop: isDarwin ? '' : '36px',
       }"
-      @wheel.prevent="handlePanelWheel"
       aria-label="Preference content"
       class="tablist__tabpanel"
-      ref="tabpanel"
       role="region"
       tabindex="0"
     >
@@ -148,7 +146,6 @@
 import electron, { ipcRenderer } from 'electron';
 import { mapGetters } from 'vuex';
 import Icon from '@/components/BaseIconContainer.vue';
-import { applyWheelScroll } from '@/helpers/wheelScroll';
 
 export default {
   name: 'Preference',
@@ -220,10 +217,7 @@ export default {
   methods: {
     // Methods to handle window behavior
     handleClose() {
-      ipcRenderer.send('close-preference');
-    },
-    handlePanelWheel(event: WheelEvent) {
-      applyWheelScroll(this.$refs.tabpanel as HTMLElement, event);
+      electron.remote.getCurrentWindow().close();
     },
     mainDispatchProxy(actionType: string, actionPayload: string) {
       this.$store.dispatch(actionType, actionPayload);
@@ -245,6 +239,11 @@ export default {
   flex: 1;
 }
 .preference {
+  inset: 0;
+  overflow: hidden;
+  position: fixed;
+  -webkit-app-region: no-drag;
+
   .titlebar {
     display: flex;
     flex-wrap: nowrap;
@@ -357,6 +356,8 @@ export default {
   }
 
   &__tabpanel {
+    height: 100%;
+    min-height: 0;
     width: calc(100% - 110px);
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -371,6 +372,11 @@ export default {
 }
 </style>
 <style lang="scss">
+
+html,
+body {
+  overflow: hidden;
+}
 
 .fade-in {
   visibility: visible;

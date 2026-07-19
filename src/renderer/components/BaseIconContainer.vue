@@ -1,5 +1,9 @@
 <template>
-  <svg :class="hoverState">
+  <svg
+    :class="hoverState"
+    @click="$emit('click', $event)"
+    @mouseup="$emit('mouseup', $event)"
+  >
     <use
       v-bind="{'xlink:href': `#${type}-${finalState}-${finalEffect}`}"
       class="default"
@@ -35,6 +39,7 @@ function importIcon(type: string, state: string, effect: string) {
 
 export default {
   name: 'Icon',
+  emits: ['click', 'mouseup'],
   props: {
     type: {
       type: String,
