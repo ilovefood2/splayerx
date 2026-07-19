@@ -1009,7 +1009,6 @@ export default {
   height: 100%;
   border-radius: 4px;
   opacity: 1;
-  transition: opacity 400ms;
   z-index: auto;
 }
 .sub-control-wrapper {
@@ -1067,7 +1066,7 @@ export default {
 .control-buttons {
   display: flex;
   justify-content: flex-end;
-  position: fixed;
+  position: absolute;
   z-index: 10;
   box-sizing: content-box; // 为了盖住字幕条
   .button {
@@ -1166,7 +1165,7 @@ export default {
   }
 }
 .cast-top {
-  position: fixed;
+  position: absolute;
   z-index: 10;
   display: flex;
   align-items: center;

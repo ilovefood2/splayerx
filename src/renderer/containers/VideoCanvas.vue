@@ -2,35 +2,28 @@
   <div
     class="video"
   >
-    <transition
-      name="fade"
-      mode="out-in"
-    >
-      <base-video-player
-        ref="videoCanvas"
-        :key="originSrc"
-        :needtimeupdate="true"
-        :last-audio-track-id="lastAudioTrackId"
-        :events="['loadedmetadata', 'audiotrack', 'playing']"
-        :styles="{objectFit: 'contain', width: 'calc(100% - 0.1px)', height: '100%'}"
-        :loop="loop"
-        :crossOrigin="'anonymous'"
-        :src="convertedSrc"
-        :playback-rate="rate"
-        :volume="volume"
-        :muted="muted"
-        :hwhevc="hwhevc"
-        :paused="paused"
-        :current-time="seekTime"
-        :current-audio-track-id="currentAudioTrackId.toString()"
-        :autoplay="false"
-        @loadedmetadata="onMetaLoaded"
-        @playing="switchingLock = false"
-        @audiotrack="onAudioTrack"
-      />
-      <!-- calc(100% - 0.1px) fix for mac book pro 15 full screen after
-      video controller fade-out video will shake -->
-    </transition>
+    <base-video-player
+      ref="videoCanvas"
+      :key="originSrc"
+      :needtimeupdate="true"
+      :last-audio-track-id="lastAudioTrackId"
+      :events="['loadedmetadata', 'audiotrack', 'playing']"
+      :styles="{objectFit: 'contain', width: '100%', height: '100%'}"
+      :loop="loop"
+      :crossOrigin="'anonymous'"
+      :src="convertedSrc"
+      :playback-rate="rate"
+      :volume="volume"
+      :muted="muted"
+      :hwhevc="hwhevc"
+      :paused="paused"
+      :current-time="seekTime"
+      :current-audio-track-id="currentAudioTrackId.toString()"
+      :autoplay="false"
+      @loadedmetadata="onMetaLoaded"
+      @playing="switchingLock = false"
+      @audiotrack="onAudioTrack"
+    />
     <div
       :style="{
         backgroundColor: maskBackground
@@ -493,27 +486,23 @@ export default {
 <style lang="scss" scoped>
 .video {
   position: relative;
-  height: 0;
+  width: 100%;
+  height: 100%;
   z-index: auto;
 }
 .mask {
   position: absolute;
-  width: 100vw;
-  height: 100vh;
+  inset: 0;
+  pointer-events: none;
   transition: background-color 120ms linear;
 }
 .base-video-player {
   width: 100%;
   height: 100%;
-  position: fixed;
+  position: absolute;
+  inset: 0;
 }
 .canvas {
   visibility: hidden;
-}
-.fade-enter-active, .fade-leave-active {
-  transition: opacity 200ms ease-in;
-}
-.fade-enter, .fade-leave-to {
-  opacity: 0;
 }
 </style>

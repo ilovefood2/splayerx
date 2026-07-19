@@ -179,7 +179,6 @@ export default {
 
 <style lang="scss">
 .player {
-  will-change: width;
   transition-property: width;
   transition-duration: 100ms;
   transition-timing-function: ease-out;

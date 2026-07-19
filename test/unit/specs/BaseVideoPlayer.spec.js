@@ -28,15 +28,28 @@ describe('Component - BaseVideoPlayer', () => {
     expect(wrapper.contains('video')).to.equal(true);
   });
 
-  it('applies platform-specific video compositor workarounds', () => {
+  it('keeps the fractional-opacity workaround Windows-only', () => {
     const wrapper = mount(BaseVideoPlayer, { propsData });
     const video = wrapper.find('video');
 
     expect(video.classes().includes('windows-video-opacity-workaround'))
       .to.equal(process.platform === 'win32');
-    expect(video.classes().includes('mac-video-compositor-workaround'))
-      .to.equal(process.platform === 'darwin');
     if (process.platform === 'darwin') expect(video.element.style.opacity).to.equal('');
+    wrapper.destroy();
+  });
+
+  it('uses a canvas for macOS compatibility streams only', () => {
+    const wrapper = mount(BaseVideoPlayer, {
+      propsData: {
+        ...propsData,
+        src: 'http://127.0.0.1:49152/compat/token/video.mkv.mp4?start=0',
+      },
+    });
+    const shouldUseCanvas = process.platform === 'darwin';
+
+    expect(wrapper.classes().includes('compatibility-canvas-player'))
+      .to.equal(shouldUseCanvas);
+    expect(wrapper.find('canvas').exists()).to.equal(shouldUseCanvas);
     wrapper.destroy();
   });
 

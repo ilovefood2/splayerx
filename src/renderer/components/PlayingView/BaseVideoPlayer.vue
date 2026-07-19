@@ -1,14 +1,21 @@
 <template>
-  <div class="base-video-player">
+  <div
+    :class="{ 'compatibility-canvas-player': useCompatibilityCanvas }"
+    class="base-video-player"
+  >
     <video
       id="play-video"
       ref="video"
       :class="{
-        'mac-video-compositor-workaround': isDarwin,
         'windows-video-opacity-workaround': isWindows,
       }"
       @error="handleError"
       class="video-element"
+    />
+    <canvas
+      ref="compatibilityCanvas"
+      v-if="useCompatibilityCanvas"
+      class="compatibility-canvas"
     />
   </div>
 </template>
@@ -137,6 +144,7 @@ export default {
       compatibilityOffset: 0,
       compatibilityMetadataLoaded: false,
       compatibilityGeneration: 0,
+      compatibilityCanvasFrameId: 0,
     };
   },
   computed: {
@@ -146,6 +154,9 @@ export default {
     },
     isWindows() {
       return process.platform === 'win32';
+    },
+    useCompatibilityCanvas() {
+      return this.isDarwin && this.isCompatibilityStream();
     },
   },
   watch: {
@@ -266,8 +277,16 @@ export default {
       this.$refs.video.ontimeupdate = this.currentTimeUpdate;
     }
     this.duration = this.$refs.video.duration;
+    if (this.useCompatibilityCanvas) {
+      this.$refs.video.addEventListener('playing', this.startCompatibilityCanvas);
+    }
+    this.startCompatibilityCanvas();
   },
   beforeDestroy() {
+    this.stopCompatibilityCanvas();
+    if (this.useCompatibilityCanvas) {
+      this.$refs.video.removeEventListener('playing', this.startCompatibilityCanvas);
+    }
     this.$refs.video.ontimeupdate = null;
     this.removeEvents(this.events);
   },
@@ -298,6 +317,80 @@ export default {
     },
     isCompatibilityStream() {
       return /^https?:\/\/127\.0\.0\.1:\d+\/compat\//.test(this.src);
+    },
+    startCompatibilityCanvas() {
+      if (!this.useCompatibilityCanvas || this.compatibilityCanvasFrameId) return;
+      this.compatibilityCanvasFrameId = requestAnimationFrame(this.drawCompatibilityFrame);
+    },
+    stopCompatibilityCanvas() {
+      if (this.compatibilityCanvasFrameId) {
+        cancelAnimationFrame(this.compatibilityCanvasFrameId);
+        this.compatibilityCanvasFrameId = 0;
+      }
+    },
+    drawCompatibilityFrame() {
+      this.compatibilityCanvasFrameId = 0;
+      if (!this.useCompatibilityCanvas || !this.$refs.compatibilityCanvas) return;
+
+      const video = this.$refs.video as HTMLVideoElement;
+      const canvas = this.$refs.compatibilityCanvas as HTMLCanvasElement;
+      const width = this.$el.clientWidth;
+      const height = this.$el.clientHeight;
+
+      if (width > 0 && height > 0) {
+        // Cap the backing surface at 1080p. The canvas is scaled by CSS and
+        // avoids copying a full 4K frame for every legacy compatibility frame.
+        const scale = Math.min(window.devicePixelRatio || 1, 1920 / width, 1080 / height);
+        const canvasWidth = Math.max(1, Math.round(width * scale));
+        const canvasHeight = Math.max(1, Math.round(height * scale));
+        if (canvas.width !== canvasWidth || canvas.height !== canvasHeight) {
+          canvas.width = canvasWidth;
+          canvas.height = canvasHeight;
+        }
+
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+          && video.videoWidth > 0 && video.videoHeight > 0) {
+          this.drawLetterboxedCompatibilityFrame(video, canvas, canvasWidth, canvasHeight);
+        }
+      }
+
+      if (!video.paused || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        this.compatibilityCanvasFrameId = requestAnimationFrame(this.drawCompatibilityFrame);
+      }
+    },
+    drawLetterboxedCompatibilityFrame(
+      video: HTMLVideoElement,
+      canvas: HTMLCanvasElement,
+      canvasWidth: number,
+      canvasHeight: number,
+    ) {
+      const context = canvas.getContext('2d', { alpha: false });
+      if (!context) return;
+
+      const videoRatio = video.videoWidth / video.videoHeight;
+      const canvasRatio = canvasWidth / canvasHeight;
+      let drawWidth = canvasWidth;
+      let drawHeight = canvasHeight;
+      let x = 0;
+      let y = 0;
+
+      if (videoRatio > canvasRatio) {
+        drawHeight = canvasWidth / videoRatio;
+        y = (canvasHeight - drawHeight) / 2;
+      } else {
+        drawWidth = canvasHeight * videoRatio;
+        x = (canvasWidth - drawWidth) / 2;
+      }
+
+      context.drawImage(video, x, y, drawWidth, drawHeight);
+      context.fillStyle = '#000';
+      if (y > 0) {
+        context.fillRect(0, 0, canvasWidth, y);
+        context.fillRect(0, y + drawHeight, canvasWidth, canvasHeight - y - drawHeight);
+      } else if (x > 0) {
+        context.fillRect(0, 0, x, canvasHeight);
+        context.fillRect(x + drawWidth, 0, canvasWidth - x - drawWidth, canvasHeight);
+      }
     },
     isCompatibilityTimeBuffered(relativeTime: number) {
       if (relativeTime < 0) return false;
@@ -415,20 +508,33 @@ export default {
   width: 100%;
   object-fit: cover;
 
-  /* Chromium 87 can lose the hardware-video mailbox when translucent player
-  ** controls are composited above it on macOS. Keep the video in a dedicated
-  ** compositor layer so entering the player cannot blank the decoded frame. */
-  &.mac-video-compositor-workaround {
-    backface-visibility: hidden;
-    transform: translateZ(0);
-    will-change: transform;
-  }
-
   /* Keep the libcc backdrop-filter brightness workaround on Windows only.
   ** Applying fractional opacity on macOS can blank hardware-decoded video
   ** when the player controls enter their composited hover layer. */
   &.windows-video-opacity-workaround {
     opacity: 0.9999;
   }
+}
+
+.compatibility-canvas-player {
+  overflow: hidden;
+
+  .video-element {
+    position: absolute;
+    left: -10000px;
+    width: 2px !important;
+    height: 2px !important;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.compatibility-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  pointer-events: none;
 }
 </style>
