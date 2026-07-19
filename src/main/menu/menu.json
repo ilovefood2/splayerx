@@ -36,6 +36,15 @@
   "file": {
     "items": [
       {
+        "id": "file.newWindow",
+        "label": "msg.file.newWindow",
+        "accelerator": "CmdOrCtrl+N",
+        "event": "new-main-window"
+      },
+      {
+        "id": "menubar.separator"
+      },
+      {
         "id": "file.open",
         "label": "msg.file.open",
         "accelerator": "CmdOrCtrl+O"

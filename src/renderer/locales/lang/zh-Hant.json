@@ -148,6 +148,7 @@
       "clearHistory": "清空播放記錄",
       "closeWindow": "關閉",
       "name": "文件",
+      "newWindow": "新增視窗",
       "open": "打開文件…",
       "openUrl": "打開URL...",
       "openRecent": "打開最近播放",

@@ -106,6 +106,10 @@ export default class Menubar {
     this.mainWindow = window;
   }
 
+  public focusMainWindow(window: Electron.BrowserWindow) {
+    this.mainWindow = window;
+  }
+
   public popupMenu() {
     if (this.mainWindow) {
       this.menubar.popup();
@@ -633,6 +637,13 @@ export default class Menubar {
 
       fileMenu.append(this.createMenuItem(
         this.getMenuItemTemplate('file').items
+          .find((item: MenubarMenuItem) => item.id === 'file.newWindow') as IMenubarMenuItemAction,
+      ));
+
+      fileMenu.append(separator());
+
+      fileMenu.append(this.createMenuItem(
+        this.getMenuItemTemplate('file').items
           .find((item: MenubarMenuItem) => item.id === 'file.open') as IMenubarMenuItemAction,
       ));
 
@@ -675,7 +686,10 @@ export default class Menubar {
     } else {
       // File
       this.getMenuItemTemplate('file').items.forEach((item: MenubarMenuItem) => {
-        if (item.id === 'file.open') {
+        if (item.id === 'file.newWindow') {
+          const menuItem = item as IMenubarMenuItemAction;
+          menubar.append(this.createMenuItem(menuItem));
+        } else if (item.id === 'file.open') {
           const menuItem = item as IMenubarMenuItemAction;
           menubar.append(this.createMenuItem(menuItem));
         } else if (item.id === 'file.openUrl') {
@@ -759,7 +773,10 @@ export default class Menubar {
     } else {
       // File
       this.getMenuItemTemplate('file').items.forEach((item: MenubarMenuItem) => {
-        if (item.id === 'file.open') {
+        if (item.id === 'file.newWindow') {
+          const menuItem = item as IMenubarMenuItemAction;
+          menubar.append(this.createMenuItem(menuItem));
+        } else if (item.id === 'file.open') {
           const menuItem = item as IMenubarMenuItemAction;
           menubar.append(this.createMenuItem(menuItem));
         } else if (item.id === 'file.openUrl') {
@@ -837,7 +854,10 @@ export default class Menubar {
     } else {
       // File
       this.getMenuItemTemplate('file').items.forEach((item: MenubarMenuItem) => {
-        if (item.id === 'file.open') {
+        if (item.id === 'file.newWindow') {
+          const menuItem = item as IMenubarMenuItemAction;
+          menubar.append(this.createMenuItem(menuItem));
+        } else if (item.id === 'file.open') {
           const menuItem = item as IMenubarMenuItemAction;
           menubar.append(this.createMenuItem(menuItem));
         } else if (item.id === 'file.openRecent') {
@@ -913,6 +933,9 @@ export default class Menubar {
       const items = this.getMenuItemTemplate('file').items;
       const playbackItems = this.getMenuItemTemplate('playback').items;
 
+      const newWindowTemplate = items.find((item: MenubarMenuItem) => item.id === 'file.newWindow') as IMenubarMenuItemAction;
+      const newWindowMenuItem = this.createMenuItem(newWindowTemplate);
+
       const openMenuItemTemplate = items.find((item: MenubarMenuItem) => item.id === 'file.open') as IMenubarMenuItemAction;
       const openMenuItem = this.createMenuItem(openMenuItemTemplate);
 
@@ -922,7 +945,7 @@ export default class Menubar {
       const closeWindowTemplate = items.find((item: MenubarMenuItem) => item.id === 'file.closeWindow') as IMenubarMenuItemRole;
       const closeMenuItem = this.createRoleMenuItem(closeWindowTemplate);
 
-      [openMenuItem, openUrlMenuItem,
+      [newWindowMenuItem, separator(), openMenuItem, openUrlMenuItem,
         closeMenuItem].forEach(i => fileMenu.append(i));
 
       const downloadTemplate = items.find((item: MenubarMenuItem) => item.id === 'file.download') as IMenubarMenuItemRole;
@@ -941,7 +964,10 @@ export default class Menubar {
     } else {
       // File
       this.getMenuItemTemplate('file').items.forEach((item: MenubarMenuItem) => {
-        if (item.id === 'file.open') {
+        if (item.id === 'file.newWindow') {
+          const menuItem = item as IMenubarMenuItemAction;
+          menubar.append(this.createMenuItem(menuItem));
+        } else if (item.id === 'file.open') {
           const menuItem = item as IMenubarMenuItemAction;
           menubar.append(this.createMenuItem(menuItem));
         } else if (item.id === 'file.openUrl') {

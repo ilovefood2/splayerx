@@ -148,6 +148,7 @@
       "clearHistory": "Clear Playback History",
       "closeWindow": "Close Window",
       "name": "File",
+      "newWindow": "New Window",
       "open": "Open…",
       "openUrl": "Open URL...",
       "openRecent": "Open Recent",

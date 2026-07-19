@@ -460,6 +460,7 @@ new Vue({
     this.menuService = new MenuService();
     this.menuService.updateRouteName(this.currentRouteName);
     this.registeMenuActions();
+    ipcRenderer.on('restore-window-menu', () => this.restoreFocusedWindowMenu());
     ipcRenderer.on('cast-status', this.onCastStatus);
     this.initializeMenuSettings();
     this.$bus.$on('new-file-open', () => {
@@ -789,6 +790,28 @@ new Vue({
         'playback.playOrPause',
         paused ? 'msg.playback.play' : 'msg.playback.pause',
       );
+    },
+    async restoreFocusedWindowMenu() {
+      this.menuService.updateRouteName(this.currentRouteName);
+      await this.initializeMenuSettings();
+      if (this.currentRouteName === 'playing-view' || this.currentRouteName === 'browsing-view') {
+        this.menuService.updateMenuItemLabel(
+          this.currentRouteName === 'browsing-view'
+            ? 'browsing.window.fullscreen' : 'window.fullscreen',
+          this.isFullScreen ? 'msg.window.exitFullScreen' : 'msg.window.enterFullScreen',
+        );
+      }
+      if (this.currentRouteName === 'playing-view') {
+        this.updatePlaybackMenuLabel();
+        this.menuService.resolveMute(this.muted);
+        this.menuService.updateMenuItemChecked('playback.singleCycle', this.singleCycle);
+        this.menuService.updateMenuItemChecked('playback.playlistLoop', this.playlistLoop);
+        this.menuService.updateMenuItemChecked('window.keepPlayingWindowFront', this.playingViewTop);
+        this.menuService.updateMenuItemLabel(
+          'window.sidebar',
+          this.showSidebar ? 'msg.window.closeSidebar' : 'msg.window.openSidebar',
+        );
+      }
     },
     onCastStatus(e: Event, status: {
       casting: boolean, paused: boolean, currentTime: number,

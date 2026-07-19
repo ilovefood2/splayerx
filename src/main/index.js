@@ -78,6 +78,8 @@ let welcomeProcessDone = false;
 let menuService = null;
 let routeName = null;
 let mainWindow = null;
+const mainWindows = new Set();
+let mainProcessEventsRegistered = false;
 let aboutWindow = null;
 let preferenceWindow = null;
 let browsingWindow = null;
@@ -101,9 +103,7 @@ let tray = null;
 let pipTimer = 0;
 let needToRestore = false;
 let isVip = true; // set no limits
-let inited = false;
 let hideBrowsingWindow = false;
-let finalVideoToOpen = [];
 let signInEndpoint = '';
 let signInSite = '';
 let applePayProductID = '';
@@ -153,6 +153,41 @@ const losslessStreamingURL = process.env.NODE_ENV === 'development'
 
 const tempFolderPath = path.join(app.getPath('temp'), 'splayer');
 if (!fs.existsSync(tempFolderPath)) mkdirp.sync(tempFolderPath);
+
+function isUsableMainWindow(window) {
+  return window && mainWindows.has(window) && !window.isDestroyed()
+    && !window.webContents.isDestroyed();
+}
+
+function getActiveMainWindow() {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (isUsableMainWindow(focusedWindow)) return focusedWindow;
+  if (isUsableMainWindow(mainWindow)) return mainWindow;
+  return Array.from(mainWindows).reverse().find(isUsableMainWindow) || null;
+}
+
+function getSenderMainWindow(sender) {
+  const senderWindow = sender && BrowserWindow.fromWebContents(sender);
+  return isUsableMainWindow(senderWindow) ? senderWindow : getActiveMainWindow();
+}
+
+function setActiveMainWindow(window) {
+  if (!isUsableMainWindow(window)) return;
+  mainWindow = window;
+  menuService?.focusMainWindow(window);
+}
+
+function restoreMainWindowMenu(window) {
+  if (!isUsableMainWindow(window)) return;
+  setActiveMainWindow(window);
+  window.webContents.send('restore-window-menu');
+}
+
+function broadcastToMainWindows(channel, ...args) {
+  mainWindows.forEach((window) => {
+    if (isUsableMainWindow(window)) window.webContents.send(channel, ...args);
+  });
+}
 
 function hackWindowsRightMenu(win) {
   if (win) {
@@ -382,6 +417,53 @@ function getAllValidVideo(onlySubtitle, files) {
     return uniq(videoFiles);
   } catch (ex) {
     return [];
+  }
+}
+
+function createOpenRequest(videoFiles = [], subtitleFiles = []) {
+  const videos = videoFiles.slice();
+  const subtitles = subtitleFiles.slice();
+  return {
+    videoFiles: videos,
+    subtitleFiles: subtitles,
+    files: getAllValidVideo(!videos.length, videos.concat(subtitles)),
+  };
+}
+
+function takeQueuedOpenRequest() {
+  const request = createOpenRequest(tmpVideoToOpen, tmpSubsToOpen);
+  tmpVideoToOpen.splice(0, tmpVideoToOpen.length);
+  tmpSubsToOpen.splice(0, tmpSubsToOpen.length);
+  return request;
+}
+
+function collectOpenPath(file, videoFiles, subtitleFiles) {
+  try {
+    const isDirectory = fs.statSync(file).isDirectory();
+    if (isSubtitle(file) || isDirectory) subtitleFiles.push(file);
+    else if (isVideo(file) || isAudio(file)) videoFiles.push(file);
+  } catch (ex) {
+    // Ignore arguments that are not readable media paths.
+  }
+}
+
+function sendOpenRequest(window, request, addSubtitlesToCurrent = false) {
+  if (!isUsableMainWindow(window) || !request) return;
+  const { videoFiles, subtitleFiles, files } = request;
+  if (!videoFiles.length && subtitleFiles.length && addSubtitlesToCurrent) {
+    const allSubFiles = [];
+    subtitleFiles.forEach((file) => {
+      if (isSubtitle(file)) allSubFiles.push(file);
+      else allSubFiles.push(...searchSubsInDir(file));
+    });
+    window.webContents.send('add-local-subtitles', allSubFiles);
+  } else if (process.mas && !videoFiles.length && subtitleFiles.length && !files.length) {
+    window.webContents.send('open-subtitle-in-mas', subtitleFiles[0]);
+  } else if (videoFiles.length + subtitleFiles.length > 0) {
+    window.webContents.send('open-file', {
+      onlySubtitle: !videoFiles.length,
+      files,
+    });
   }
 }
 
@@ -844,64 +926,67 @@ function openHistoryItem(evt, args) {
   }
 }
 
-function registerMainWindowEvent(mainWindow) {
-  if (!mainWindow) return;
-  mainWindow.on('move', throttle(() => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('mainCommit', 'windowPosition', mainWindow.getPosition());
+function registerMainWindowEvent(playerWindow) {
+  if (!playerWindow) return;
+  playerWindow.on('move', throttle(() => {
+    if (!isUsableMainWindow(playerWindow)) return;
+    playerWindow.webContents.send('mainCommit', 'windowPosition', playerWindow.getPosition());
   }, 100));
-  mainWindow.on('enter-full-screen', () => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('mainCommit', 'isFullScreen', true);
-    mainWindow.webContents.send('mainCommit', 'isMaximized', mainWindow.isMaximized());
+  playerWindow.on('enter-full-screen', () => {
+    if (!isUsableMainWindow(playerWindow)) return;
+    playerWindow.webContents.send('mainCommit', 'isFullScreen', true);
+    playerWindow.webContents.send('mainCommit', 'isMaximized', playerWindow.isMaximized());
   });
-  mainWindow.on('leave-full-screen', () => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('mainCommit', 'isFullScreen', false);
-    mainWindow.webContents.send('mainCommit', 'isMaximized', mainWindow.isMaximized());
+  playerWindow.on('leave-full-screen', () => {
+    if (!isUsableMainWindow(playerWindow)) return;
+    playerWindow.webContents.send('mainCommit', 'isFullScreen', false);
+    playerWindow.webContents.send('mainCommit', 'isMaximized', playerWindow.isMaximized());
   });
-  mainWindow.on('maximize', () => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('mainCommit', 'isMaximized', true);
-    mainWindow.webContents.send('mainCommit', 'windowPosition', mainWindow.getPosition());
+  playerWindow.on('maximize', () => {
+    if (!isUsableMainWindow(playerWindow)) return;
+    playerWindow.webContents.send('mainCommit', 'isMaximized', true);
+    playerWindow.webContents.send('mainCommit', 'windowPosition', playerWindow.getPosition());
   });
-  mainWindow.on('unmaximize', () => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('mainCommit', 'isMaximized', false);
-    mainWindow.webContents.send('mainCommit', 'windowPosition', mainWindow.getPosition());
+  playerWindow.on('unmaximize', () => {
+    if (!isUsableMainWindow(playerWindow)) return;
+    playerWindow.webContents.send('mainCommit', 'isMaximized', false);
+    playerWindow.webContents.send('mainCommit', 'windowPosition', playerWindow.getPosition());
   });
-  mainWindow.on('minimize', () => {
+  playerWindow.on('minimize', () => {
     menuService?.enableMenu(false);
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('mainCommit', 'isMinimized', true);
+    if (!isUsableMainWindow(playerWindow)) return;
+    playerWindow.webContents.send('mainCommit', 'isMinimized', true);
   });
-  mainWindow.on('restore', () => {
+  playerWindow.on('restore', () => {
     menuService?.enableMenu(true);
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('mainCommit', 'isMinimized', false);
+    if (!isUsableMainWindow(playerWindow)) return;
+    playerWindow.webContents.send('mainCommit', 'isMinimized', false);
   });
-  mainWindow.on('show', () => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('mainCommit', 'isMinimized', false);
+  playerWindow.on('show', () => {
+    if (!isUsableMainWindow(playerWindow)) return;
+    playerWindow.webContents.send('mainCommit', 'isMinimized', false);
   });
-  mainWindow.on('focus', () => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('mainCommit', 'isFocused', true);
-    mainWindow.webContents.send('mainCommit', 'isHiddenByBossKey', false);
+  playerWindow.on('focus', () => {
+    if (!isUsableMainWindow(playerWindow)) return;
+    restoreMainWindowMenu(playerWindow);
+    playerWindow.webContents.send('mainCommit', 'isFocused', true);
+    playerWindow.webContents.send('mainCommit', 'isHiddenByBossKey', false);
   });
-  mainWindow.on('blur', () => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('mainCommit', 'isFocused', false);
+  playerWindow.on('blur', () => {
+    if (!isUsableMainWindow(playerWindow)) return;
+    playerWindow.webContents.send('mainCommit', 'isFocused', false);
   });
-  mainWindow.on('scroll-touch-begin', () => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('scroll-touch-begin');
+  playerWindow.on('scroll-touch-begin', () => {
+    if (!isUsableMainWindow(playerWindow)) return;
+    playerWindow.webContents.send('scroll-touch-begin');
   });
-  mainWindow.on('scroll-touch-end', () => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
-    mainWindow.webContents.send('scroll-touch-end');
+  playerWindow.on('scroll-touch-end', () => {
+    if (!isUsableMainWindow(playerWindow)) return;
+    playerWindow.webContents.send('scroll-touch-end');
   });
 
+  if (mainProcessEventsRegistered) return;
+  mainProcessEventsRegistered = true;
 
   registerMediaTasks();
 
@@ -919,7 +1004,8 @@ function registerMainWindowEvent(mainWindow) {
     createOpenUrlWindow();
   });
   ipcMain.on('send-url', (e, urlInfo) => {
-    if (mainWindow) mainWindow.webContents.send('send-url', urlInfo);
+    const targetWindow = getSenderMainWindow(e.sender);
+    if (targetWindow) targetWindow.webContents.send('send-url', urlInfo);
   });
   ipcMain.on('browser-window-mask', () => {
     if (!browsingWindow.getBrowserViews().includes(maskView)) createMaskView();
@@ -945,7 +1031,8 @@ function registerMainWindowEvent(mainWindow) {
   });
   ipcMain.on('callMainWindowMethod', (evt, method, args = []) => {
     try {
-      mainWindow[method](...args);
+      const targetWindow = getSenderMainWindow(evt.sender);
+      if (targetWindow) targetWindow[method](...args);
     } catch (ex) {
       console.error('callMainWindowMethod', method, JSON.stringify(args), '\n', ex);
     }
@@ -1469,12 +1556,13 @@ function registerMainWindowEvent(mainWindow) {
     mainWindow.show();
     menuService?.updateFocusedWindow(true, mainWindow && mainWindow.isVisible());
   });
-  ipcMain.on('set-window-minimize', () => {
-    if (mainWindow && mainWindow.isFocused()) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
+  ipcMain.on('set-window-minimize', (event) => {
+    const targetWindow = getSenderMainWindow(event.sender);
+    if (targetWindow && targetWindow.isFocused()) {
+      if (targetWindow.isMinimized()) {
+        targetWindow.restore();
       } else {
-        mainWindow.minimize();
+        targetWindow.minimize();
       }
     } else if (browsingWindow && browsingWindow.isFocused()) {
       if (browsingWindow.isMinimized()) {
@@ -1485,17 +1573,19 @@ function registerMainWindowEvent(mainWindow) {
     }
   });
   // eslint-disable-next-line complexity
-  ipcMain.on('set-window-maximize', () => {
-    if (mainWindow && mainWindow.isFocused()) {
-      if (mainWindow.isMaximized()) {
-        mainWindow.unmaximize();
+  ipcMain.on('set-window-maximize', (event) => {
+    const targetWindow = getSenderMainWindow(event.sender);
+    if (targetWindow && targetWindow.isFocused()) {
+      if (targetWindow.isMaximized()) {
+        targetWindow.unmaximize();
       } else {
-        mainWindow.maximize();
+        targetWindow.maximize();
       }
-      if (mainWindow.getBrowserViews().length && !mainWindow.getBrowserViews()[0].isDestroyed()) {
-        const bounds = mainWindow.getBounds();
-        if (process.platform === 'win32' && mainWindow.isMaximized() && (bounds.x < 0 || bounds.y < 0)) {
-          mainWindow.getBrowserViews()[0].setBounds({
+      const [mainBrowserView] = targetWindow.getBrowserViews();
+      if (mainBrowserView && !mainBrowserView.isDestroyed()) {
+        const bounds = targetWindow.getBounds();
+        if (process.platform === 'win32' && targetWindow.isMaximized() && (bounds.x < 0 || bounds.y < 0)) {
+          targetWindow.getBrowserViews()[0].setBounds({
             x: sidebar ? 76 : 0,
             y: 40,
             width: sidebar ? bounds.width + (bounds.x * 2) - 76
@@ -1503,12 +1593,12 @@ function registerMainWindowEvent(mainWindow) {
             height: bounds.height - 40,
           });
         } else {
-          mainWindow.getBrowserViews()[0].setBounds({
+          targetWindow.getBrowserViews()[0].setBounds({
             x: sidebar ? 76 : 0,
             y: 40,
-            width: sidebar ? mainWindow.getSize()[0] - 76
-              : mainWindow.getSize()[0],
-            height: mainWindow.getSize()[1] - 40,
+            width: sidebar ? targetWindow.getSize()[0] - 76
+              : targetWindow.getSize()[0],
+            height: targetWindow.getSize()[1] - 40,
           });
         }
       }
@@ -1542,36 +1632,41 @@ function registerMainWindowEvent(mainWindow) {
     }
   });
   ipcMain.on('drop-subtitle', (event, args) => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
+    const targetWindow = getSenderMainWindow(event.sender);
+    if (!targetWindow) return;
+    const subtitleFiles = [];
+    const videoFiles = [];
     args.forEach((file) => {
       if (isSubtitle((file)) || fs.statSync(file).isDirectory()) {
-        tmpSubsToOpen.push(file);
+        subtitleFiles.push(file);
       } else if (isVideo(file) || isAudio(file)) {
-        tmpVideoToOpen.push(file);
+        videoFiles.push(file);
       }
     });
-    finalVideoToOpen = getAllValidVideo(!tmpVideoToOpen.length,
-      tmpVideoToOpen.concat(tmpSubsToOpen));
-    if (process.mas && !tmpVideoToOpen.length && tmpSubsToOpen.length && !finalVideoToOpen) {
-      mainWindow.webContents.send('open-subtitle-in-mas', tmpSubsToOpen[0]);
-    } else if (tmpVideoToOpen.length + tmpSubsToOpen.length > 0) {
-      mainWindow.webContents.send('open-file', { onlySubtitle: !tmpVideoToOpen.length, files: finalVideoToOpen });
+    const filesToOpen = getAllValidVideo(!videoFiles.length,
+      videoFiles.concat(subtitleFiles));
+    if (process.mas && !videoFiles.length && subtitleFiles.length && !filesToOpen) {
+      targetWindow.webContents.send('open-subtitle-in-mas', subtitleFiles[0]);
+    } else if (videoFiles.length + subtitleFiles.length > 0) {
+      targetWindow.webContents.send('open-file', {
+        onlySubtitle: !videoFiles.length,
+        files: filesToOpen,
+      });
     }
-    finalVideoToOpen.splice(0, finalVideoToOpen.length);
-    tmpSubsToOpen.splice(0, tmpSubsToOpen.length);
-    tmpVideoToOpen.splice(0, tmpVideoToOpen.length);
   });
   ipcMain.on('windowPositionChange', (event, args) => {
-    if (!mainWindow || event.sender.isDestroyed()) return;
-    mainWindow.setPosition(...args);
-    event.sender.send('windowPositionChange-asyncReply', mainWindow.getPosition());
+    const targetWindow = getSenderMainWindow(event.sender);
+    if (!targetWindow || event.sender.isDestroyed()) return;
+    targetWindow.setPosition(...args);
+    event.sender.send('windowPositionChange-asyncReply', targetWindow.getPosition());
   });
   ipcMain.on('windowInit', (event) => {
-    if (!mainWindow || event.sender.isDestroyed()) return;
-    mainWindow.webContents.send('mainCommit', 'windowMinimumSize', mainWindow.getMinimumSize());
-    mainWindow.webContents.send('mainCommit', 'windowPosition', mainWindow.getPosition());
-    mainWindow.webContents.send('mainCommit', 'isFullScreen', mainWindow.isFullScreen());
-    mainWindow.webContents.send('mainCommit', 'isFocused', mainWindow.isFocused());
+    const targetWindow = getSenderMainWindow(event.sender);
+    if (!targetWindow || event.sender.isDestroyed()) return;
+    targetWindow.webContents.send('mainCommit', 'windowMinimumSize', targetWindow.getMinimumSize());
+    targetWindow.webContents.send('mainCommit', 'windowPosition', targetWindow.getPosition());
+    targetWindow.webContents.send('mainCommit', 'isFullScreen', targetWindow.isFullScreen());
+    targetWindow.webContents.send('mainCommit', 'isFocused', targetWindow.isFocused());
   });
   ipcMain.on('need-to-restore', () => {
     needToRestore = true;
@@ -1728,8 +1823,9 @@ function registerMainWindowEvent(mainWindow) {
   });
 }
 
-function createMainWindow(openDialog, playlistId) {
-  mainWindow = new BrowserWindow({
+function createMainWindow(openDialog, playlistId, requestedFiles) {
+  const openRequest = requestedFiles || takeQueuedOpenRequest();
+  const playerWindow = new BrowserWindow({
     useContentSize: true,
     frame: false,
     titleBarStyle: 'none',
@@ -1755,51 +1851,51 @@ function createMainWindow(openDialog, playlistId) {
       win32: {},
     })[process.platform],
   });
+  mainWindows.add(playerWindow);
+  mainWindow = playerWindow;
   if (
     (!welcomeProcessDone && fs.existsSync(path.join(userDataPath, 'WELCOME_PROCESS_MARK')))
     || welcomeProcessDone
   ) {
     welcomeProcessDone = true;
-    finalVideoToOpen.length ? mainWindow.loadURL(`${mainURL}#/play`) : mainWindow.loadURL(mainURL);
+    openRequest.videoFiles.length
+      ? playerWindow.loadURL(`${mainURL}#/play`) : playerWindow.loadURL(mainURL);
   } else {
-    mainWindow.loadURL(`${mainURL}#/welcome`);
+    playerWindow.loadURL(`${mainURL}#/welcome`);
   }
-  mainWindow.webContents.userAgent = `${mainWindow.webContents.userAgent.replace(/Electron\S+/i, '')} SPlayerX@2018 Platform/${os.platform()} Release/${os.release()} Version/${app.getVersion()} EnvironmentName/${environmentName}`;
-  menuService?.setMainWindow(mainWindow);
+  playerWindow.webContents.userAgent = `${playerWindow.webContents.userAgent.replace(/Electron\S+/i, '')} SPlayerX@2018 Platform/${os.platform()} Release/${os.release()} Version/${app.getVersion()} EnvironmentName/${environmentName}`;
+  menuService?.setMainWindow(playerWindow);
 
-  mainWindow.on('closed', () => {
-    ipcMain.removeAllListeners(); // FIXME: decouple mainWindow and ipcMain
-    mainWindow = null;
-    menuService?.setMainWindow(null);
-  });
-
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-    // Open file by file association. Currently support 1 file only.
-    finalVideoToOpen = getAllValidVideo(!tmpVideoToOpen.length,
-      tmpVideoToOpen.concat(tmpSubsToOpen));
-    if (process.mas && !tmpVideoToOpen.length && tmpSubsToOpen.length && !finalVideoToOpen) {
-      mainWindow.webContents.send('open-subtitle-in-mas', tmpSubsToOpen[0]);
-    } else if (tmpVideoToOpen.length + tmpSubsToOpen.length > 0) {
-      mainWindow.webContents.send('open-file', { onlySubtitle: !tmpVideoToOpen.length, files: finalVideoToOpen });
+  playerWindow.on('closed', () => {
+    mainWindows.delete(playerWindow);
+    if (mainWindow === playerWindow) {
+      mainWindow = Array.from(mainWindows).reverse().find(isUsableMainWindow) || null;
+      if (mainWindow) {
+        // macOS does not consistently emit a new focus event when the front
+        // window closes, so explicitly restore the newly exposed window menu.
+        setImmediate(() => restoreMainWindowMenu(mainWindow));
+      } else menuService?.setMainWindow(null);
     }
-    if (openDialog) mainWindow.webContents.send('open-dialog', playlistId);
-    finalVideoToOpen.splice(0, finalVideoToOpen.length);
-    tmpSubsToOpen.splice(0, tmpSubsToOpen.length);
-    tmpVideoToOpen.splice(0, tmpVideoToOpen.length);
-    inited = true;
   });
 
-  registerMainWindowEvent(mainWindow);
+  playerWindow.once('ready-to-show', () => {
+    playerWindow.show();
+    setActiveMainWindow(playerWindow);
+    sendOpenRequest(playerWindow, openRequest);
+    if (openDialog) playerWindow.webContents.send('open-dialog', playlistId);
+  });
+
+  registerMainWindowEvent(playerWindow);
 
   if (process.env.NODE_ENV === 'development') {
     setTimeout(() => { // wait some time to prevent `Object not found` error
-      if (mainWindow) mainWindow.openDevTools({ mode: 'detach' });
+      if (isUsableMainWindow(playerWindow)) playerWindow.openDevTools({ mode: 'detach' });
     }, 1000);
   }
-  mainWindow.on('focus', () => {
+  playerWindow.on('focus', () => {
     menuService?.enableMenu(true);
   });
+  return playerWindow;
 }
 
 ['left-drag', 'left-up'].forEach((channel) => {
@@ -1818,11 +1914,10 @@ app.on('before-quit', () => {
   castService.stop();
   losslessStreamingInstance.dispose();
   if (downloadWindow) downloadWindow.webContents.send('quit');
-  if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
   if (needToRestore) {
-    mainWindow.webContents.send('quit', needToRestore);
+    broadcastToMainWindows('quit', needToRestore);
   } else {
-    mainWindow.webContents.send('quit');
+    broadcastToMainWindows('quit');
   }
 });
 
@@ -1830,131 +1925,49 @@ app.on('quit', () => {
   mouse.dispose();
 });
 
-app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  } else if (app.isReady()) {
-    createMainWindow();
-  }
-});
-
 app.on('minimize', () => {
-  if (mainWindow && mainWindow.isFocused()) {
-    mainWindow.minimize();
+  const targetWindow = getActiveMainWindow();
+  if (targetWindow && targetWindow.isFocused()) {
+    targetWindow.minimize();
   }
 });
 
 async function darwinOpenFilesToStart() {
-  if (mainWindow && !mainWindow.webContents.isDestroyed()) { // sencond instance
-    if (!inited) return;
-    finalVideoToOpen = getAllValidVideo(!tmpVideoToOpen.length,
-      tmpVideoToOpen.concat(tmpSubsToOpen));
-    if (!tmpVideoToOpen.length && tmpSubsToOpen.length) {
-      const allSubFiles = [];
-      tmpSubsToOpen.forEach((file) => {
-        if (isSubtitle((file))) {
-          allSubFiles.push(file);
-        } else {
-          allSubFiles.push(...searchSubsInDir(file));
-        }
-      });
-      mainWindow.webContents.send('add-local-subtitles', allSubFiles);
-    } else if (tmpVideoToOpen.length + tmpSubsToOpen.length > 0) {
-      mainWindow.webContents.send('open-file', { onlySubtitle: !tmpVideoToOpen.length, files: finalVideoToOpen });
-    }
-    finalVideoToOpen.splice(0, finalVideoToOpen.length);
-    tmpSubsToOpen.splice(0, tmpSubsToOpen.length);
-    tmpVideoToOpen.splice(0, tmpVideoToOpen.length);
-    if (!mainWindow.isVisible()) mainWindow.show();
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  } else if (app.isReady() && !mainWindow) {
-    createMainWindow();
+  if (!app.isReady()) return;
+  const request = takeQueuedOpenRequest();
+  if (!request.videoFiles.length && !request.subtitleFiles.length) return;
+  const targetWindow = getActiveMainWindow();
+  if (request.videoFiles.length || !targetWindow) {
+    createMainWindow(false, undefined, request);
+    return;
   }
+  sendOpenRequest(targetWindow, request, true);
+  if (!targetWindow.isVisible()) targetWindow.show();
+  if (targetWindow.isMinimized()) targetWindow.restore();
+  targetWindow.focus();
 }
 const darwinOpenFilesToStartDebounced = debounce(darwinOpenFilesToStart, 100);
 if (process.platform === 'darwin') {
   app.on('will-finish-launching', () => {
     app.on('open-file', (event, file) => {
-      // TODO: clean code to remove duplicated check
-      let ext;
-      let isDirectory;
-      try {
-        ext = path.extname(file);
-        isDirectory = fs.statSync(file).isDirectory();
-      } catch (ex) {
-        return;
-      }
-      if (isSubtitle(ext) || isDirectory) {
-        tmpSubsToOpen.push(file);
-      } else if (isVideo(ext) || isAudio(ext)) {
-        tmpVideoToOpen.push(file);
-      }
-      finalVideoToOpen = getAllValidVideo(!tmpVideoToOpen.length,
-        tmpVideoToOpen.concat(tmpSubsToOpen));
+      event.preventDefault();
+      collectOpenPath(file, tmpVideoToOpen, tmpSubsToOpen);
       darwinOpenFilesToStartDebounced();
     });
   });
 } else {
   const tmpFile = process.argv.slice(app.isPackaged ? 1 : 2);
-  tmpFile.forEach((file) => {
-    let ext;
-    let isDirectory;
-    try {
-      ext = path.extname(file);
-      isDirectory = fs.statSync(file).isDirectory();
-    } catch (ex) {
-      return;
-    }
-    if (isSubtitle(ext) || isDirectory) {
-      tmpSubsToOpen.push(file);
-    } else if (isVideo(ext) || isAudio(ext)) {
-      tmpVideoToOpen.push(file);
-    }
-  });
-  finalVideoToOpen = getAllValidVideo(!tmpVideoToOpen.length,
-    tmpVideoToOpen.concat(tmpSubsToOpen));
-  app.on('second-instance', (event, argv) => {
-    if (!mainWindow || mainWindow.webContents.isDestroyed()) {
-      if (app.isReady()) createMainWindow();
-    }
-    const opendFiles = argv.slice(app.isPackaged ? 3 : 2);
-    opendFiles.forEach((file) => {
-      let ext;
-      let isDirectory;
-      try {
-        ext = path.extname(file);
-        isDirectory = fs.statSync(file).isDirectory();
-      } catch (ex) {
-        return;
-      }
-      if (isSubtitle(ext) || isDirectory) {
-        tmpSubsToOpen.push(file);
-      } else if (isVideo(ext) || isAudio(ext)) {
-        tmpVideoToOpen.push(file);
-      }
-    });
-    finalVideoToOpen = getAllValidVideo(!tmpVideoToOpen.length,
-      tmpVideoToOpen.concat(tmpSubsToOpen));
-    if (!tmpVideoToOpen.length && tmpSubsToOpen.length) {
-      const allSubFiles = [];
-      tmpSubsToOpen.forEach((file) => {
-        if (isSubtitle((file))) {
-          allSubFiles.push(file);
-        } else {
-          allSubFiles.push(...searchSubsInDir(file));
-        }
-      });
-      mainWindow.webContents.send('add-local-subtitles', allSubFiles);
-    } else if (tmpVideoToOpen.length + tmpSubsToOpen.length > 0) {
-      mainWindow.webContents.send('open-file', { onlySubtitle: !tmpVideoToOpen.length, files: finalVideoToOpen });
-    }
-    finalVideoToOpen.splice(0, finalVideoToOpen.length);
-    tmpSubsToOpen.splice(0, tmpSubsToOpen.length);
-    tmpVideoToOpen.splice(0, tmpVideoToOpen.length);
-  });
+  tmpFile.forEach(file => collectOpenPath(file, tmpVideoToOpen, tmpSubsToOpen));
 }
+
+app.on('second-instance', (event, argv) => {
+  if (!app.isReady()) return;
+  const videoFiles = [];
+  const subtitleFiles = [];
+  argv.slice(app.isPackaged ? 1 : 2)
+    .forEach(file => collectOpenPath(file, videoFiles, subtitleFiles));
+  createMainWindow(false, undefined, createOpenRequest(videoFiles, subtitleFiles));
+});
 
 app.on('ready', () => {
   menuService = new MenuService();
@@ -2027,6 +2040,7 @@ app.on('bossKey', handleBossKey);
 app.on('add-preference', createPreferenceWindow);
 app.on('add-window-about', createAboutWindow);
 app.on('add-window-losslessStreaming', createLosslessStreamingWindow);
+app.on('new-main-window', () => createMainWindow());
 app.on('open-history-item', (evt, args) => {
   openHistoryItem(evt, args);
   mainWindow.send('update-current-channel', args.channel);

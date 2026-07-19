@@ -7,15 +7,25 @@ import { ISubtitleControlListItem } from '../../renderer/interfaces/ISubtitle';
 export default class MenuService {
   private menu: Menu;
 
+  private menuActionsRegistered = false;
+
   public constructor() {
     this.menu = new Menu();
   }
 
   public setMainWindow(window: Electron.BrowserWindow | null) {
     this.menu.setMainWindow(window);
-    if (window) this.registeMenuActions();
-    else this.menu.closedMenu();
+    if (window) {
+      if (!this.menuActionsRegistered) {
+        this.registeMenuActions();
+        this.menuActionsRegistered = true;
+      }
+    } else this.menu.closedMenu();
     setTimeout(() => app.emit('losslessStreaming-menu-update'), 50);
+  }
+
+  public focusMainWindow(window: Electron.BrowserWindow) {
+    this.menu.focusMainWindow(window);
   }
 
   public enableMenu(enable: boolean) {
