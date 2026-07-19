@@ -484,10 +484,12 @@ export default {
   },
   created() {
     this.updateShowAllWidgets(this.showAllWidgets);
+    window.addEventListener('mousemove', this.handlePointerActivity, true);
     window.addEventListener('mouseover', this.handleWindowMouseenter);
     window.addEventListener('mouseout', this.handleWindowMouseleave);
   },
   beforeUnmount() {
+    window.removeEventListener('mousemove', this.handlePointerActivity, true);
     window.removeEventListener('mouseover', this.handleWindowMouseenter);
     window.removeEventListener('mouseout', this.handleWindowMouseleave);
   },
@@ -819,10 +821,18 @@ export default {
     // Event listeners
     handleMousemove(event: MouseEvent, component: string) {
       const { clientX, clientY, target } = event;
-      this.mouseStopped = false;
       if (this.isMousedown) {
         this.isMousemove = true;
       }
+      const componentName = component || this.getComponentName(target);
+      this.updateMousemove({
+        componentName,
+        clientPosition: [clientX, clientY],
+      });
+    },
+    handlePointerActivity() {
+      this.mouseLeftWindow = false;
+      this.mouseStopped = false;
       if (this.mouseStoppedId) {
         this.clock.clearTimeout(this.mouseStoppedId);
       }
@@ -831,11 +841,6 @@ export default {
           this.mouseStopped = true;
         }, this.mousestopDelay);
       }
-      const componentName = component || this.getComponentName(target);
-      this.updateMousemove({
-        componentName,
-        clientPosition: [clientX, clientY],
-      });
     },
     handleMouseenter() {
       this.mouseleft = false;
@@ -844,7 +849,7 @@ export default {
       this.mouseleft = true;
     },
     handleWindowMouseenter() {
-      this.mouseLeftWindow = false;
+      this.handlePointerActivity();
       if (this.mouseLeftId) {
         this.clock.clearTimeout(this.mouseLeftId);
       }

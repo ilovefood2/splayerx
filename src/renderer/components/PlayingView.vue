@@ -1,5 +1,5 @@
 <template>
-  <div class="player">
+  <div class="player no-drag">
     <the-video-canvas
       ref="videoCanvas"
       @media-ready="onMediaReady"

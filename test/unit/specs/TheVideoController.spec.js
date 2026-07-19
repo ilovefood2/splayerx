@@ -97,4 +97,14 @@ describe('Component - TheVideoController Unit Test', () => {
     expect(wrapper.find('.playlist').element.style.display).to.not.equal('none');
     expect(wrapper.find('.advance').element.style.display).to.not.equal('none');
   });
+
+  it('reveals controls when pointer movement is captured above an overlay', () => {
+    wrapper.vm.mouseStopped = true;
+    wrapper.vm.mouseLeftWindow = true;
+
+    wrapper.vm.handlePointerActivity();
+
+    expect(wrapper.vm.mouseStopped).to.equal(false);
+    expect(wrapper.vm.mouseLeftWindow).to.equal(false);
+  });
 });
