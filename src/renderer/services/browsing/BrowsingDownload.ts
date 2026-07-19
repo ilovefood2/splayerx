@@ -78,6 +78,7 @@ class BrowsingDownload implements IBrowsingDownload {
     this.manualAbort = false;
     const options = headers.Cookie ? ['--add-header', `Cookie:"${headers.Cookie}"`] : [];
     const stream = new PassThrough();
+    let outputStream: fs.WriteStream | null = null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     youtubedl.getInfo(this.url, options.concat(['-f', id]), (err: any, data: any) => (err || this.manualAbort ? stream.emit('error', err || 'manual abort') : this.processData(data, stream, headers)));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,7 +89,18 @@ class BrowsingDownload implements IBrowsingDownload {
       });
       this.path = path;
       this.name = name;
-      stream.pipe(fs.createWriteStream(Path.join(path, name)));
+      const outputPath = Path.join(path, name);
+      try {
+        // createWriteStream opens asynchronously. Ensure the file exists before
+        // the first data event checks whether it was removed during download.
+        fs.closeSync(fs.openSync(outputPath, 'w'));
+      } catch (error) {
+        stream.destroy(error as Error);
+        return;
+      }
+      outputStream = fs.createWriteStream(outputPath, { flags: 'w' });
+      outputStream.once('error', error => stream.destroy(error));
+      stream.pipe(outputStream);
     });
     stream.on('data', (chunk: Buffer) => {
       if (!fs.existsSync(Path.join(this.path, this.name))) {
@@ -108,12 +120,16 @@ class BrowsingDownload implements IBrowsingDownload {
       this.clearActiveRequest();
     });
     stream.on('end', () => {
-      if (this.progress >= this.size) {
-        electron.ipcRenderer.send('transfer-progress', { id: this.id, pos: this.size, speed: 0 });
-        electron.ipcRenderer.send('show-notification', { name: this.name, path: this.path });
-        log.info('download complete', path);
-      }
-      this.clearActiveRequest();
+      const complete = () => {
+        if (this.progress >= this.size) {
+          electron.ipcRenderer.send('transfer-progress', { id: this.id, pos: this.size, speed: 0 });
+          electron.ipcRenderer.send('show-notification', { name: this.name, path: this.path });
+          log.info('download complete', path);
+        }
+        this.clearActiveRequest();
+      };
+      if (outputStream && !outputStream.writableFinished) outputStream.once('finish', complete);
+      else complete();
     });
   }
 
@@ -177,6 +193,7 @@ class BrowsingDownload implements IBrowsingDownload {
     this.lastProgress = lastIndex;
     this.manualAbort = false;
     const stream = new PassThrough();
+    let outputStream: fs.WriteStream | null = null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     youtubedl.getInfo(this.url, ['-f', id], (err: any, data: any) => (err ? stream.emit('error', err) : this.processData(data, stream, {}, { start: lastIndex })));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -184,7 +201,9 @@ class BrowsingDownload implements IBrowsingDownload {
       this.size = info.size + this.initProgress;
       this.path = path;
       this.name = name;
-      stream.pipe(fs.createWriteStream(Path.join(path, name), { flags: 'a' }));
+      outputStream = fs.createWriteStream(Path.join(path, name), { flags: 'a' });
+      outputStream.once('error', error => stream.destroy(error));
+      stream.pipe(outputStream);
     });
     stream.on('data', (chunk: Buffer) => {
       if (!fs.existsSync(Path.join(this.path, this.name))) {
@@ -204,12 +223,16 @@ class BrowsingDownload implements IBrowsingDownload {
       this.clearActiveRequest();
     });
     stream.on('end', () => {
-      if (this.progress >= this.size) {
-        electron.ipcRenderer.send('transfer-progress', { id: this.id, pos: this.size, speed: 0 });
-        electron.ipcRenderer.send('show-notification', { name: this.name, path: this.path });
-        log.info('download complete', path);
-      }
-      this.clearActiveRequest();
+      const complete = () => {
+        if (this.progress >= this.size) {
+          electron.ipcRenderer.send('transfer-progress', { id: this.id, pos: this.size, speed: 0 });
+          electron.ipcRenderer.send('show-notification', { name: this.name, path: this.path });
+          log.info('download complete', path);
+        }
+        this.clearActiveRequest();
+      };
+      if (outputStream && !outputStream.writableFinished) outputStream.once('finish', complete);
+      else complete();
     });
   }
 

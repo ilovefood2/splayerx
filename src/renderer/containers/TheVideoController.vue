@@ -41,7 +41,7 @@
       :mousemove-position="mousemoveClientPosition"
       :show-all-widgets="showAllWidgets"
       :is-focused="isFocused"
-      :paused="paused"
+      :paused="controllerPaused"
       :attached-shown="attachedShown"
       :on-play-button-mouseup="togglePlay"
       @update:playbutton-state="updatePlayButtonState"
@@ -472,7 +472,7 @@ export default {
     showAllWidgets(val: boolean) {
       this.updateShowAllWidgets(val);
     },
-    paused(val: boolean) {
+    controllerPaused(val: boolean) {
       if (this.playButton) {
         if (val) {
           this.playButton.icon = this.createIcon('touchBar/play.png');

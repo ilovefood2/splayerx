@@ -6,6 +6,7 @@ import Video from '@/store/modules/Video';
 import Input from '@/store/modules/Input';
 import Playlist from '@/store/modules/Playlist';
 import TheVideoController from '@/containers/TheVideoController.vue';
+import PlayButton from '@/components/PlayingView/PlayButton.vue';
 
 describe('Component - TheVideoController Unit Test', () => {
   let wrapper;
@@ -106,5 +107,20 @@ describe('Component - TheVideoController Unit Test', () => {
 
     expect(wrapper.vm.mouseStopped).to.equal(false);
     expect(wrapper.vm.mouseLeftWindow).to.equal(false);
+  });
+
+  it('shows the receiver playback state while casting', async () => {
+    store.state.Video.paused = true;
+    store.state.Video.casting = true;
+    store.state.Video.castPaused = false;
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.vm.controllerPaused).to.equal(false);
+    expect(wrapper.findComponent(PlayButton).props('paused')).to.equal(false);
+
+    store.state.Video.castPaused = true;
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.findComponent(PlayButton).props('paused')).to.equal(true);
   });
 });
