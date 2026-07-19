@@ -1,4 +1,6 @@
-import { AITranslatorConfig, translateLines, AITranslationError } from './translator';
+import {
+  AITranslatorConfig, translateLines, AITranslationError, isTowerModel,
+} from './translator';
 import { TranslationCache } from './cache';
 
 /**
@@ -143,8 +145,12 @@ export class RealtimeSubtitleTranslator {
     this.lookahead = options.lookaheadSeconds === undefined ? 20 : options.lookaheadSeconds;
     this.behind = options.behindSeconds === undefined ? 3 : options.behindSeconds;
     this.batchSize = options.batchSize === undefined ? 16 : options.batchSize;
+    const defaultConcurrent = isTowerModel(config.model) ? 1 : 2;
     this.maxConcurrent = options.maxConcurrentBatches === undefined
-      ? 2 : options.maxConcurrentBatches;
+      // translateLines already runs two Tower requests in parallel inside one
+      // batch. Starting two batches would silently double that load and make
+      // every queued line slower on a local llama-server.
+      ? defaultConcurrent : options.maxConcurrentBatches;
   }
 
   private static namespaceFor(config: AITranslatorConfig): string {
@@ -290,7 +296,20 @@ export class RealtimeSubtitleTranslator {
     });
 
     const startedAt = this.generation;
-    const options = { timeout: this.requestTimeout };
+    const commitResult = (slot: number, value: string) => {
+      if (startedAt !== this.generation || typeof value !== 'string') return;
+      indices.forEach((cueIndex, k) => {
+        if (slotForIndex[k] !== slot) return;
+        this.translated[cueIndex] = value;
+        this.cache.set(this.cacheKey(this.cues[cueIndex].text), value);
+      });
+    };
+    const options = {
+      timeout: this.requestTimeout,
+      // Tower yields one HTTP response per subtitle line. Commit those replies
+      // immediately instead of leaving a visible gap until all 16 finish.
+      onTranslation: commitResult,
+    };
 
     this.translateFn(uniqueTexts, this.config, options)
       .then((results) => {
@@ -299,10 +318,7 @@ export class RealtimeSubtitleTranslator {
         if (startedAt !== this.generation) return;
         indices.forEach((cueIndex, k) => {
           const value = results[slotForIndex[k]];
-          if (typeof value === 'string') {
-            this.translated[cueIndex] = value;
-            this.cache.set(this.cacheKey(this.cues[cueIndex].text), value);
-          }
+          commitResult(slotForIndex[k], value);
         });
         this.consecutiveFailures = 0;
         this.lastError = undefined;

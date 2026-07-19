@@ -30,6 +30,7 @@ import {
 import {
   registerAITranslation, makeAITranslationKey, clearAllAITranslations,
   appendAITranslationCues, getAITranslator, resolveAIProvider, configFor,
+  isLocalhostUrl,
   checkTranscribeEnvironment, transcribeVideo, downloadModel,
   ensureManagedModelServer, stopManagedModelServer,
   managedModelById,
@@ -197,13 +198,11 @@ function whisperLanguageOf(code?: string): string | undefined {
   return String(normalized).split('-')[0].toLowerCase();
 }
 
-function tuningOptions(tuning: AIProviderTuning) {
+function tuningOptions(tuning: AIProviderTuning, hideUntranslated: boolean) {
   return {
     requestTimeout: tuning.requestTimeout,
     lookaheadSeconds: tuning.lookaheadSeconds,
-    // The AI track is the target-language track: never flash the source text and
-    // swap it out a moment later.
-    hideUntranslated: true,
+    hideUntranslated,
   };
 }
 
@@ -215,7 +214,13 @@ function tuningOptions(tuning: AIProviderTuning) {
 function buildTranslatorOptions(
   resolution: AIProviderResolution,
 ) {
-  return tuningOptions(resolution.tuning);
+  const endpointIsLocal = !!resolution.endpoint
+    && isLocalhostUrl(resolution.endpoint.baseUrl);
+  // A local model can fall behind dense dialogue or pause briefly under memory
+  // pressure. Keep the source subtitle visible until its translation lands so
+  // playback never turns into a long subtitle-free section.
+  const hideUntranslated = resolution.kind !== 'local' && !endpointIsLocal;
+  return tuningOptions(resolution.tuning, hideUntranslated);
 }
 
 function managedPaths(): ManagedModelPaths {

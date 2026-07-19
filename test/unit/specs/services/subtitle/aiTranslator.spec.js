@@ -117,6 +117,40 @@ describe('services/subtitle/ai - translateLines', () => {
     expect(isTowerModel('splayer-tower-plus-9b')).to.equal(true);
     expect(isTowerModel('splayer-qwen3-32b')).to.equal(false);
   });
+
+  it('reports each Tower line as soon as it finishes instead of waiting for the batch', async () => {
+    let releaseSlow;
+    const slowGate = new Promise((resolve) => { releaseSlow = resolve; });
+    const updates = [];
+    global.fetch = (url, init) => {
+      const body = JSON.parse(init.body);
+      const prompt = body.messages[0].content;
+      const source = prompt.match(/Japanese: (.*)\nChinese \(Simplified\):/)[1];
+      const response = () => ({
+        ok: true,
+        status: 200,
+        statusText: 'mock',
+        json: () => Promise.resolve({ choices: [{ message: { content: `译:${source}` } }] }),
+        text: () => Promise.resolve(''),
+      });
+      return source === 'slow' ? slowGate.then(response) : Promise.resolve(response());
+    };
+    const translating = translateLines(['fast', 'slow'], {
+      ...config,
+      model: 'splayer-tower-plus-9b',
+      sourceLanguage: 'Japanese',
+    }, {
+      onTranslation: (index, text) => updates.push({ index, text }),
+    });
+    await delay(5);
+    expect(updates).to.deep.equal([{ index: 0, text: '译:fast' }]);
+    releaseSlow();
+    expect(await translating).to.deep.equal(['译:fast', '译:slow']);
+    expect(updates).to.deep.equal([
+      { index: 0, text: '译:fast' },
+      { index: 1, text: '译:slow' },
+    ]);
+  });
 });
 
 describe('services/subtitle/ai - managed translation model', () => {
@@ -482,6 +516,44 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
     expect(rt.getCuesAt(0)[0].text).to.equal('Z:one');
   });
 
+  it('publishes completed lines while the rest of a batch is still translating', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const translate = (texts, cfg, opts) => {
+      opts.onTranslation(0, `Z:${texts[0]}`);
+      return gate.then(() => texts.map((text, index) => {
+        if (index > 0) opts.onTranslation(index, `Z:${text}`);
+        return `Z:${text}`;
+      }));
+    };
+    const rt = new RealtimeSubtitleTranslator(cues, config, {
+      translate,
+      hideUntranslated: true,
+      lookaheadSeconds: 10,
+      maxConcurrentBatches: 1,
+    });
+    expect(rt.getCuesAt(0)[0].text).to.equal('Z:one');
+    expect(rt.getCuesAt(3)).to.deep.equal([]);
+    expect(rt.progress.translated).to.equal(1);
+    release();
+    await delay(5);
+    expect(rt.getCuesAt(3)[0].text).to.equal('Z:two');
+  });
+
+  it('uses only one realtime batch for Tower because it already translates two lines in parallel', () => {
+    let calls = 0;
+    const translate = () => { calls += 1; return new Promise(() => {}); };
+    const many = [];
+    for (let i = 0; i < 40; i += 1) many.push({ start: i, end: i + 1, text: `line${i}` });
+    const rt = new RealtimeSubtitleTranslator(
+      many,
+      { ...config, model: 'splayer-tower-plus-9b' },
+      { translate, batchSize: 4, lookaheadSeconds: 30 },
+    );
+    rt.getCuesAt(0);
+    expect(calls).to.equal(1);
+  });
+
   it('still falls back to the source text when not hiding', async () => {
     const translate = () => new Promise(() => {}); // never resolves
     const rt = new RealtimeSubtitleTranslator(cues, config, { translate });
@@ -508,7 +580,8 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
     const rt = new RealtimeSubtitleTranslator(cues, config, { translate, requestTimeout: 120000 });
     rt.getCuesAt(0);
     await delay(5);
-    expect(seen).to.deep.equal({ timeout: 120000 });
+    expect(seen.timeout).to.equal(120000);
+    expect(seen.onTranslation).to.be.a('function');
   });
 
   it('falls back to a local provider when the api key is rejected', async () => {

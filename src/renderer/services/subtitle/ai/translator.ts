@@ -30,6 +30,12 @@ export interface TranslateOptions {
   signal?: AbortSignal;
   /** Per-request timeout in milliseconds. Defaults to 30000. */
   timeout?: number;
+  /**
+   * Reports an individual result as soon as it is ready. Tower translates each
+   * subtitle line separately, so callers should not have to wait for every line
+   * in the surrounding batch before displaying the first completed ones.
+   */
+  onTranslation?: (index: number, text: string) => void;
 }
 
 export const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
@@ -205,6 +211,7 @@ async function translateTowerLines(
       const text = content.trim();
       if (!text) throw new AITranslationError('Tower+ returned an empty translation');
       translated[index] = text;
+      if (options.onTranslation) options.onTranslation(index, text);
     }
   };
   // Two in-flight lines keep local inference busy without flooding its queue.
