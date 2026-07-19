@@ -2,7 +2,10 @@
   no-unused-vars,
   @typescript-eslint/no-unused-vars,
   @typescript-eslint/no-explicit-any */
-import Vue, { VNode } from 'vue';
+import type { DefineComponent, VNode } from 'vue';
+import type { EventEmitter } from 'events';
+import type { RendererAnalytics } from '@/services/analytics';
+import type { RendererEventBus } from '@/services/globalEvents';
 
 declare global {
   // eslint-disable-next-line no-underscore-dangle
@@ -15,7 +18,9 @@ declare global {
     // eslint-disable-next-line @typescript-eslint/no-empty-interface
     interface Element extends VNode {}
     // eslint-disable-next-line @typescript-eslint/no-empty-interface
-    interface ElementClass extends Vue {}
+    interface ElementClass {
+      $props: unknown,
+    }
     interface IntrinsicElements {
       [elem: string]: unknown,
     }
@@ -79,15 +84,18 @@ declare global {
 }
 
 declare module '*.vue' {
-  export default Vue;
+  const component: DefineComponent<Record<string, unknown>, Record<string, unknown>, any>;
+  export default component;
 }
 
-declare module 'vue/types/vue' {
-  interface Vue {
+declare module '@vue/runtime-core' {
+  interface ComponentCustomProperties {
     $store: any,
-    $bus: Vue,
-    $ga: any,
+    $bus: RendererEventBus,
+    $event: EventEmitter,
+    $ga: RendererAnalytics,
     $electron: typeof import('electron'),
+    logSave(error: object): void,
   }
 }
 

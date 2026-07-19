@@ -10,10 +10,14 @@ describe('Component - ThumbnailDisplay', () => {
   };
   beforeEach(() => {
     sandbox = sinon.createSandbox();
-    wrapper = mount(ThumbnailDisplay, { propsData });
+    wrapper = mount(ThumbnailDisplay, { props: propsData });
   });
   afterEach(() => {
-    wrapper.destroy();
+    wrapper.unmount();
     sandbox.restore();
+  });
+
+  it('renders the thumbnail display', () => {
+    expect(wrapper.findComponent(ThumbnailDisplay).exists()).to.equal(true);
   });
 });

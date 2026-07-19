@@ -135,18 +135,28 @@ export default function kern(createElement, text) { // eslint-disable-line compl
   return result;
 }
 
+const installedVueTargets = new WeakSet();
+
+function applyNativeKerning(component) {
+  if (component !== component.$root || typeof document === 'undefined') return;
+  const locale = component.$i18n && component.$i18n.locale;
+  const normalizedLocale = locale && typeof locale === 'object' && 'value' in locale
+    ? locale.value : locale;
+  document.documentElement.lang = normalizedLocale || '';
+  document.documentElement.style.fontKerning = normalizedLocale === 'ja' ? 'normal' : '';
+  document.documentElement.style.textRendering = normalizedLocale === 'ja'
+    ? 'optimizeLegibility' : '';
+}
+
 export function hookVue(Vue) {
-  if (Vue.prototype._v._kerning) return; // eslint-disable-line
-  const createTextVNode = Vue.prototype._v; // eslint-disable-line
-  Vue.prototype._v = function(val) { // eslint-disable-line
-    const createElement = this.$createElement;
-    if (!createElement || !val || typeof val !== 'string'
-      || !this.$i18n || this.$i18n.locale !== 'ja') {
-      return createTextVNode(val);
-    }
-    const result = kern(createElement, val)
-      .map(node => (typeof node === 'string' ? createTextVNode(node) : node));
-    return result.length === 1 ? result[0] : createElement('span', result);
-  };
-  Vue.prototype._v._kerning = true; // eslint-disable-line
+  if (!Vue || typeof Vue.mixin !== 'function' || installedVueTargets.has(Vue)) return;
+  installedVueTargets.add(Vue);
+  Vue.mixin({
+    mounted() {
+      applyNativeKerning(this);
+    },
+    updated() {
+      applyNativeKerning(this);
+    },
+  });
 }

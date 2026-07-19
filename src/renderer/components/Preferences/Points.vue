@@ -5,15 +5,15 @@
   </div>
 </template>
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 import { ipcRenderer } from 'electron';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'Points',
   mounted() {
     ipcRenderer.send('show-premium-view', 'points');
   },
-  destroyed() {
+  unmounted() {
     ipcRenderer.send('hide-premium-view', 'points');
   },
 });

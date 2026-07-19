@@ -7,7 +7,7 @@ describe('PlayButton.vue', () => {
   };
   let wrapper;
   beforeEach(() => {
-    wrapper = mount(PlayButton, { propsData });
+    wrapper = mount(PlayButton, { props: propsData });
   });
 
   it('should changed paused value trigger iconAppear to false', () => {

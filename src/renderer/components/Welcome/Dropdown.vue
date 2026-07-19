@@ -1,7 +1,7 @@
 <template>
   <div class="settingItem__input dropdown no-drag">
     <div
-      :class="showSelection ? 'dropdown__toggle--list' : 'dropdown__toggle--display'"
+      :class="modelValue ? 'dropdown__toggle--list' : 'dropdown__toggle--display'"
       @mousedown.stop="handleMousedown"
       @mouseup.stop="handleMouseup"
     >
@@ -29,7 +29,7 @@
         </div>
       </div>
       <Icon
-        :class="showSelection ? 'dropdown__icon--arrowUp' : 'dropdown__icon--arrowDown'"
+        :class="modelValue ? 'dropdown__icon--arrowUp' : 'dropdown__icon--arrowDown'"
         type="rightArrow"
       />
     </div>
@@ -43,10 +43,7 @@ export default {
   components: {
     Icon,
   },
-  model: {
-    prop: 'showSelection',
-    event: 'toggle',
-  },
+  emits: ['update:modelValue'],
   props: {
     useDefault: {
       type: Boolean,
@@ -56,7 +53,7 @@ export default {
       type: String,
       default: '',
     },
-    showSelection: {
+    modelValue: {
       type: Boolean,
       default: false,
     },
@@ -89,7 +86,7 @@ export default {
   created() {
     document.addEventListener('mouseup', this.globalMouseupHandler);
   },
-  destroyed() {
+  unmounted() {
     document.removeEventListener('mouseup', this.globalMouseupHandler);
   },
   methods: {
@@ -100,7 +97,7 @@ export default {
       this.mousedown = true;
     },
     handleMouseup() {
-      if (this.mousedown) this.$emit('toggle', !this.showSelection);
+      if (this.mousedown) this.$emit('update:modelValue', !this.modelValue);
       this.mousedown = false;
     },
   },

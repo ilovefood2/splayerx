@@ -1,6 +1,6 @@
 /* eslint-disable import/no-extraneous-dependencies,@typescript-eslint/no-var-requires */
 require('dotenv').config();
-const { notarize } = require('electron-notarize');
+const { notarize } = require('@electron/notarize');
 
 exports.default = async function notarizing(context) {
   if (!process.env.APPLEIDPASS) return;
@@ -18,6 +18,6 @@ exports.default = async function notarizing(context) {
     appPath: `${appOutDir}/${appName}.app`,
     appleId: process.env.APPLEID,
     appleIdPassword: process.env.APPLEIDPASS,
-    ascProvider: process.env.ASCPROVIDER,
+    teamId: process.env.APPLETEAMID || process.env.ASCPROVIDER,
   });
 };

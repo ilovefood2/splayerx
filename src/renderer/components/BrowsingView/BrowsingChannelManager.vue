@@ -124,9 +124,9 @@
     </div>
     <browsing-customized-channel
       v-if="showAddChannel"
-      :init-channel-name.sync="title"
-      :init-url.sync="url"
-      :show-add-channel.sync="showAddChannel"
+      v-model:init-channel-name="title"
+      v-model:init-url="url"
+      v-model:show-add-channel="showAddChannel"
     />
   </div>
 </template>

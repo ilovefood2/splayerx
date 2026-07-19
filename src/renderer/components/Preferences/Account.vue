@@ -5,11 +5,11 @@
   </div>
 </template>
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 import { mapGetters } from 'vuex';
 import { ipcRenderer } from 'electron';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'Account',
   computed: {
     ...mapGetters([
@@ -19,7 +19,7 @@ export default Vue.extend({
   mounted() {
     ipcRenderer.send('show-premium-view', 'account');
   },
-  destroyed() {
+  unmounted() {
     ipcRenderer.send('hide-premium-view', 'account');
   },
 });

@@ -138,7 +138,7 @@ export default {
         this.$electron.ipcRenderer.send('callMainWindowMethod', isMaximized ? 'unmaximize' : 'maximize');
         const bounds = currentWindow.getBounds();
         if (!this.isDarwin && !isMaximized && (bounds.x < 0 || bounds.y < 0)) {
-          currentWindow.getBrowserViews()[0].setBounds({
+          currentWindow.getWebContentsViews()[0].setBounds({
             x: this.showSidebar ? 76 : 0,
             y: 40,
             width: this.showSidebar ? bounds.width + (bounds.x * 2) - 76
@@ -146,7 +146,7 @@ export default {
             height: bounds.height - 40,
           });
         } else {
-          currentWindow.getBrowserViews()[0].setBounds({
+          currentWindow.getWebContentsViews()[0].setBounds({
             x: this.showSidebar ? 76 : 0,
             y: 40,
             width: this.showSidebar ? currentWindow.getSize()[0] - 76

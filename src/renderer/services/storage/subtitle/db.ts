@@ -8,6 +8,7 @@ import {
 import { LanguageCode } from '@/libs/language';
 import { DATADB_NAME } from '@/constants';
 import { Format, IOrigin, IRawVideoSegment } from '@/interfaces/ISubtitle';
+import { cloneStructuredValue } from '@/ipcSerialization';
 import {
   IStoredSubtitle, IStoredSubtitleItem, ISubtitlePreference, SelectedSubtitle,
 } from '@/interfaces/ISubtitleStorage';
@@ -84,6 +85,7 @@ export class SubtitleDataBase {
   }
 
   public async addSubtitle(subtitle: IAddSubtitleOptions) {
+    subtitle = cloneStructuredValue(subtitle);
     const objectStore = (await this.getDb())
       .transaction('subtitles', 'readwrite')
       .objectStore('subtitles');
@@ -101,6 +103,7 @@ export class SubtitleDataBase {
   }
 
   public async removeSubtitle(subtitle: IRemoveSubtitleOptions) {
+    subtitle = cloneStructuredValue(subtitle);
     const objectStore = (await this.getDb())
       .transaction('subtitles', 'readwrite')
       .objectStore('subtitles');
@@ -116,6 +119,7 @@ export class SubtitleDataBase {
   }
 
   public async removeSubtitles(subtitles: IRemoveSubtitleOptions[]) {
+    subtitles = cloneStructuredValue(subtitles);
     const objectStore = await (await this.getDb())
       .transaction('subtitles', 'readwrite')
       .objectStore('subtitles');
@@ -147,6 +151,7 @@ export class SubtitleDataBase {
   }
 
   public async updateSubtitle(subtitle: IUpdateSubtitleOptions) {
+    subtitle = cloneStructuredValue(subtitle);
     const objectStore = await (await this.getDb())
       .transaction('subtitles', 'readwrite')
       .objectStore('subtitles');
@@ -210,7 +215,7 @@ export class SubtitleDataBase {
     mediaHash: string,
     subtitles: IStoredSubtitleItem[],
   ) {
-    subtitles = SubtitleDataBase.uniqSubtitleList(subtitles);
+    subtitles = SubtitleDataBase.uniqSubtitleList(cloneStructuredValue(subtitles));
     const objectStore = (await this.getDb())
       .transaction('subtitle-preferences', 'readwrite')
       .objectStore('subtitle-preferences');
@@ -231,7 +236,7 @@ export class SubtitleDataBase {
     mediaHash: string,
     subtitlesToUpdate: IUpdateSubtitleItemOptions[],
   ) {
-    subtitlesToUpdate = uniqWith(subtitlesToUpdate, (
+    subtitlesToUpdate = uniqWith(cloneStructuredValue(subtitlesToUpdate), (
       { hash: hash1, source: source1 },
       { hash: hash2, source: source2 },
     ) => hash1 === hash2 && isEqual(source1, source2));
@@ -263,7 +268,7 @@ export class SubtitleDataBase {
     mediaHash: string,
     subtitles: IStoredSubtitleItem[],
   ) {
-    subtitles = SubtitleDataBase.uniqSubtitleList(subtitles);
+    subtitles = SubtitleDataBase.uniqSubtitleList(cloneStructuredValue(subtitles));
     const objectStore = (await this.getDb())
       .transaction('subtitle-preferences', 'readwrite')
       .objectStore('subtitle-preferences');
@@ -291,6 +296,7 @@ export class SubtitleDataBase {
     mediaHash: string,
     languageCodes: LanguageCode[],
   ) {
+    languageCodes = cloneStructuredValue(languageCodes);
     const objectStore = (await this.getDb())
       .transaction('subtitle-preferences', 'readwrite')
       .objectStore('subtitle-preferences');
@@ -322,6 +328,7 @@ export class SubtitleDataBase {
     mediaHash: string,
     subtitles: SelectedSubtitle[],
   ) {
+    subtitles = cloneStructuredValue(subtitles);
     const objectStore = (await this.getDb())
       .transaction('subtitle-preferences', 'readwrite')
       .objectStore('subtitle-preferences');

@@ -192,7 +192,7 @@ export default {
       }
     });
   },
-  beforeDestroy() {
+  beforeUnmount() {
     document.removeEventListener('mousemove', this.handleDocumentMousemove);
     document.removeEventListener('mouseup', this.handleDocumentMouseup);
   },

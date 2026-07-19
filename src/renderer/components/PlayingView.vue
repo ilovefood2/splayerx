@@ -21,7 +21,7 @@
 </template>
 
 <script lang="ts">
-import { Route } from 'vue-router';
+import type { NavigationGuardNext, RouteLocationNormalized } from 'vue-router';
 import { mapActions, mapGetters, mapMutations } from 'vuex';
 import { basename } from 'path';
 import { Subtitle as subtitleActions, SubtitleManager as smActions } from '@/store/actionTypes';
@@ -106,7 +106,11 @@ export default {
     });
     this.$bus.$on('generate-post', this.generatePostHandler);
   },
-  beforeRouteLeave(to: Route, from: Route, next: (to: void) => void) {
+  beforeRouteLeave(
+    to: RouteLocationNormalized,
+    from: RouteLocationNormalized,
+    next: NavigationGuardNext,
+  ) {
     this.$bus.$once('videocanvas-saved', () => {
       this.$store.dispatch('Init');
       // event bus 解绑 过滤白名单的事件
@@ -116,7 +120,7 @@ export default {
     if (to.name !== 'browsing-view') this.$store.dispatch('UPDATE_SHOW_SIDEBAR', false);
     this.$bus.$emit('back-to-landingview');
   },
-  beforeDestroy() {
+  beforeUnmount() {
     this.updateSubToTop(false);
     videodata.stopCheckTick();
   },

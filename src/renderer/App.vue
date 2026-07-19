@@ -22,18 +22,13 @@
       }"
       :current-url="currentUrl"
     />
-    <transition
-      :name="transitionMode"
-      mode="out-in"
-    >
-      <router-view
-        :style="{
-          width: showSidebar ? 'calc(100% - 76px)' : '100%',
-        }"
-        :open-file-args="openFileArgs"
-        @update-current-url="currentUrl = $event"
-      />
-    </transition>
+    <router-view
+      :style="{
+        width: showSidebar ? 'calc(100% - 76px)' : '100%',
+      }"
+      :open-file-args="openFileArgs"
+      @update-current-url="currentUrl = $event"
+    />
   </div>
 </template>
 

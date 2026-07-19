@@ -27,7 +27,7 @@
       >
         <Icon
           v-show="!gotDownloadInfo"
-          @click.native="getDownloadVideo"
+          @click="getDownloadVideo"
           :type="isDarkMode ? 'downloadDark' : 'download'"
         />
       </div>
@@ -36,7 +36,7 @@
       >
         <Icon
           v-show="!gotDownloadInfo && downloadHovered"
-          @click.native="openDownloadList"
+          @click="openDownloadList"
           :type="isDarkMode ? 'downloadListDark' : 'downloadList'"
         />
       </transition>

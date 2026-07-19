@@ -8,7 +8,7 @@
     >
       <Icon
         :state="state"
-        @click.native="handleClose"
+        @click="handleClose"
         class="title-button"
         type="titleBarClose"
       />
@@ -23,7 +23,7 @@
     </div>
     <Icon
       v-if="!isDarwin"
-      @click.native="handleClose"
+      @click="handleClose"
       class="win-title-button no-drag"
       type="titleBarWinClose"
     />

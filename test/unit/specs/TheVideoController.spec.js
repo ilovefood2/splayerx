@@ -1,14 +1,11 @@
 import Vuex from 'vuex';
-import { shallowMount, createLocalVue } from '@vue/test-utils';
+import { shallowMount } from '@vue/test-utils';
 import sinon from 'sinon';
 import Window from '@/store/modules/Window';
 import Video from '@/store/modules/Video';
 import Input from '@/store/modules/Input';
 import Playlist from '@/store/modules/Playlist';
 import TheVideoController from '@/containers/TheVideoController.vue';
-
-const localVue = createLocalVue();
-localVue.use(Vuex);
 
 describe('Component - TheVideoController Unit Test', () => {
   let wrapper;
@@ -37,35 +34,66 @@ describe('Component - TheVideoController Unit Test', () => {
       },
     });
     wrapper = shallowMount(TheVideoController, {
-      store,
-      localVue,
-      // The control bar renders $t() titles; without i18n the render throws and
-      // mounted() never sees its $refs.
-      mocks: { $t: key => key },
+      data() {
+        return {
+          displayState: {
+            AdvanceControl: true,
+            PlaylistControl: true,
+            RecentPlaylist: false,
+          },
+          widgetsStatus: {
+            AdvanceControl: { showAttached: false },
+            PlaylistControl: { showAttached: false },
+            RecentPlaylist: { showAttached: false },
+          },
+        };
+      },
+      global: {
+        plugins: [store],
+        // The control bar renders $t() titles; without i18n the render throws and
+        // mounted() never sees its $refs.
+        mocks: { $t: key => key },
+      },
     });
     sandbox = sinon.createSandbox();
   });
   afterEach(() => {
-    wrapper.destroy();
+    wrapper.unmount();
     sandbox.restore();
   });
 
+  it('initializes nested widget state before the first Vue 3 render', () => {
+    const defaultStateWrapper = shallowMount(TheVideoController, {
+      global: {
+        plugins: [store],
+        mocks: { $t: key => key },
+      },
+    });
+
+    expect(defaultStateWrapper.vm.widgetsStatus.PlaylistControl.showAttached).to.equal(false);
+    expect(defaultStateWrapper.vm.widgetsStatus.AdvanceControl.showAttached).to.equal(false);
+    expect(defaultStateWrapper.find('.playlist').exists()).to.equal(true);
+    expect(defaultStateWrapper.find('.advance').exists()).to.equal(true);
+
+    defaultStateWrapper.unmount();
+  });
+
   it('Sanity - should component be properly mounted', () => {
-    expect(wrapper.contains(TheVideoController)).to.equal(true);
+    expect(wrapper.findComponent(TheVideoController).exists()).to.equal(true);
   });
 
   it('lets the parent controller hide every bottom-right control together', async () => {
     wrapper.setData({
       displayState: { PlaylistControl: false, AdvanceControl: false },
     });
-    await localVue.nextTick();
+    await wrapper.vm.$nextTick();
     expect(wrapper.find('.playlist').element.style.display).to.equal('none');
     expect(wrapper.find('.advance').element.style.display).to.equal('none');
 
     wrapper.setData({
       displayState: { PlaylistControl: true, AdvanceControl: true },
     });
-    await localVue.nextTick();
+    await wrapper.vm.$nextTick();
     expect(wrapper.find('.playlist').element.style.display).to.not.equal('none');
     expect(wrapper.find('.advance').element.style.display).to.not.equal('none');
   });

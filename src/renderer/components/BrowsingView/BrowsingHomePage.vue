@@ -84,11 +84,13 @@
 
 <script lang="ts">
 import { mapGetters } from 'vuex';
-import { version } from '@/../../package.json';
+import packageMetadata from '@/../../package.json';
 import BrowsingHistory from '@/components/BrowsingView/BrowsingHistory.vue';
 import BrowsingAdv from './BrowsingAdv.vue';
 import BrowsingLocalPlaylist from './BrowsingLocalPlaylist.vue';
 import Icon from '../BaseIconContainer.vue';
+
+const { version } = packageMetadata;
 
 export default {
   name: 'BrowsingHomePage',

@@ -1,19 +1,75 @@
-import { BrowserView, BrowserWindow, screen } from 'electron'; // eslint-disable-line import/no-extraneous-dependencies
+import { BrowserWindow, screen, WebContentsView } from 'electron'; // eslint-disable-line import/no-extraneous-dependencies
 import { mouse } from './mouse';
 
 function near(a, b) {
   return Math.abs(b - a) < 5;
 }
 
-// The old SPlayer Electron fork exposed BrowserView lifecycle helpers that are
-// not part of Electron's public API. Keep the call sites compatible while using
-// the official webContents lifecycle underneath.
-BrowserView.prototype.isDestroyed = function isDestroyed() {
+// WebContentsView ownership is explicit: a view is attached through the
+// window's contentView and must be detached before it can be moved or closed.
+// Keep the ownership on the view so PiP transitions can safely reparent it.
+const ownerWindow = Symbol('ownerWindow');
+const autoResizeOptions = Symbol('autoResizeOptions');
+const autoResizeHandler = Symbol('autoResizeHandler');
+
+function resizeManagedViews(window) {
+  const [windowWidth, windowHeight] = window.getContentSize();
+  window.getWebContentsViews().forEach((view) => {
+    const options = view[autoResizeOptions];
+    if (!options || view.isDestroyed()) return;
+    const bounds = view.getBounds();
+    view.setBounds({
+      ...bounds,
+      width: options.width ? Math.max(0, windowWidth - bounds.x) : bounds.width,
+      height: options.height ? Math.max(0, windowHeight - bounds.y) : bounds.height,
+    });
+  });
+}
+
+WebContentsView.prototype.isDestroyed = function isDestroyed() {
   return !this.webContents || this.webContents.isDestroyed();
 };
 
-BrowserView.prototype.destroy = function destroy() {
-  if (!this.isDestroyed()) this.webContents.destroy();
+WebContentsView.prototype.destroy = function destroy() {
+  const owner = this[ownerWindow];
+  if (owner && !owner.isDestroyed()) owner.contentView.removeChildView(this);
+  this[ownerWindow] = null;
+  if (!this.isDestroyed()) this.webContents.close({ waitForBeforeUnload: false });
+};
+
+BrowserWindow.prototype.addWebContentsView = function addWebContentsView(view) {
+  const previousOwner = view[ownerWindow];
+  if (previousOwner && previousOwner !== this && !previousOwner.isDestroyed()) {
+    previousOwner.contentView.removeChildView(view);
+  }
+  this.contentView.addChildView(view);
+  view[ownerWindow] = this;
+  if (!this[autoResizeHandler]) {
+    this[autoResizeHandler] = () => resizeManagedViews(this);
+    this.on('resize', this[autoResizeHandler]);
+  }
+};
+
+BrowserWindow.prototype.removeWebContentsView = function removeWebContentsView(view) {
+  if (!view) return;
+  this.contentView.removeChildView(view);
+  if (view[ownerWindow] === this) view[ownerWindow] = null;
+};
+
+BrowserWindow.prototype.getWebContentsViews = function getWebContentsViews() {
+  return this.contentView.children.filter(view => view instanceof WebContentsView);
+};
+
+BrowserWindow.prototype.setWebContentsView = function setWebContentsView(view) {
+  this.getWebContentsViews().forEach(currentView => this.removeWebContentsView(currentView));
+  if (view) this.addWebContentsView(view);
+};
+
+BrowserWindow.prototype.setWebContentsViewAutoResize = function setWebContentsViewAutoResize(
+  view, options,
+) {
+  view[autoResizeOptions] = options;
+  resizeManagedViews(this);
 };
 
 /**

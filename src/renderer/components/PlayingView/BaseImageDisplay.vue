@@ -1,4 +1,6 @@
 <script>
+import { h } from 'vue';
+
 export default {
   name: 'BaseImageDisplay',
   props: {
@@ -116,6 +118,9 @@ export default {
           }
         });
       } else if (typeof src === 'object') {
+        if (typeof Blob !== 'undefined' && src instanceof Blob) return 'Blob';
+        if (typeof ImageData !== 'undefined' && src instanceof ImageData) return 'ImageData';
+        if (typeof ImageBitmap !== 'undefined' && src instanceof ImageBitmap) return 'ImageBitmap';
         const type = Object.prototype.toString.call(src).slice(8, -1);
         this.predefinedTypes.slice(2).forEach((predefinedType) => {
           if (type === predefinedType) {
@@ -155,51 +160,23 @@ export default {
 
       options = {
         style: this.imageStyle,
+        width: outerWidth,
+        height: outerHeight,
+        ...this.attributes,
         ref: 'image',
-        attrs: {
-          width: outerWidth,
-          height: outerHeight,
-        },
       };
       switch (type) {
         case 'URL':
         case 'DataURI': {
-          options = Object.assign(
-            options,
-            {
-              attrs: Object.assign(
-                options.attrs,
-                { src: imgSrc },
-                this.attributes,
-              ),
-            },
-          );
+          options.src = imgSrc;
           break;
         }
         case 'Blob': {
           const url = URL.createObjectURL(imgSrc);
-          options = Object.assign(
-            options,
-            {
-              attrs: Object.assign(
-                options.attrs,
-                { src: url },
-                this.attributes,
-              ),
-            },
-          );
+          options.src = url;
           break;
         }
         default: {
-          options = Object.assign(
-            options,
-            {
-              attrs: Object.assign(
-                options.attrs,
-                this.attributes,
-              ),
-            },
-          );
           break;
         }
       }
@@ -207,7 +184,7 @@ export default {
       return options;
     },
   },
-  render(h) {
+  render() {
     const visibilityOptions = this.imageReady
       ? this.imageOptions
       : Object.assign(

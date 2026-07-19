@@ -84,3 +84,7 @@
 //     }
 //   });
 // });
+
+describe.skip('helper infoDB legacy coverage', () => {
+  it.todo('restore the disabled IndexedDB behavior tests');
+});

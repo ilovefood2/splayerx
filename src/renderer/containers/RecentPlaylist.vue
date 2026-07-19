@@ -282,7 +282,7 @@ export default {
     if (this.duration) this.hoveredDuration = this.duration;
     this.filename = this.pathBaseName(this.originSrc);
   },
-  destroyed() {
+  unmounted() {
     window.removeEventListener('keyup', this.keyboardHandler);
   },
   methods: {

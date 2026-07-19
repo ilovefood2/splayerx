@@ -1,9 +1,7 @@
-import * as Sentry from '@sentry/browser';
-import { Vue as VueIntegration } from '@sentry/integrations/esm/vue';
-import Vue from 'vue';
-import Vuex from 'vuex';
-import VueRouter from 'vue-router';
-import VueI18n from 'vue-i18n';
+import * as Sentry from '@sentry/vue';
+import { createApp } from 'vue';
+import { createRouter, createWebHashHistory } from 'vue-router';
+import { createI18n } from 'vue-i18n';
 import { hookVue } from '@/kerning';
 import messages from '@/locales';
 // @ts-ignore
@@ -11,19 +9,9 @@ import Login from '@/containers/Login/Login.vue';
 import '@/css/style.scss';
 import { getSystemLocale } from '@/../shared/utils';
 
-Vue.use(VueI18n);
-Vue.use(Vuex);
-Vue.use(VueRouter);
-
-Vue.prototype.logSave = () => { };
+let logSave = (_error?: object) => undefined;
 if (Sentry) {
-  Sentry.init({
-    dsn: 'https://6a94feb674b54686a6d88d7278727b7c@sentry.io/1449341',
-    // @ts-ignore
-    integrations: [new VueIntegration({ Vue, attachProps: true })],// eslint-disable-line
-  });
-  // save server error to sentry
-  Vue.prototype.logSave = (error: object) => {
+  logSave = (error: object = {}) => {
     Sentry.withScope((scope: any) => { // eslint-disable-line
       Object.keys(error).forEach((key: string) => {
         scope.setExtra(key, error[key]);
@@ -39,29 +27,26 @@ const routes = [
     component: require('@/containers/Login/SMS.vue').default,
   },
   {
-    path: '*',
+    path: '/:pathMatch(.*)*',
     redirect: '/sms',
   },
 ];
 
-const router = new VueRouter({
+const router = createRouter({
+  history: createWebHashHistory(),
   routes,
 });
 
-const i18n = new VueI18n({
+const i18n = createI18n({
+  legacy: true,
   // @ts-ignore
   locale: window.displayLanguage || getSystemLocale(), // set locale
   fallbackLocale: 'en',
   messages, // set locale messages
 });
 
-hookVue(Vue);
-
-new Vue({
-  i18n,
-  router,
+const app = createApp({
   components: { Login },
-  data: {},
   mounted() {
     // @ts-ignore
     window.ipcRenderer.on('setPreference', (event: Event, data: {
@@ -73,4 +58,16 @@ new Vue({
     });
   },
   template: '<Login/>',
-}).$mount('#app');
+});
+app.config.globalProperties.logSave = logSave;
+app.use(i18n);
+app.use(router);
+hookVue(app);
+if (process.env.NODE_ENV !== 'development') {
+  Sentry.init({
+    app,
+    dsn: 'https://6a94feb674b54686a6d88d7278727b7c@sentry.io/1449341',
+    attachProps: true,
+  });
+}
+app.mount('#app');

@@ -122,10 +122,10 @@ export default {
     this.$emit('language-setting', this.payload);
     document.addEventListener('mouseup', this.globalMouseupHandler);
   },
-  beforeDestroy() {
+  beforeUnmount() {
     this.iconDisplay = false;
   },
-  destroyed() {
+  unmounted() {
     document.removeEventListener('mouseup', this.globalMouseupHandler);
   },
   methods: {

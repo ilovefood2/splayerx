@@ -243,7 +243,7 @@ export default {
     this.$bus.$on('mask-highlight', (on: boolean) => { this.maskBackground = `rgba(255, 255, 255, ${on ? 0.18 : 0})`; });
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
   },
-  beforeDestroy() {
+  beforeUnmount() {
     if (this.casting) this.$electron.ipcRenderer.send('cast-stop');
     this.audioCtx.close();
     if (process.mas) this.$bus.$emit(`stop-accessing-${this.originSrc}`, this.originSrc);

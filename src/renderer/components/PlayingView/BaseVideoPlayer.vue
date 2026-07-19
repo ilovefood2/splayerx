@@ -282,7 +282,7 @@ export default {
     }
     this.startCompatibilityCanvas();
   },
-  beforeDestroy() {
+  beforeUnmount() {
     this.stopCompatibilityCanvas();
     if (this.useCompatibilityCanvas) {
       this.$refs.video.removeEventListener('playing', this.startCompatibilityCanvas);

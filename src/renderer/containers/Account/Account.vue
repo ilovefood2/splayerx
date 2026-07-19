@@ -15,7 +15,7 @@
         type="titleBarWinFull"
       />
       <Icon
-        @click.native="handleClose"
+        @click="handleClose"
         class="titlebar__button"
         type="titleBarWinClose"
       />
@@ -132,7 +132,7 @@
   </div>
 </template>
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 import { mapGetters, mapActions } from 'vuex';
 import {
   UserInfo as uActions,
@@ -140,7 +140,7 @@ import {
 import Icon from '@/components/BaseIconContainer.vue';
 import { getUserInfo, getUserBalance } from '@/libs/webApis';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'Account',
   components: {
     Icon,

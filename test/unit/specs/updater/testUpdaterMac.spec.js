@@ -1,6 +1,5 @@
-import Vue from 'vue';
-import { mount, createLocalVue } from '@vue/test-utils';
-import VueI18n from 'vue-i18n';
+import { mount } from '@vue/test-utils';
+import { createI18n } from 'vue-i18n';
 import messages from '@/locales';
 import UpdaterNotification from '@/components/UpdaterView/UpdaterNotification.vue';
 import ipcs from './ipcMock';
@@ -10,16 +9,13 @@ import Storage from '../../../../src/main/update/Updatestorage';
 
 const storage = new Storage();
 let mainHelper;
-Vue.use(VueI18n);
-const $i18n = new VueI18n({
+const i18n = createI18n({
+  legacy: true,
   locale: 'en', // set locale
   messages, // set locale messages
 });
-const localView = createLocalVue();
-localView.use(VueI18n);
 const options = {
-  localView,
-  i18n: $i18n,
+  global: { plugins: [i18n] },
 };
 let wrapper;
 const updateInfo = { version: '0.5.1', note: 'hello' };
@@ -41,14 +37,11 @@ describe('UpdaterNotification.vue', () => {
     expect(wrapper.vm.buttons).eql([]);
     expect(wrapper.vm.linkProp['webkit-animation-name']).equal(null);
   });
-  it('test for mac when can install update', (done) => {
-    mainHelper.onUpdateDownloaded(updateInfo).then(() => {
-      setTimeout(() => {
-        expect(wrapper.vm.helper).not.equal(null);
-        expect(wrapper.vm.containerStyle.platform).equal('');
-        done();
-      }, 300);
-    });
+  it('test for mac when can install update', async () => {
+    await mainHelper.onUpdateDownloaded(updateInfo);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(wrapper.vm.helper).not.equal(null);
+    expect(wrapper.vm.containerStyle.platform).equal('');
   });
   // it('test for mac when installed update last round', (done) => {
   //   expect(wrapper.vm.helper).not.equal(null);

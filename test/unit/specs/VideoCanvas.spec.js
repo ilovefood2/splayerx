@@ -321,3 +321,7 @@ describe('Component - VideoCanvas', () => {
   });
 });
 */
+
+describe.skip('Component - VideoCanvas legacy coverage', () => {
+  it.todo('restore the disabled behavior tests with deterministic media mocks');
+});

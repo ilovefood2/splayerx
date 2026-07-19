@@ -19,7 +19,7 @@
           type="titleBarWinFull"
         />
         <Icon
-          @mouseup.native="handleClose"
+          @mouseup="handleClose"
           class="title-button no-drag"
           type="titleBarWinClose"
         />
@@ -31,7 +31,7 @@
       >
         <Icon
           id="close"
-          @mouseup.native="handleClose"
+          @mouseup="handleClose"
           class="title-button no-drag"
           type="titleBarClose"
         />

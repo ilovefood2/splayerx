@@ -1,10 +1,25 @@
 import {
   fromPairs, mapValues, difference,
 } from 'lodash';
+import ar from '@/locales/lang/ar.json';
+import en from '@/locales/lang/en.json';
+import es from '@/locales/lang/es.json';
+import ja from '@/locales/lang/ja.json';
+import ko from '@/locales/lang/ko.json';
+import ru from '@/locales/lang/ru.json';
+import zhHans from '@/locales/lang/zh-Hans.json';
+import zhHant from '@/locales/lang/zh-Hant.json';
 
-const files = require.context('@/locales/lang/', false, /\.json$/);
-
-const langs = fromPairs(files.keys().map(file => [file.match(/[^/]+(?=\.json$)/)[0], files(file)]));
+const langs = fromPairs([
+  ['ar', ar],
+  ['en', en],
+  ['es', es],
+  ['ja', ja],
+  ['ko', ko],
+  ['ru', ru],
+  ['zh-Hans', zhHans],
+  ['zh-Hant', zhHant],
+]);
 const objectDeepKeys = obj => Object.keys(obj).filter(key => obj[key] instanceof Object)
   .map(key => objectDeepKeys(obj[key]).map(k => `${key}.${k}`))
   .reduce((x, y) => x.concat(y), Object.keys(obj));

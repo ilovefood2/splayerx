@@ -53,9 +53,9 @@
         >
           <div class="rowContainer">
             <Icon
-              @mousedown.native="handleDeMousedown"
-              @mouseup.native="handleDeMouseup"
-              @mouseleave.native="handleDeMouseup"
+              @mousedown="handleDeMousedown"
+              @mouseup="handleDeMouseup"
+              @mouseleave="handleDeMouseup"
               type="minus"
               class="decrease"
             />
@@ -64,15 +64,15 @@
               {{ delayNum }}
             </div>
             <Icon
-              @mousedown.native="handleInMousedown"
-              @mouseup.native="handleInMouseup"
-              @mouseleave.native="handleInMouseup"
+              @mousedown="handleInMousedown"
+              @mouseup="handleInMouseup"
+              @mouseleave="handleInMouseup"
               type="plus"
               class="increase"
             />
             <Icon
               v-show="subtitleDelay !== 0"
-              @click.native="handleResetDelay"
+              @click="handleResetDelay"
               type="reset"
               class="resetPos"
             />

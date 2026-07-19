@@ -15,8 +15,8 @@
       <SidebarIcon
         v-show="isSidebarEnabled"
         v-fade-in="!isPlayingView || showTitleBar"
-        @mouseover.native="mouseoverSidebar = true"
-        @mouseout.native="mouseoverSidebar = false"
+        @mouseover="mouseoverSidebar = true"
+        @mouseout="mouseoverSidebar = false"
         :mouseover="mouseoverSidebar"
         :title="!showSidebar ? $t('tips.openSidebar') : $t('tips.closeSidebar')"
         :fill="isBrowsingView ? '#BBBACC' : ''"
@@ -34,30 +34,30 @@
       class="win-icons"
     >
       <Icon
-        @click.native="handleMinimize"
+        @click="handleMinimize"
         class="title-button no-drag"
         type="titleBarWinExitFull"
       />
       <Icon
         v-show="middleButtonStatus === 'maximize' && enableFullScreenButton"
-        @click.native="handleWinFull"
+        @click="handleWinFull"
         class="title-button no-drag"
         type="titleBarWinFull"
       />
       <Icon
         v-show="middleButtonStatus === 'restore'"
-        @click.native="handleRestore"
+        @click="handleRestore"
         class="title-button no-drag"
         type="titleBarWinRestore"
       />
       <Icon
         v-show="middleButtonStatus === 'exit-fullscreen'"
-        @click.native="handleFullscreenExit"
+        @click="handleFullscreenExit"
         class="title-button no-drag"
         type="titleBarWinResize"
       />
       <Icon
-        @mouseup.native="handleClose"
+        @mouseup="handleClose"
         class="title-button no-drag"
         type="titleBarWinClose"
       />
@@ -76,7 +76,7 @@
         <Icon
           id="close"
           :state="state"
-          @click.native="handleClose"
+          @click="handleClose"
           class="title-button no-drag"
           type="titleBarClose"
         />
@@ -85,7 +85,7 @@
           :class="{ disabled: middleButtonStatus === 'exit-fullscreen' }"
           :state="state"
           :is-full-screen="middleButtonStatus"
-          @click.native="handleMinimize"
+          @click="handleMinimize"
           class="title-button no-drag"
           type="titleBarExitFull"
         />
@@ -95,22 +95,22 @@
           :type="itemType"
           :state="state"
           :style="{ transform: isMaxScreen ? 'rotate(45deg)' : ''}"
-          @click.native="handleMacFull"
+          @click="handleMacFull"
           class="title-button no-drag"
         />
         <Icon
           id="restore"
           v-show="middleButtonStatus === 'exit-fullscreen'"
           :state="state"
-          @click.native="handleFullscreenExit"
+          @click="handleFullscreenExit"
           class="title-button no-drag"
           type="titleBarRecover"
         />
       </div>
       <SidebarIcon
         v-if="isLandingView || isPlayingView"
-        @mouseover.native="mouseoverSidebar = true"
-        @mouseout.native="mouseoverSidebar = false"
+        @mouseover="mouseoverSidebar = true"
+        @mouseout="mouseoverSidebar = false"
         :style="{
           marginLeft: showSidebar ? '19px' : '4px',
         }"

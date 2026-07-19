@@ -15,13 +15,13 @@
       >
         <Icon
           :state="state"
-          @click.native="handleClose"
+          @click="handleClose"
           class="titlebar__button"
           type="titleBarClose"
         />
         <Icon
           :state="state"
-          @click.native="handleMinimize"
+          @click="handleMinimize"
           class="titlebar__button"
           type="titleBarExitFull"
         />
@@ -46,9 +46,9 @@
             margin: isDarwin ? 'auto 10px auto 34px' : 'auto auto auto 10px',
             background: settingsHovered || showSettings ? isDarkMode ? '#54545A' : '#F5F6F8' : ''
           }"
-          @click.native="handleSettings"
-          @mouseover.native="handleSettingsOver"
-          @mouseleave.native="handleSettingsLeave"
+          @click="handleSettings"
+          @mouseover="handleSettingsOver"
+          @mouseleave="handleSettingsLeave"
           :type="isDarkMode ? showSettings
             ? 'downloadShowSettingsDark' : 'downloadSettingsDark' : 'downloadSettings'"
           class="settings--icon"
@@ -104,7 +104,7 @@
           class="control-buttons"
         >
           <Icon
-            @click.native="handleMinimize"
+            @click="handleMinimize"
             class="titlebar__button"
             type="browsingminimize"
           />
@@ -127,7 +127,7 @@
           class="control-buttons"
         >
           <Icon
-            @click.native="handleClose"
+            @click="handleClose"
             class="titlebar__button"
             type="browsingclose"
           />
@@ -229,14 +229,14 @@
             <transition name="fade">
               <Icon
                 v-show="revealInFinderHoveredIndex !== index"
-                @click.native="handleReveal(item)"
+                @click="handleReveal(item)"
                 :type="isDarkMode ? 'revealInFinderDark' : 'revealInFinder'"
               />
             </transition>
             <transition name="fade">
               <Icon
                 v-show="revealInFinderHoveredIndex === index"
-                @click.native="handleReveal(item)"
+                @click="handleReveal(item)"
                 :type="isDarkMode ? 'revealInFinderHoverDark' : 'revealInFinderHover'"
               />
             </transition>
@@ -277,7 +277,7 @@
               <Icon
                 v-show="!hoveredPausedIcon || hoveredIndex !== index"
                 :type="controlBtnDefault(item.paused)"
-                @click.native="handleDownloadPause(item)"
+                @click="handleDownloadPause(item)"
               />
             </transition>
             <transition
@@ -286,7 +286,7 @@
               <Icon
                 v-show="hoveredPausedIcon && hoveredIndex === index"
                 :type="controlBtnHovered(item.paused)"
-                @click.native="handleDownloadPause(item)"
+                @click="handleDownloadPause(item)"
               />
             </transition>
           </div>

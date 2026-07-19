@@ -1,4 +1,3 @@
-import Vue from 'vue';
 import { ipcRenderer } from 'electron';
 
 import romanize from 'romanize';
@@ -139,7 +138,7 @@ function mutationer(mutationType) {
     };
   }
   return (state, p) => {
-    Vue.set(state, stateType, p);
+    state[stateType] = p;
   };
 }
 

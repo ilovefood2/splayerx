@@ -34,7 +34,7 @@ export default {
   mounted() {
     window.addEventListener('message', handleLink);
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('message', handleLink);
   },
 };

@@ -3,8 +3,8 @@
     <label class="radio__label">
       <slot />
       <input
-        @change="$emit('change', $event.target.value)"
-        :checked="radioValue === value"
+        @change="$emit('update:modelValue', $event.target.value)"
+        :checked="modelValue === value"
         :name="name"
         :value="value"
         type="radio"
@@ -27,12 +27,9 @@ export default {
   components: {
     Icon,
   },
-  model: {
-    prop: 'radioValue',
-    event: 'change',
-  },
+  emits: ['update:modelValue'],
   props: {
-    radioValue: {
+    modelValue: {
       type: String,
       default: '',
     },

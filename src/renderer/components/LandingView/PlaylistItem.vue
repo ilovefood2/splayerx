@@ -140,7 +140,7 @@ export default {
       layer2Y: NaN,
     };
   },
-  destroyed() {
+  unmounted() {
     document.removeEventListener('mousemove', this.onRecentItemMousemove);
     document.removeEventListener('mouseup', this.onRecentItemMouseup);
   },

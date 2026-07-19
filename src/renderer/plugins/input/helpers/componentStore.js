@@ -43,6 +43,11 @@ class ComponentStore {
     return false;
   }
 
+  getOwnComponentNameFromElement(element) {
+    if (this.uiComponents.has(element)) return this.uiComponents.get(element);
+    return false;
+  }
+
   getComponentCount(name) {
     return this.uiComponentsCount.has(name) ? this.uiComponentsCount.get(name) : 0;
   }
@@ -58,6 +63,9 @@ export function removeComponent(element) {
 }
 export function getComponentName(element) {
   return componentStore.getComponentNameFromElement(element);
+}
+export function getOwnComponentName(element) {
+  return componentStore.getOwnComponentNameFromElement(element);
 }
 export function getComponentCount(name) {
   return componentStore.getComponentCount(name);

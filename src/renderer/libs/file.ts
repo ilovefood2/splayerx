@@ -1,8 +1,7 @@
 import {
-  access, readdir, accessSync, constants, writeFile, readFile,
+  access, readdir, accessSync, constants, writeFile, readFile, mkdir as fsMkdir,
+  mkdirSync as fsMkdirSync, rm,
 } from 'fs';
-import mkdirp from 'mkdirp';
-import rimraf from 'rimraf';
 
 /** 创建目录
  * @description
@@ -12,7 +11,7 @@ import rimraf from 'rimraf';
  */
 export function mkdir(path: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    mkdirp(path, (err: Error) => {
+    fsMkdir(path, { recursive: true }, (err: Error | null) => {
       if (err) {
         reject(err);
       } else {
@@ -30,7 +29,7 @@ export function mkdir(path: string): Promise<string> {
  */
 export function mkdirSync(path: string): boolean {
   try {
-    mkdirp.sync(path);
+    fsMkdirSync(path, { recursive: true });
     return true;
   } catch (error) {
     // empty
@@ -98,7 +97,7 @@ export function readDir(p: string): Promise<string[]> {
  */
 export function deleteDir(path: string): Promise<boolean> {
   return new Promise((resolve, reject) => {
-    rimraf(path, (err: Error) => {
+    rm(path, { recursive: true, force: true }, (err: Error | null) => {
       if (err) {
         reject(err);
       } else {

@@ -1,4 +1,4 @@
-import { createLocalVue, shallowMount } from '@vue/test-utils';
+import { shallowMount } from '@vue/test-utils';
 import Vuex from 'vuex';
 import sinon from 'sinon';
 import TheProgressBar from '@/containers/TheProgressBar.vue';
@@ -6,8 +6,6 @@ import TheProgressBar from '@/containers/TheProgressBar.vue';
 describe('Component - TheProgressBar', () => {
   let sandbox;
   let wrapper;
-  const localVue = createLocalVue();
-  localVue.use(Vuex);
   const store = new Vuex.Store({
     modules: {
       Video: {
@@ -26,17 +24,20 @@ describe('Component - TheProgressBar', () => {
   });
 
   beforeEach(() => {
-    wrapper = shallowMount(TheProgressBar, { store, localVue, attachToDocument: true });
+    wrapper = shallowMount(TheProgressBar, {
+      attachTo: document.body,
+      global: { plugins: [store] },
+    });
     sandbox = sinon.createSandbox();
   });
 
   afterEach(() => {
-    wrapper.destroy();
+    wrapper.unmount();
     sandbox.restore();
   });
 
   it('Sanity - should render TheProgressBar properly', () => {
-    expect(wrapper.contains(TheProgressBar)).to.equal(true);
+    expect(wrapper.findComponent(TheProgressBar).exists()).to.equal(true);
   });
 
 

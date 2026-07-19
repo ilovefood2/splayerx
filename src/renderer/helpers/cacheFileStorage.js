@@ -15,10 +15,10 @@
  *  └── thumbnail.jpg
  */
 
-import { access, readdir } from 'fs';
+import {
+  access, readdir, mkdir as fsMkdir, rm,
+} from 'fs';
 import path, { join } from 'path';
-import mkdirp from 'mkdirp';
-import rimraf from 'rimraf';
 import electron from 'electron';
 
 const app = electron.app || electron.remote.app;
@@ -45,7 +45,7 @@ function getDefaultDataPath() {
  */
 function mkdir(p) {
   return new Promise((resolve, reject) => {
-    mkdirp(p, (err) => {
+    fsMkdir(p, { recursive: true }, (err) => {
       if (err) {
         reject(err);
       } else {
@@ -203,7 +203,7 @@ export function generateShortCutPathByMediaHash(key) {
 export function deleteDirByMediaHash(key) {
   const p = join(`${getDefaultDataPath()}/${VIDEO_DIRNAME}/`, key);
   return new Promise((resolve, reject) => {
-    rimraf(p, (err) => {
+    rm(p, { recursive: true, force: true }, (err) => {
       if (err) {
         reject(err);
       } else {
@@ -222,7 +222,7 @@ export function deleteDirByMediaHash(key) {
  */
 export function clearAll() {
   return new Promise((resolve, reject) => {
-    rimraf(getDefaultDataPath(), (err) => {
+    rm(getDefaultDataPath(), { recursive: true, force: true }, (err) => {
       if (err) {
         reject(err);
       } else {

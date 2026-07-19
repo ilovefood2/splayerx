@@ -124,10 +124,9 @@
 </template>
 
 <script lang="ts">
-import Vue from 'vue';
 import { mapGetters, mapActions } from 'vuex';
 import { join } from 'path';
-import { Route } from 'vue-router';
+import type { NavigationGuardNext, RouteLocationNormalized } from 'vue-router';
 import { filePathToUrl } from '@/helpers/path';
 import { playInfoStorageService } from '@/services/storage/PlayInfoStorageService';
 import { recentPlayService } from '@/services/media/RecentPlayService';
@@ -140,14 +139,13 @@ import Sagi from '@/libs/sagi';
 import { Browsing as browsingActions } from '@/store/actionTypes';
 import { windowRectService } from '../services/window/WindowRectService';
 
-Vue.component('PlaylistItem', PlaylistItem);
-Vue.component('VideoItem', VideoItem);
-
 export default {
   name: 'LandingView',
   components: {
     Icon,
     NotificationBubble,
+    PlaylistItem,
+    VideoItem,
   },
   data() {
     return {
@@ -255,12 +253,25 @@ export default {
       immediate: true,
     },
   },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  beforeRouteEnter(to: Route, { name: from }: Route, next: (vm: any) => void) {
-    next((vm: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-      vm.logoTransition = from === 'language-setting' ? 'scale' : '';
-      vm.pageMounted = true;
-      windowRectService.uploadWindowBy(false, 'landing-view', undefined, undefined, vm.winSize, vm.winPos, vm.isFullScreen);
+  beforeRouteEnter(
+    to: RouteLocationNormalized,
+    { name: from }: RouteLocationNormalized,
+    next: NavigationGuardNext,
+  ) {
+    next((vm) => {
+      const landingView = vm as {
+        logoTransition: string,
+        pageMounted: boolean,
+        winSize: number[],
+        winPos: number[],
+        isFullScreen: boolean,
+      };
+      landingView.logoTransition = from === 'language-setting' ? 'scale' : '';
+      landingView.pageMounted = true;
+      windowRectService.uploadWindowBy(
+        false, 'landing-view', undefined, undefined,
+        landingView.winSize, landingView.winPos, landingView.isFullScreen,
+      );
     });
   },
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -320,7 +331,7 @@ export default {
       this.quit = true;
     });
   },
-  destroyed() {
+  unmounted() {
     window.removeEventListener('mousemove', this.globalMoveHandler);
     window.removeEventListener('keyup', this.keyboardHandler);
   },

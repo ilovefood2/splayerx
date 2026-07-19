@@ -1,6 +1,6 @@
 import path from 'path';
 import fs, { promises as fsPromises } from 'fs';
-import lolex from 'lolex';
+import FakeTimers from '@sinonjs/fake-timers';
 import { get } from 'lodash';
 import { mediaQuickHash } from '@/libs/utils';
 import bookmark from '@/helpers/bookmark';
@@ -24,7 +24,7 @@ import { ipcRenderer, remote } from 'electron'; // eslint-disable-line
 import sortVideoFile from '@/helpers/sort';
 import { addBubble } from './notificationControl';
 
-const clock = lolex.createClock();
+const clock = FakeTimers.createClock();
 
 export default {
   data() {
@@ -430,7 +430,7 @@ export default {
 
       const videoId = playlistItem.items[playlistItem.playedIndex];
       this.$store.dispatch('SRC_SET', { src: videoFiles[0], id: videoId, mediaHash: hash });
-      if (this.$router.currentRoute.name !== 'playing-view') {
+      if (this.$router.currentRoute.value.name !== 'playing-view') {
         this.$router.push({ name: 'playing-view' });
       }
       this.$bus.$emit('new-file-open');
@@ -546,7 +546,7 @@ export default {
         mediaHash: knownMediaHash,
         id,
       });
-      if (this.$router.currentRoute.name !== 'playing-view') {
+      if (this.$router.currentRoute.value.name !== 'playing-view') {
         this.$router.push({ name: 'playing-view' });
       }
       this.$bus.$emit('new-file-open');

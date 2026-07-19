@@ -15,7 +15,7 @@
         type="titleBarWinFull"
       />
       <Icon
-        @click.native="handleClose"
+        @click="handleClose"
         class="titlebar__button"
         type="titleBarWinClose"
       />
@@ -33,7 +33,7 @@
   </div>
 </template>
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 import { mapGetters, mapActions } from 'vuex';
 import {
   createOrder, ApiError,
@@ -44,7 +44,7 @@ import {
 } from '@/store/actionTypes';
 import { PayStatus } from '@/store/modules/UserInfo';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'Premium',
   components: {
     Icon,

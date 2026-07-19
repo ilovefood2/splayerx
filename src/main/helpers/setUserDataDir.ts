@@ -1,6 +1,6 @@
 import { app } from 'electron';
+import { mkdirSync } from 'fs';
 import path from 'path';
-import mkdirp from 'mkdirp';
 
 try {
   let customUserDataDir = app.commandLine.getSwitchValue('user-data-dir');
@@ -8,7 +8,7 @@ try {
     if (!path.isAbsolute(customUserDataDir)) {
       customUserDataDir = path.join(path.dirname(process.argv0), customUserDataDir);
     }
-    mkdirp.sync(customUserDataDir);
+    mkdirSync(customUserDataDir, { recursive: true });
     app.setPath('userData', customUserDataDir);
   }
 } catch (ex) {

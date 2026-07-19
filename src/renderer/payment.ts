@@ -1,16 +1,14 @@
-import Vue from 'vue';
+import { createApp } from 'vue';
 import { ipcRenderer, remote } from 'electron';
-import VueI18n from 'vue-i18n';
+import { createI18n } from 'vue-i18n';
 import osLocale from 'os-locale';
 import messages from '@/locales';
 import { hookVue } from '@/kerning';
+import { installRendererGlobals } from '@/bootstrap';
 import { setToken } from '@/libs/apis';
 // @ts-ignore
 import Payment from '@/components/Payment.vue';
 import '@/css/style.scss';
-
-hookVue(Vue);
-Vue.use(VueI18n);
 
 function getSystemLocale() {
   const { app } = remote;
@@ -24,16 +22,15 @@ function getSystemLocale() {
   return 'en';
 }
 
-const i18n = new VueI18n({
+const i18n = createI18n({
+  legacy: true,
   locale: getSystemLocale(), // set locale
   fallbackLocale: 'en',
   messages, // set locale messages
 });
 
-new Vue({
-  i18n,
+const app = createApp({
   components: { Payment },
-  data: {},
   mounted() {
     // sign in success
     ipcRenderer.on('sign-in', (e: Event, account?: {
@@ -53,4 +50,8 @@ new Vue({
     }
   },
   template: '<Payment/>',
-}).$mount('#app');
+});
+installRendererGlobals(app);
+app.use(i18n);
+hookVue(app);
+app.mount('#app');

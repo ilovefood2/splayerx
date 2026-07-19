@@ -47,7 +47,11 @@ interface ISubtitleState {
  * - TypeScript's private properties are not really private.
  * - Vue will add reactive getter/setter to every property, which is really annoying.
  */
-const subtitleLoaderParserMap: Map<string, { loader?: ILoader, parser?: IParser }> = new Map();
+const subtitleLoaderParserMap: Map<string, {
+  loader?: ILoader,
+  parser?: IParser,
+  unsupported?: boolean,
+}> = new Map();
 
 const state = (): ISubtitleState => ({
   mediaHash: '',
@@ -182,6 +186,10 @@ const actions: ActionTree<ISubtitleState, {}> = {
       dialogues: Cue[],
     } = { metadata: {}, dialogues: [] };
     if (state.realSource && subtitle) {
+      // The current native ARM64 media backend cannot decode bitmap subtitle
+      // streams. Once that stable capability error is known, do not retry it
+      // on every playback tick (which previously flooded logs and wasted CPU).
+      if (subtitle.unsupported) return result;
       if (!subtitle.loader) {
         subtitle.loader = getLoader(state.realSource, state.format);
         subtitle.loader.on('cache', async (result) => {
@@ -210,7 +218,10 @@ const actions: ActionTree<ISubtitleState, {}> = {
           result.dialogues = await subtitle.parser.getDialogues();
         }
       } catch (e) {
-        if (state.realSource.type === Type.Embedded) {
+        const message = e instanceof Error ? e.message : String(e);
+        if (message.includes('Bitmap subtitle extraction is not available')) {
+          subtitle.unsupported = true;
+        } else if (state.realSource.type === Type.Embedded) {
           const { streamIndex } = (state.realSource as IEmbeddedOrigin).source;
           subtitle.loader = new EmbeddedStreamLoader(
             rootGetters.originSrc, streamIndex, state.format,

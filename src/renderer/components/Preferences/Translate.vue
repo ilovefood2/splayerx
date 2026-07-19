@@ -15,7 +15,8 @@
           {{ $t('preferences.translate.languageDescription') }}
         </div>
         <table>
-          <tr>
+          <tbody>
+            <tr>
             <td class="dropdown__title">
               {{ $t('preferences.translate.primary') }}
             </td>
@@ -97,7 +98,8 @@
                 </div>
               </div>
             </td>
-          </tr>
+            </tr>
+          </tbody>
         </table>
       </div>
       <BaseCheckBox
@@ -122,7 +124,8 @@
           {{ $t('preferences.translate.aiTranslateDescription') }}
         </div>
         <table class="aiTranslate__table">
-          <tr>
+          <tbody>
+            <tr>
             <td class="aiTranslate__label">
               {{ $t('preferences.translate.aiProvider') }}
             </td>
@@ -267,7 +270,8 @@
                 </option>
               </select>
             </td>
-          </tr>
+            </tr>
+          </tbody>
         </table>
       </div>
     </div>

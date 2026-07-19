@@ -2,7 +2,7 @@
 console.log('titlebar-preloaded~~~~~~~');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ipcRenderer } = require('electron');
-const remote = require('@electron/remote');
+const remote = require(`${__dirname}/../rendererBridge.js`);
 const isDarwin = process.platform === 'darwin';
 let offset = null;
 let windowSize = null;
@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       content.addEventListener('mouseenter', (e) => {
         mouseenter = true;
-        remote.getCurrentWindow().getBrowserViews()[2].webContents.focus();
+        remote.getCurrentWindow().getWebContentsViews()[2].webContents.focus();
         const fullScreen = recover.style.display === 'block';
         close.src = 'assets/titleBarClose-hover-icon.svg';
         if (!fullScreen) {

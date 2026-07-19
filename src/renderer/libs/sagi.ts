@@ -1,6 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-import grpc, { credentials, Metadata } from 'grpc';
+import { ChannelCredentials, credentials, Metadata } from 'grpc';
 import { HealthCheckRequest, HealthCheckResponse } from 'sagi-api/health/v1/health_pb';
 import { HealthClient } from 'sagi-api/health/v1/health_grpc_pb';
 import {
@@ -20,7 +20,7 @@ import { apiOfSubtitleService } from '@/../shared/config';
 import { log } from './Log';
 
 export class Sagi {
-  private creds: grpc.ChannelCredentials;
+  private creds: ChannelCredentials;
 
   public constructor() {
     this.creds = this.combinedCreds();

@@ -6,8 +6,7 @@ import {
   WHEEL_INERTIAL_SCROLLING_PHASE as inertial,
   WHEEL_STOPPED_PHASE as stopped,
 } from '../constants';
-// eslint-disable-next-line
-const Lethargy = require('exports-loader?this.Lethargy!lethargy/lethargy');
+const { Lethargy } = require('lethargy');
 
 class WheelPhaseCalculator extends EventEmitter {
   wheelTimer = 0;

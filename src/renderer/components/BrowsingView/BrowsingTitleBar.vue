@@ -55,7 +55,7 @@ export default {
     handleMiddleButton() {
       const currentWindow = this.$electron.remote.getCurrentWindow();
       const isMaximized = currentWindow.isMaximized();
-      const currentView = currentWindow.getBrowserViews()[0];
+      const currentView = currentWindow.getWebContentsViews()[0];
       if (this.isFullScreen) {
         this.$electron.ipcRenderer.send('callMainWindowMethod', 'setFullScreen', [false]);
       } else {

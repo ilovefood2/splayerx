@@ -1,4 +1,4 @@
-import Vue from 'vue';
+import { nextTick } from 'vue';
 import { mount, shallowMount } from '@vue/test-utils';
 import sinon from 'sinon';
 import BaseVideoPlayer from '@/components/PlayingView/BaseVideoPlayer.vue';
@@ -23,24 +23,24 @@ describe('Component - BaseVideoPlayer', () => {
   };
 
   it('sanity - should render video element', () => {
-    const wrapper = mount(BaseVideoPlayer, { propsData });
+    const wrapper = mount(BaseVideoPlayer, { props: propsData });
 
-    expect(wrapper.contains('video')).to.equal(true);
+    expect(wrapper.find('video').exists()).to.equal(true);
   });
 
   it('keeps the fractional-opacity workaround Windows-only', () => {
-    const wrapper = mount(BaseVideoPlayer, { propsData });
+    const wrapper = mount(BaseVideoPlayer, { props: propsData });
     const video = wrapper.find('video');
 
     expect(video.classes().includes('windows-video-opacity-workaround'))
       .to.equal(process.platform === 'win32');
     if (process.platform === 'darwin') expect(video.element.style.opacity).to.equal('');
-    wrapper.destroy();
+    wrapper.unmount();
   });
 
   it('uses a canvas for macOS compatibility streams only', () => {
     const wrapper = mount(BaseVideoPlayer, {
-      propsData: {
+      props: {
         ...propsData,
         src: 'http://127.0.0.1:49152/compat/token/video.mkv.mp4?start=0',
       },
@@ -50,7 +50,7 @@ describe('Component - BaseVideoPlayer', () => {
     expect(wrapper.classes().includes('compatibility-canvas-player'))
       .to.equal(shouldUseCanvas);
     expect(wrapper.find('canvas').exists()).to.equal(shouldUseCanvas);
-    wrapper.destroy();
+    wrapper.unmount();
   });
 
   describe('Props', () => {
@@ -60,60 +60,60 @@ describe('Component - BaseVideoPlayer', () => {
     beforeEach(() => {
       sandbox = sinon.createSandbox();
       wrapper = shallowMount(BaseVideoPlayer, {
-        propsData,
+        props: propsData,
       });
     });
     afterEach(() => {
       sandbox.restore();
-      wrapper.destroy();
+      wrapper.unmount();
     });
 
-    function assertVideoAttributes(attribute, rawValue, changedValues, changeOrNot) {
-      changedValues.forEach(async (testCase) => {
-        wrapper.setProps({ [attribute]: testCase });
-        await Vue.nextTick();
+    async function assertVideoAttributes(attribute, rawValue, changedValues, changeOrNot) {
+      for (const testCase of changedValues) {
+        await wrapper.setProps({ [attribute]: testCase });
+        await nextTick();
         const changedValue = wrapper.element.childNodes[0][attribute];
 
         expect(changedValue).to.equal(changeOrNot ? testCase : rawValue);
-      });
+      }
     }
 
     describe('Mutable Props', () => {
-      it('should currentTime be changed dynamically', () => {
+      it('should currentTime be changed dynamically', async () => {
         const currentTimes = [[10], [30], [40], [50]];
 
-        currentTimes.forEach(async (currentTime) => {
-          wrapper.setProps({ currentTime });
+        for (const currentTime of currentTimes) {
+          await wrapper.setProps({ currentTime });
 
-          await Vue.nextTick();
+          await nextTick();
           const changedCurrentTime = wrapper.element.childNodes[0].currentTime;
 
           expect(changedCurrentTime).to.equal(currentTime[0]);
-        });
+        }
       });
 
-      it('should playbackRate be changed dynamically', () => {
-        assertVideoAttributes('playbackRate', propsData.playbackRate, [3, 4, 5, 8], true);
+      it('should playbackRate be changed dynamically', async () => {
+        await assertVideoAttributes('playbackRate', propsData.playbackRate, [3, 4, 5, 8], true);
       });
 
-      it('should loop be changed dynamically', () => {
-        assertVideoAttributes('loop', propsData.loop, [true], true);
+      it('should loop be changed dynamically', async () => {
+        await assertVideoAttributes('loop', propsData.loop, [true], true);
       });
 
-      it('should controls be changed dynamically', () => {
-        assertVideoAttributes('controls', propsData.controls, [true], true);
+      it('should controls be changed dynamically', async () => {
+        await assertVideoAttributes('controls', propsData.controls, [true], true);
       });
 
-      it('should volume be changed dynamically', () => {
-        assertVideoAttributes('volume', propsData.volume, [0.9, 0.3, 0.2, 1], true);
+      it('should volume be changed dynamically', async () => {
+        await assertVideoAttributes('volume', propsData.volume, [0.9, 0.3, 0.2, 1], true);
       });
 
-      it('should muted be changed dynamically', () => {
-        assertVideoAttributes('muted', propsData.muted, [true], true);
+      it('should muted be changed dynamically', async () => {
+        await assertVideoAttributes('muted', propsData.muted, [true], true);
       });
 
-      it('should video be dynamically paused', () => {
-        assertVideoAttributes('paused', propsData.paused, [true], true);
+      it('should video be dynamically paused', async () => {
+        await assertVideoAttributes('paused', propsData.paused, [true], true);
       });
 
       it('should events be dynamically added', async () => {
@@ -122,7 +122,7 @@ describe('Component - BaseVideoPlayer', () => {
           events: finalEvents,
         });
 
-        await Vue.nextTick();
+        await nextTick();
         finalEvents.forEach((event) => {
           expect(wrapper.vm.eventListeners.get(event)).to.not.equal(undefined);
         });
@@ -131,7 +131,7 @@ describe('Component - BaseVideoPlayer', () => {
       it('should events be dynamically removed', async () => {
         wrapper.setProps({ events: [] });
 
-        await Vue.nextTick();
+        await nextTick();
         propsData.events.forEach((event) => {
           expect(wrapper.vm.eventListeners.get(event)).to.equal(undefined);
         });
@@ -145,7 +145,7 @@ describe('Component - BaseVideoPlayer', () => {
 
         wrapper.setProps({ styles: testStyle });
 
-        await Vue.nextTick();
+        await nextTick();
         Object.keys(testStyle).forEach((style) => {
           expect(wrapper.element.childNodes[0].style[style]).to.equal(testStyle[style]);
         });
@@ -153,20 +153,20 @@ describe('Component - BaseVideoPlayer', () => {
     });
 
     describe('Immutable Props', () => {
-      it('should crossOrigin not be changed dynamically', () => {
-        assertVideoAttributes('crossOrigin', propsData.crossOrigin, [!propsData.crossOrigin], false);
+      it('should crossOrigin not be changed dynamically', async () => {
+        await assertVideoAttributes('crossOrigin', propsData.crossOrigin, [!propsData.crossOrigin], false);
       });
 
-      it('should preload not be changed dynamically', () => {
-        assertVideoAttributes('preload', propsData.preload, [!propsData.preload], false);
+      it('should preload not be changed dynamically', async () => {
+        await assertVideoAttributes('preload', propsData.preload, [!propsData.preload], false);
       });
 
-      it('should autoplay not be changed dynamically', () => {
-        assertVideoAttributes('autoplay', propsData.autoplay, [!propsData.autoplay], false);
+      it('should autoplay not be changed dynamically', async () => {
+        await assertVideoAttributes('autoplay', propsData.autoplay, [!propsData.autoplay], false);
       });
 
-      it('should defaultMuted not be changed dynamically', () => {
-        assertVideoAttributes('defaultMuted', propsData.defaultMuted, [!propsData.defaultMuted], false);
+      it('should defaultMuted not be changed dynamically', async () => {
+        await assertVideoAttributes('defaultMuted', propsData.defaultMuted, [!propsData.defaultMuted], false);
       });
     });
   });
@@ -183,12 +183,12 @@ describe('Component - BaseVideoPlayer', () => {
     beforeEach(() => {
       sandbox = sinon.createSandbox();
       clock = sinon.useFakeTimers();
-      wrapper = mount(BaseVideoPlayer, { propsData });
+      wrapper = mount(BaseVideoPlayer, { props: propsData });
     });
     afterEach(() => {
       sandbox.restore();
       clock.restore();
-      wrapper.destroy();
+      wrapper.unmount();
     });
 
     it('should videoElement return actual videoElement', () => {
@@ -199,7 +199,7 @@ describe('Component - BaseVideoPlayer', () => {
 
     it('recognizes local Matroska compatibility streams', () => {
       const compatibilityWrapper = mount(BaseVideoPlayer, {
-        propsData: {
+        props: {
           src: 'http://127.0.0.1:54321/compat/token/movie.mkv.mp4?start=0',
           events: ['loadedmetadata'],
         },
@@ -209,7 +209,7 @@ describe('Component - BaseVideoPlayer', () => {
       if (process.platform === 'darwin') {
         expect(compatibilityWrapper.vm.$refs.video.hwhevc).to.equal(false);
       }
-      compatibilityWrapper.destroy();
+      compatibilityWrapper.unmount();
     });
 
     it('should emitEvents emit events', () => {

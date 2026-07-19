@@ -193,7 +193,7 @@
   </div>
 </template>
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 import { mapGetters, mapMutations, mapActions } from 'vuex';
 import { cloneDeep } from 'lodash';
 import {
@@ -213,7 +213,7 @@ import SubtitleRenderer from '@/components/Subtitle/SubtitleRenderer.vue';
 import Icon from '@/components/BaseIconContainer.vue';
 import Labels from '@/components/PlayingView/Labels.vue';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'SubtitleEditor',
   components: {
     SubtitleRenderer,
@@ -728,7 +728,7 @@ export default Vue.extend({
       }
     });
   },
-  destroyed() {
+  unmounted() {
     document.removeEventListener('mousemove', this.handleDragingEditor);
     document.removeEventListener('mouseup', this.handleDragEndEditor);
     document.removeEventListener('mousemove', this.handleDragingTimeLine);

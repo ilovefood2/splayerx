@@ -66,22 +66,27 @@ function startRenderer() {
       );
     });
 
+    let resolved = false;
     compiler.hooks.done.tap('done', stats => {
       logStats('Renderer', stats);
+      if (!resolved && !stats.hasErrors()) {
+        resolved = true;
+        resolve();
+      }
     });
 
-    const server = new WebpackDevServer(compiler, {
-      contentBase: path.join(__dirname, '../'),
-      quiet: true,
-      before(app, ctx) {
-        app.use(hotMiddleware);
-        ctx.middleware.waitUntilValid(() => {
-          resolve();
-        });
+    const server = new WebpackDevServer({
+      port: 9080,
+      static: { directory: path.join(__dirname, '../') },
+      client: false,
+      hot: false,
+      setupMiddlewares(middlewares) {
+        middlewares.unshift({ name: 'webpack-hot-middleware', middleware: hotMiddleware });
+        return middlewares;
       },
-    });
+    }, compiler);
 
-    server.listen(9080);
+    server.start().catch(reject);
   });
 }
 
@@ -109,22 +114,27 @@ function startWeb() {
       );
     });
 
+    let resolved = false;
     compiler.hooks.done.tap('done', stats => {
       logStats('Renderer', stats);
+      if (!resolved && !stats.hasErrors()) {
+        resolved = true;
+        resolve();
+      }
     });
 
-    const server = new WebpackDevServer(compiler, {
-      contentBase: path.join(__dirname, '../'),
-      quiet: true,
-      before(app, ctx) {
-        app.use(hotMiddleware);
-        ctx.middleware.waitUntilValid(() => {
-          resolve();
-        });
+    const server = new WebpackDevServer({
+      port: 9081,
+      static: { directory: path.join(__dirname, '../') },
+      client: false,
+      hot: false,
+      setupMiddlewares(middlewares) {
+        middlewares.unshift({ name: 'webpack-hot-middleware', middleware: hotMiddleware });
+        return middlewares;
       },
-    });
+    }, compiler);
 
-    server.listen(9081);
+    server.start().catch(reject);
   });
 }
 

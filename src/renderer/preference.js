@@ -1,10 +1,11 @@
-import Vue from 'vue';
-import Vuex, { mapActions, mapGetters } from 'vuex';
-import VueRouter from 'vue-router';
-import VueI18n from 'vue-i18n';
+import { createApp } from 'vue';
+import { mapActions, mapGetters } from 'vuex';
+import { createRouter, createWebHashHistory } from 'vue-router';
+import { createI18n } from 'vue-i18n';
 import electron, { ipcRenderer, remote } from 'electron';
 import osLocale from 'os-locale';
 import { hookVue } from '@/kerning';
+import { installRendererGlobals } from '@/bootstrap';
 import messages from '@/locales';
 import store from '@/store';
 import Preference from '@/components/Preference.vue';
@@ -16,35 +17,6 @@ import {
   getUserInfo, getProductList, setToken, getGeoIP, getUserBalance,
 } from '@/libs/apis';
 import drag from '@/helpers/drag';
-
-Vue.use(VueI18n);
-Vue.use(Vuex);
-Vue.use(VueRouter);
-Vue.directive('fade-in', {
-  bind(el, binding) {
-    if (!el) return;
-    const { value } = binding;
-    if (value) {
-      el.classList.add('fade-in');
-      el.classList.remove('fade-out');
-    } else {
-      el.classList.add('fade-out');
-      el.classList.remove('fade-in');
-    }
-  },
-  update(el, binding) {
-    const { oldValue, value } = binding;
-    if (oldValue !== value) {
-      if (value) {
-        el.classList.add('fade-in');
-        el.classList.remove('fade-out');
-      } else {
-        el.classList.add('fade-out');
-        el.classList.remove('fade-in');
-      }
-    }
-  },
-});
 
 function getSystemLocale() {
   const { app } = electron.remote;
@@ -69,10 +41,6 @@ const routeMap = {
 };
 
 const routes = [
-  {
-    path: '*',
-    redirect: '/',
-  },
   {
     path: '/',
     name: 'General',
@@ -113,29 +81,32 @@ const routes = [
     name: 'Whatsnew',
     component: require('@/components/Preferences/Whatsnew.vue').default,
   },
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: '/',
+  },
 ];
 
-const router = new VueRouter({
+const router = createRouter({
+  history: createWebHashHistory(),
   routes,
 });
 
-const i18n = new VueI18n({
+const i18n = createI18n({
+  legacy: true,
   locale: getSystemLocale(), // set locale
   fallbackLocale: 'en',
   messages, // set locale messages
 });
 
-hookVue(Vue);
-
-new Vue({
-  i18n,
-  router,
+const app = createApp({
   components: { Preference },
-  data: {
-    didGetUserInfo: false,
-    didGetUserBalance: false,
+  data() {
+    return {
+      didGetUserInfo: false,
+      didGetUserBalance: false,
+    };
   },
-  store,
   computed: {
     ...mapGetters([
       'signInCallback',
@@ -170,7 +141,7 @@ new Vue({
 
     ipcRenderer.on('route-change', (e, route) => {
       route = route || 'account';
-      const currentRoute = this.$router.currentRoute;
+      const currentRoute = this.$router.currentRoute.value;
       if (currentRoute && currentRoute.name === routeMap[route]) return;
       if (routeMap[route]) {
         this.$router.push({ name: routeMap[route] });
@@ -235,4 +206,10 @@ new Vue({
     },
   },
   template: '<Preference/>',
-}).$mount('#app');
+});
+installRendererGlobals(app);
+app.use(i18n);
+app.use(router);
+app.use(store);
+hookVue(app);
+app.mount('#app');

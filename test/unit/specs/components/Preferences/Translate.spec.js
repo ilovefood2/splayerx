@@ -1,16 +1,12 @@
 import Vuex from 'vuex';
-import VueI18n from 'vue-i18n';
-import { shallowMount, createLocalVue } from '@vue/test-utils';
+import { createI18n } from 'vue-i18n';
+import { shallowMount } from '@vue/test-utils';
 import Translate from '@/components/Preferences/Translate.vue';
 import Preference from '@/store/modules/Preference';
 import enMessages from '@/locales/lang/en.json';
 
-const localVue = createLocalVue();
-localVue.use(Vuex);
-localVue.use(VueI18n);
-
 // Use the real English strings: this also proves the new keys exist.
-const i18n = new VueI18n({ locale: 'en', messages: { en: enMessages } });
+const i18n = createI18n({ legacy: true, locale: 'en', messages: { en: enMessages } });
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 10));
 
@@ -37,7 +33,7 @@ describe('Component - Preferences/Translate', () => {
         },
       },
     });
-    return shallowMount(Translate, { store, localVue, i18n });
+    return shallowMount(Translate, { global: { plugins: [store, i18n] } });
   }
 
   beforeEach(() => { originalFetch = global.fetch; });
@@ -58,7 +54,7 @@ describe('Component - Preferences/Translate', () => {
     await flush();
     expect(wrapper.vm.aiTranslateProvider).to.equal('local');
     expect(wrapper.vm.providerStatus.toLowerCase()).to.contain('built-in tower+ 9b q8');
-    const choices = wrapper.findAll('option').wrappers.map(option => option.attributes('value'));
+    const choices = wrapper.findAll('option').map(option => option.attributes('value'));
     expect(choices).to.include('local');
     expect(choices).to.not.include('apple');
   });
@@ -83,7 +79,7 @@ describe('Component - Preferences/Translate', () => {
   it('lets the user select which built-in model will be downloaded', async () => {
     const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'local' });
     await flush();
-    const choices = wrapper.findAll('option').wrappers.map(option => option.attributes('value'));
+    const choices = wrapper.findAll('option').map(option => option.attributes('value'));
     expect(choices).to.include.members(['qwen3-14b', 'qwen3-32b', 'tower-plus-9b']);
     expect(choices).to.not.include('qwen3-4b');
 

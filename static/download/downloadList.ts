@@ -1,31 +1,23 @@
-import Vue from 'vue';
-import Vuex from 'vuex';
-import VueRouter from 'vue-router';
-import VueI18n from 'vue-i18n';
+import { createApp } from 'vue';
+import { createI18n } from 'vue-i18n';
 import { hookVue } from '@/kerning';
+import { installRendererGlobals } from '@/bootstrap';
 import messages from '@/locales';
 import store from '@/store';
 import '@/css/style.scss';
 // @ts-ignore
 import DownloadList from './DownloadList.vue';
 
-Vue.use(VueI18n);
-Vue.use(Vuex);
-Vue.use(VueRouter);
-
-const i18n = new VueI18n({
+const i18n = createI18n({
+  legacy: true,
   // @ts-ignore
   locale: window.displayLanguage, // set locale
   fallbackLocale: 'en',
   messages, // set locale messages
 });
 
-hookVue(Vue);
-new Vue({
-  i18n,
-  store,
+const app = createApp({
   components: { DownloadList },
-  data: {},
   mounted() {
     // @ts-ignore
     window.ipcRenderer.on('setPreference', (event: Event, data: {
@@ -37,4 +29,9 @@ new Vue({
     });
   },
   template: '<DownloadList/>',
-}).$mount('#app');
+});
+installRendererGlobals(app);
+app.use(i18n);
+app.use(store);
+hookVue(app);
+app.mount('#app');

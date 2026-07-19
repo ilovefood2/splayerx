@@ -148,7 +148,7 @@ export default {
       }
     });
   },
-  destroyed() {
+  unmounted() {
     this.$bus.$off(bus.SUBTITLE_EDITOR_AUTO_FOCUS);
   },
   methods: {

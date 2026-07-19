@@ -1,9 +1,3 @@
-const fetch: (input: RequestInfo, init?: RequestInit) => Promise<Response> = typeof window !== 'undefined' ? window.fetch : require('node-fetch');
-// @ts-ignore
-const Headers = typeof window !== 'undefined' ? window.Headers : require('node-fetch').Headers;
-// @ts-ignore
-const AbortController = typeof window !== 'undefined' ? window.AbortController : require('abort-controller');
-
 type FetcherOptions = {
   timeout: number,
   headers: Headers,

@@ -112,7 +112,7 @@ export default {
   created() {
     document.addEventListener('mouseup', this.globalMouseup);
   },
-  destroyed() {
+  unmounted() {
     document.removeEventListener('mouseup', this.globalMouseup);
   },
   methods: {

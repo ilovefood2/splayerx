@@ -1,22 +1,22 @@
-import { BrowserView } from 'electron';
+import { WebContentsView } from 'electron';
 
-type BrowserViewHistoryItem = {
+type WebContentsViewHistoryItem = {
   lastUpdateTime: number,
   url: string,
-  view: BrowserView,
+  view: WebContentsView,
 }
 
 type BrowserSingleCache = {
   lastUpdateTime: number,
-  page: BrowserViewHistoryItem,
+  page: WebContentsViewHistoryItem,
 }
 
 type BrowserMultiCache = {
   lastUpdateTime: number,
-  pages: BrowserViewHistoryItem[],
+  pages: WebContentsViewHistoryItem[],
 }
 
-class BrowserViewCacheManager implements IBrowserViewCacheManager {
+class WebContentsViewCacheManager implements IWebContentsViewCacheManager {
   private singlePageHistory: Map<string, BrowserSingleCache>;
 
   private multiPageHistory: Map<string, BrowserMultiCache>;
@@ -35,7 +35,7 @@ class BrowserViewCacheManager implements IBrowserViewCacheManager {
   }
 
   // 将只允许缓存一个页面的频道更新到单页缓存列表中
-  public addChannelToSingle(channel: string, info: BrowserViewHistoryItem): void {
+  public addChannelToSingle(channel: string, info: WebContentsViewHistoryItem): void {
     // 当前允许单页缓存的channel超过最大可缓存的限制
     if (this.singlePageHistory.size >= this.singleMaxNum) {
       const key = this.singlePageHistory.keys().next().value;
@@ -55,7 +55,11 @@ class BrowserViewCacheManager implements IBrowserViewCacheManager {
   }
 
   // 将允许多页缓存的频道更新到多页缓存的列表中
-  public addChannelToMulti(channel: string, info: BrowserViewHistoryItem, pageNum?: number): void {
+  public addChannelToMulti(
+    channel: string,
+    info: WebContentsViewHistoryItem,
+    pageNum?: number,
+  ): void {
     pageNum = pageNum || 2; // 默认每个channel最多缓存2个page
     const multiPageHistory = this.multiPageHistory.get(channel) as BrowserMultiCache;
 
@@ -67,7 +71,7 @@ class BrowserViewCacheManager implements IBrowserViewCacheManager {
         multiPageHistory.pages.push(info);
       } else {
         const destroyItem = multiPageHistory.pages.pop();
-        (destroyItem as BrowserViewHistoryItem).view.destroy();
+        (destroyItem as WebContentsViewHistoryItem).view.destroy();
         multiPageHistory.pages.push(info);
       }
       multiPageHistory.lastUpdateTime = Date.now();
@@ -81,7 +85,7 @@ class BrowserViewCacheManager implements IBrowserViewCacheManager {
         this.singlePageHistory.delete(lastSingleKey);
       }
       // 将多页缓存中最早记录的频道降为单页缓存
-      pages.forEach((page: BrowserViewHistoryItem, index: number) => {
+      pages.forEach((page: WebContentsViewHistoryItem, index: number) => {
         if (index === 0) {
           this.addChannelToSingle(key, page);
         } else {
@@ -106,8 +110,8 @@ class BrowserViewCacheManager implements IBrowserViewCacheManager {
   }
 
   // 更新已缓存的cache
-  public changeCacheUrl(oldChannel: string, newChannel: string, oldPage: BrowserViewHistoryItem,
-    newPage: BrowserViewHistoryItem, isMulti: boolean): void {
+  public changeCacheUrl(oldChannel: string, newChannel: string, oldPage: WebContentsViewHistoryItem,
+    newPage: WebContentsViewHistoryItem, isMulti: boolean): void {
     if (this.singlePageHistory.has(newChannel)) {
       if (isMulti) {
         this.addChannelToMulti(newChannel, newPage);
@@ -123,7 +127,7 @@ class BrowserViewCacheManager implements IBrowserViewCacheManager {
       if (this.multiPageHistory.get(newChannel)) {
         const pages = (this.multiPageHistory.get(newChannel) as BrowserMultiCache).pages;
         // eslint-disable-next-line array-callback-return
-        pages.map((page: BrowserViewHistoryItem) => {
+        pages.map((page: WebContentsViewHistoryItem) => {
           if (page.url === newPage.url) {
             isExist = true;
             page.lastUpdateTime = Date.now();
@@ -140,24 +144,24 @@ class BrowserViewCacheManager implements IBrowserViewCacheManager {
     }
   }
 
-  // TODO 清空所有缓存(需要清空url和BrowserView)
+  // TODO 清空所有缓存(需要清空url和WebContentsView)
   public clearAllCache(): void {
     this.singlePageHistory.clear();
     this.multiPageHistory.clear();
   }
 
   // 由于后退产生的历史记录在被清空的时候同时也需要清空缓存
-  public clearBackPagesCache(channel: string, items: BrowserViewHistoryItem[]): void {
+  public clearBackPagesCache(channel: string, items: WebContentsViewHistoryItem[]): void {
     if (this.multiPageHistory.has(channel)) {
       (this.multiPageHistory.get(channel) as BrowserMultiCache)
         .pages = (this.multiPageHistory.get(channel) as BrowserMultiCache).pages
-          .filter((page: BrowserViewHistoryItem) => !items.includes(page));
+          .filter((page: WebContentsViewHistoryItem) => !items.includes(page));
     }
   }
 
   // 进入画中画时将画中画页面移除缓存
-  public removeCacheWhenEnterPip(channel: string, mainPage: BrowserViewHistoryItem,
-    deletePages: BrowserViewHistoryItem[]): void {
+  public removeCacheWhenEnterPip(channel: string, mainPage: WebContentsViewHistoryItem,
+    deletePages: WebContentsViewHistoryItem[]): void {
     if (this.singlePageHistory.has(channel)) {
       this.singlePageHistory.set(channel, {
         lastUpdateTime: Date.now(),
@@ -166,13 +170,13 @@ class BrowserViewCacheManager implements IBrowserViewCacheManager {
     } else {
       (this.multiPageHistory.get(channel) as BrowserMultiCache)
         .pages = (this.multiPageHistory.get(channel) as BrowserMultiCache).pages
-          .filter((page: BrowserViewHistoryItem) => !deletePages.includes(page));
+          .filter((page: WebContentsViewHistoryItem) => !deletePages.includes(page));
     }
   }
 
   // 退出画中画时恢复画中画页面的缓存
   public recoverCacheWhenExitPip(channel: string,
-    mainPage: BrowserViewHistoryItem, deletePages: BrowserViewHistoryItem[]): void {
+    mainPage: WebContentsViewHistoryItem, deletePages: WebContentsViewHistoryItem[]): void {
     if (this.singlePageHistory.has(channel)) {
       (this.singlePageHistory.get(channel) as BrowserSingleCache).page.view.destroy();
       this.singlePageHistory.set(channel, {
@@ -182,7 +186,7 @@ class BrowserViewCacheManager implements IBrowserViewCacheManager {
     } else {
       (this.multiPageHistory.get(channel) as BrowserMultiCache)
         .pages = (this.multiPageHistory.get(channel) as BrowserMultiCache).pages
-          .filter((page: BrowserViewHistoryItem) => !deletePages.includes(page));
+          .filter((page: WebContentsViewHistoryItem) => !deletePages.includes(page));
       this.addChannelToMulti(channel, mainPage);
     }
   }
@@ -193,7 +197,7 @@ class BrowserViewCacheManager implements IBrowserViewCacheManager {
       this.singlePageHistory.delete(channel);
     } else if (this.multiPageHistory.has(channel)) {
       (this.multiPageHistory.get(channel) as BrowserMultiCache).pages
-        .forEach((page: BrowserViewHistoryItem) => {
+        .forEach((page: WebContentsViewHistoryItem) => {
           page.view.destroy();
         });
       this.multiPageHistory.delete(channel);
@@ -201,26 +205,26 @@ class BrowserViewCacheManager implements IBrowserViewCacheManager {
   }
 }
 
-interface IBrowserViewCacheManager {
-  addChannelToSingle(channel: string, info: BrowserViewHistoryItem): void,
-  addChannelToMulti(channel: string, info: BrowserViewHistoryItem, pageNum?: number): void,
+interface IWebContentsViewCacheManager {
+  addChannelToSingle(channel: string, info: WebContentsViewHistoryItem): void,
+  addChannelToMulti(channel: string, info: WebContentsViewHistoryItem, pageNum?: number): void,
   changeCacheUrl(
     oldChannel: string,
     newChannel: string,
-    oldPage: BrowserViewHistoryItem,
-    newPage: BrowserViewHistoryItem,
+    oldPage: WebContentsViewHistoryItem,
+    newPage: WebContentsViewHistoryItem,
     isMulti: boolean,
   ): void,
   clearAllCache(): void,
-  clearBackPagesCache(channel: string, items: BrowserViewHistoryItem[]): void,
+  clearBackPagesCache(channel: string, items: WebContentsViewHistoryItem[]): void,
   removeCacheWhenEnterPip(
     channel: string,
-    mainPage: BrowserViewHistoryItem,
-    deletePages: BrowserViewHistoryItem[],
+    mainPage: WebContentsViewHistoryItem,
+    deletePages: WebContentsViewHistoryItem[],
   ): void,
   recoverCacheWhenExitPip(channel: string,
-    mainPage: BrowserViewHistoryItem, deletePages: BrowserViewHistoryItem[]): void,
+    mainPage: WebContentsViewHistoryItem, deletePages: WebContentsViewHistoryItem[]): void,
   clearCacheByChannel(channel: string): void,
 }
 
-export default BrowserViewCacheManager;
+export default WebContentsViewCacheManager;

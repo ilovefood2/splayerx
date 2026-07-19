@@ -12,7 +12,7 @@
         <p class="content"><!--eslint-disable-line-->{{ content }}</p>
       </div>
       <Icon
-        @click.native.left="close(id, title)"
+        @click.left="close(id, title)"
         type="close"
         class="bubble-close"
       />

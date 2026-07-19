@@ -7,11 +7,8 @@
 
 /* eslint-disable */
 
-// Install `electron-debug` with `devtron`
+// Install Electron development shortcuts and DevTools helpers.
 require('electron-debug')()
-
-// Install 'devtron'
-require('electron').app.on('ready', require('devtron').install)
 
 // Require `main` process to boot app
 require('./index')

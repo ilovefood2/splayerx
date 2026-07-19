@@ -7,7 +7,6 @@ const childProcess = require('child_process');
 const webpack = require('webpack');
 const { dependencies, optionalDependencies, _moduleAliases } = require('../package.json');
 const TerserPlugin = require('terser-webpack-plugin');
-const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 
 let release = '';
 try {
@@ -27,24 +26,16 @@ try {
 
 let mainConfig = {
   mode: 'development',
-  devtool: '#source-map',
+  devtool: 'source-map',
   entry: {
     main: path.join(__dirname, '../src/main/index.js'),
   },
-  externals: [...Object.keys(Object.assign({}, dependencies, optionalDependencies))],
+  externals: [
+    ...Object.keys(Object.assign({}, dependencies, optionalDependencies)),
+    '@sentry/electron/main',
+  ],
   module: {
     rules: [
-      {
-        test: /\.(js)$/,
-        enforce: 'pre',
-        exclude: /node_modules/,
-        use: {
-          loader: 'eslint-loader',
-          options: {
-            formatter: require('eslint-friendly-formatter'),
-          },
-        },
-      },
       {
         test: /\.ts$/,
         exclude: /node_modules/,
@@ -66,19 +57,16 @@ let mainConfig = {
       },
       {
         test: /\.(png|jpe?g|gif|svg|ico|icns)(\?.*)?$/,
-        use: {
-          loader: 'url-loader',
-          options: {
-            limit: 1000000,
+        type: 'asset',
+        parser: {
+          dataUrlCondition: {
+            maxSize: 1000000,
           },
         },
       },
     ],
   },
-  node: {
-    __dirname: process.env.NODE_ENV !== 'production',
-    __filename: process.env.NODE_ENV !== 'production',
-  },
+  node: false,
   output: {
     filename: '[name].js',
     libraryTarget: 'commonjs2',
@@ -134,11 +122,6 @@ if (process.env.NODE_ENV === 'production') {
       }),
     ],
   };
-
-  if (!process.env.TEST && process.platform === 'darwin') {
-    // only check on mac, to speed up Windows build
-    mainConfig.plugins.push(new ForkTsCheckerWebpackPlugin({ eslint: true }));
-  }
 }
 
 module.exports = mainConfig;

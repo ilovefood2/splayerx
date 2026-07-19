@@ -42,7 +42,7 @@ export default {
     Vue.mixin({
       mounted() {
         const { name, type } = this.$options;
-        if (name && type === INPUT_COMPONENT_TYPE) addComponent(name, this.$el, this.$vnode.key);
+        if (name && type === INPUT_COMPONENT_TYPE) addComponent(name, this.$el);
         if (this === this.$root && this.$el) {
           // setup event listeners
           document.addEventListener('mousemove', mousemove);
@@ -53,7 +53,7 @@ export default {
           document.addEventListener('wheel', wheel);
         }
       },
-      beforeDestroy() {
+      beforeUnmount() {
         const { name, type } = this.$options;
         if (name && type === INPUT_COMPONENT_TYPE) removeComponent(this.$el);
         if (this === this.$root && this.$el) {

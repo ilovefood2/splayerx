@@ -1,9 +1,8 @@
 import './helpers/setUserDataDir';
 // Be sure to call Sentry function as early as possible in the main process
-import '../shared/sentry';
+import '../shared/sentry-main';
 
-import { app, BrowserWindow, session, Tray, ipcMain, globalShortcut, nativeImage, systemPreferences, BrowserView, webContents, inAppPurchase, screen, dialog, Notification, shell } from 'electron' // eslint-disable-line
-import { initialize as initializeRemote, enable as enableRemote } from '@electron/remote/main';
+import { app, BrowserWindow, session, Tray, ipcMain, globalShortcut, nativeImage, systemPreferences, WebContentsView, webContents, inAppPurchase, screen, dialog, Notification, shell } from 'electron' // eslint-disable-line
 import {
   throttle, debounce, uniq, uniqBy,
 } from 'lodash';
@@ -13,11 +12,10 @@ import path, {
 } from 'path';
 import fs from 'fs';
 import qs from 'querystring';
-import rimraf from 'rimraf';
-import mkdirp from 'mkdirp';
 import { castService } from './helpers/cast/CastService';
 import { applePayVerify } from './helpers/ApplePayVerify';
 import './helpers/electronPrototypes';
+import './helpers/rendererBridge';
 import {
   isVideo, isSubtitle,
   saveToken, getEnvironmentName,
@@ -26,18 +24,11 @@ import {
 import { mouse } from './helpers/mouse';
 import MenuService from './menu/MenuService';
 import registerMediaTasks from './helpers/mediaTasksPlugin';
-import { BrowserViewManager } from './helpers/BrowserViewManager';
+import { WebContentsViewManager } from './helpers/WebContentsViewManager';
 import InjectJSManager from '../../src/shared/pip/InjectJSManager';
 import Locale from '../shared/common/localize';
 
 import losslessStreamingInstance from './helpers/LosslessStreaming';
-
-// Electron removed the built-in `remote` module in v14. SPlayer still has a
-// number of legacy renderer call sites, so bridge them through the maintained
-// @electron/remote package while they are migrated to explicit IPC. Enabling
-// every WebContents here also covers BrowserViews and independent player windows.
-initializeRemote();
-app.on('web-contents-created', (event, contents) => enableRemote(contents));
 
 // requestSingleInstanceLock is not going to work for mas
 // https://github.com/electron-userland/electron-packager/issues/923
@@ -49,19 +40,36 @@ if (!process.mas && !app.requestSingleInstanceLock()) {
  * Check for restore mark and delete all user data
  */
 const userDataPath = app.getPath('userData');
+function removeUserDataExceptLockfiles(directory) {
+  fs.readdirSync(directory, { withFileTypes: true }).forEach((entry) => {
+    if (entry.name === 'lockfile') return;
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      removeUserDataExceptLockfiles(entryPath);
+      try {
+        fs.rmdirSync(entryPath);
+      } catch (error) {
+        if (error.code !== 'ENOTEMPTY') throw error;
+      }
+      return;
+    }
+    fs.rmSync(entryPath, { force: true });
+  });
+}
+
 if (fs.existsSync(path.join(userDataPath, 'NEED_TO_RESTORE_MARK'))) {
   try {
     app.clearRecentDocuments();
     const tbdPath = `${userDataPath}-TBD`;
-    if (fs.existsSync(tbdPath)) rimraf.sync(tbdPath);
+    if (fs.existsSync(tbdPath)) fs.rmSync(tbdPath, { recursive: true, force: true });
     fs.renameSync(userDataPath, tbdPath);
-    rimraf(tbdPath, (err) => {
+    fs.rm(tbdPath, { recursive: true, force: true }, (err) => {
       if (err) console.error(err);
     });
   } catch (ex) {
     console.error(ex);
     try {
-      rimraf.sync(`${userDataPath}/**/!(lockfile)`);
+      removeUserDataExceptLockfiles(userDataPath);
       console.log('Successfully removed all user data.');
     } catch (ex) {
       console.error(ex);
@@ -96,7 +104,7 @@ let lastDownloadDate = 0;
 let paymentWindow = null;
 let openUrlWindow = null;
 let losslessStreamingWindow = null;
-let browserViewManager = null;
+let webContentsViewManager = null;
 let pipControlView = null;
 let titlebarView = null;
 let downloadListView = null;
@@ -160,7 +168,7 @@ const losslessStreamingURL = process.env.NODE_ENV === 'development'
   : `file://${__dirname}/losslessStreaming.html`;
 
 const tempFolderPath = path.join(app.getPath('temp'), 'splayer');
-if (!fs.existsSync(tempFolderPath)) mkdirp.sync(tempFolderPath);
+if (!fs.existsSync(tempFolderPath)) fs.mkdirSync(tempFolderPath, { recursive: true });
 
 function isUsableMainWindow(window) {
   return window && mainWindows.has(window) && !window.isDestroyed()
@@ -246,13 +254,14 @@ function pipControlViewTitle(isGlobal) {
 
 function createPipControlView() {
   if (pipControlView && !pipControlView.isDestroyed()) pipControlView.destroy();
-  pipControlView = new BrowserView({
+  pipControlView = new WebContentsView({
     webPreferences: {
       contextIsolation: false,
+      sandbox: false,
       preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
     },
   });
-  browsingWindow.addBrowserView(pipControlView);
+  browsingWindow.addWebContentsView(pipControlView);
   pipControlView.webContents.loadURL(`file:${require('path').resolve(__static, 'pip/pipControl.html')}`);
   pipControlView.setBackgroundColor('#00FFFFFF');
   pipControlView.setBounds({
@@ -266,14 +275,15 @@ function createPipControlView() {
 function createDownloadListView(title, list, url, isVip, resolution, path) {
   locale.refreshDisplayLanguage();
   if (downloadListView && !downloadListView.isDestroyed()) downloadListView.destroy();
-  downloadListView = new BrowserView({
+  downloadListView = new WebContentsView({
     webPreferences: {
       contextIsolation: false,
       nodeIntegration: true,
+      sandbox: false,
       preload: `${require('path').resolve(__static, 'download/preload.js')}`,
     },
   });
-  mainWindow.addBrowserView(downloadListView);
+  mainWindow.addWebContentsView(downloadListView);
   downloadListView.setBackgroundColor('#00FFFFFF');
   const availableList = list.find(i => i.ext === 'mp4')
     ? list.filter(i => i.acodec !== 'none' && i.vcodec !== 'none').filter(i => i.ext === 'mp4').sort((a, b) => parseInt(a['format_note'], 10) - parseInt(b['format_note'], 10))
@@ -326,7 +336,7 @@ function createDownloadListView(title, list, url, isVip, resolution, path) {
     width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
     height: mainWindow.getSize()[1] - 40,
   });
-  downloadListView.setAutoResize({
+  mainWindow.setWebContentsViewAutoResize(downloadListView, {
     width: true,
     height: true,
   });
@@ -334,13 +344,14 @@ function createDownloadListView(title, list, url, isVip, resolution, path) {
 
 function createTitlebarView() {
   if (titlebarView) titlebarView.destroy();
-  titlebarView = new BrowserView({
+  titlebarView = new WebContentsView({
     webPreferences: {
       contextIsolation: false,
+      sandbox: false,
       preload: `${require('path').resolve(__static, 'pip/titlebarPreload.js')}`,
     },
   });
-  browsingWindow.addBrowserView(titlebarView);
+  browsingWindow.addWebContentsView(titlebarView);
   titlebarView.webContents.loadURL(titlebarUrl);
   titlebarView.setBackgroundColor('#00FFFFFF');
   titlebarView.setBounds({
@@ -350,8 +361,8 @@ function createTitlebarView() {
 
 function createMaskView() {
   if (maskView) maskView.destroy();
-  maskView = new BrowserView();
-  browsingWindow.addBrowserView(maskView);
+  maskView = new WebContentsView();
+  browsingWindow.addWebContentsView(maskView);
   maskView.webContents.loadURL(maskUrl);
   maskView.setBackgroundColor('#00FFFFFF');
   maskView.setBounds({
@@ -510,6 +521,7 @@ function createOpenUrlWindow() {
       contextIsolation: false,
       webSecurity: false,
       nodeIntegration: true,
+      sandbox: false,
       experimentalFeatures: true,
       preload: `${require('path').resolve(__static, 'openUrl/preload.js')}`,
     },
@@ -545,15 +557,16 @@ function createOpenUrlWindow() {
 
 function createPremiumView(e, route) {
   if (!premiumView) {
-    premiumView = new BrowserView({
+    premiumView = new WebContentsView({
       webPreferences: {
         contextIsolation: false,
+        sandbox: false,
         preload: `${require('path').resolve(__static, 'premium/preload.js')}`,
         webSecurity: false,
       },
     });
     premiumView.setBackgroundColor('#3B3B41');
-    preferenceWindow.setBrowserView(premiumView);
+    preferenceWindow.setWebContentsView(premiumView);
     if (route) premiumView.webContents.loadURL(`${premiumURL}#/${route}`);
     else premiumView.webContents.loadURL(`${premiumURL}`);
     premiumView.webContents.userAgent = `${premiumView.webContents.userAgent.replace(/Electron\S+/i, '')} SPlayerX@2018 Platform/${os.platform()} Release/${os.release()} Version/${app.getVersion()} EnvironmentName/${environmentName}`;
@@ -587,6 +600,7 @@ function createPreferenceWindow(e, route) {
       contextIsolation: false,
       webSecurity: false,
       nodeIntegration: true,
+      sandbox: false,
       experimentalFeatures: true,
     },
     acceptFirstMouse: true,
@@ -628,7 +642,7 @@ function createPreferenceWindow(e, route) {
   if (!premiumView) {
     // 预先加载好PremiumView
     createPremiumView(e, route);
-    preferenceWindow.removeBrowserView(premiumView);
+    preferenceWindow.removeWebContentsView(premiumView);
   }
 }
 
@@ -688,6 +702,7 @@ function createDownloadWindow(args) {
       contextIsolation: false,
       webSecurity: false,
       nodeIntegration: true,
+      sandbox: false,
       experimentalFeatures: true,
       webviewTag: true,
       preload: `${require('path').resolve(__static, 'download/downloadWindowPreload.js')}`,
@@ -886,14 +901,14 @@ function createLosslessStreamingWindow() {
 
 
 function openHistoryItem(evt, args) {
-  if (!browserViewManager) browserViewManager = new BrowserViewManager();
+  if (!webContentsViewManager) webContentsViewManager = new WebContentsViewManager();
   if (!availableChannels.find(i => [args.channel, calcCurrentChannel(args.url)]
     .includes(i.channel))) {
     mainWindow.send('add-temporary-site', args);
   } else {
-    const newChannel = browserViewManager.openHistoryPage(args.channel, args.url);
+    const newChannel = webContentsViewManager.openHistoryPage(args.channel, args.url);
     const view = newChannel.view ? newChannel.view : newChannel.page.view;
-    mainWindow.addBrowserView(view);
+    mainWindow.addWebContentsView(view);
     mainWindow.send('update-browser-state', {
       url: args.url,
       canGoBack: newChannel.canBack,
@@ -916,7 +931,7 @@ function openHistoryItem(evt, args) {
         height: mainWindow.getSize()[1] - 40,
       });
     }
-    view.setAutoResize({
+    mainWindow.setWebContentsViewAutoResize(view, {
       width: true, height: true,
     });
   }
@@ -1004,7 +1019,7 @@ function registerMainWindowEvent(playerWindow) {
     if (targetWindow) targetWindow.webContents.send('send-url', urlInfo);
   });
   ipcMain.on('browser-window-mask', () => {
-    if (!browsingWindow.getBrowserViews().includes(maskView)) createMaskView();
+    if (!browsingWindow.getWebContentsViews().includes(maskView)) createMaskView();
     clearTimeout(maskEventTimer);
     maskEventTimer = setTimeout(() => {
       if (maskView) {
@@ -1013,7 +1028,7 @@ function registerMainWindowEvent(playerWindow) {
           `);
         clearTimeout(maskDisappearTimer);
         maskDisappearTimer = setTimeout(() => {
-          if (browsingWindow) browsingWindow.removeBrowserView(maskView);
+          if (browsingWindow) browsingWindow.removeWebContentsView(maskView);
         }, 120);
       }
     }, 300);
@@ -1034,7 +1049,7 @@ function registerMainWindowEvent(playerWindow) {
     }
   });
   ipcMain.on('pip-watcher', (evt, args) => {
-    browsingWindow.getBrowserViews()[0].webContents.executeJavaScript(args);
+    browsingWindow.getWebContentsViews()[0].webContents.executeJavaScript(args);
   });
   ipcMain.on('update-locale', () => {
     locale.refreshDisplayLanguage();
@@ -1050,45 +1065,45 @@ function registerMainWindowEvent(playerWindow) {
     }
   });
   ipcMain.on('pip-window-close', (evt, args) => {
-    const views = browsingWindow.getBrowserViews();
+    const views = browsingWindow.getWebContentsViews();
     if (views.length) {
       views.forEach((view) => {
-        browsingWindow.removeBrowserView(view);
+        browsingWindow.removeWebContentsView(view);
       });
-      browserViewManager.pipClose();
+      webContentsViewManager.pipClose();
       mainWindow.send('update-pip-state', args);
     }
   });
   ipcMain.on('remove-main-window', () => {
-    browserViewManager.pauseVideo(mainWindow.getBrowserViews()[0]);
+    webContentsViewManager.pauseVideo(mainWindow.getWebContentsViews()[0]);
     mainWindow.hide();
   });
   ipcMain.on('clear-browsers-by-channel', (evt, channel) => {
-    if (!browserViewManager) return;
-    browserViewManager.clearBrowserViewsByChannel(channel);
+    if (!webContentsViewManager) return;
+    webContentsViewManager.clearWebContentsViewsByChannel(channel);
   });
   ipcMain.on('remove-browser', () => {
-    if (!browserViewManager) return;
-    if (mainWindow.getBrowserViews().length) browserViewManager.pauseVideo();
-    mainWindow.getBrowserViews()
-      .forEach(mainWindowView => mainWindow.removeBrowserView(mainWindowView));
+    if (!webContentsViewManager) return;
+    if (mainWindow.getWebContentsViews().length) webContentsViewManager.pauseVideo();
+    mainWindow.getWebContentsViews()
+      .forEach(mainWindowView => mainWindow.removeWebContentsView(mainWindowView));
     if (mainWindow.isMaximized()) mainWindow.unmaximize();
     if (browsingWindow) {
-      const views = browsingWindow.getBrowserViews();
+      const views = browsingWindow.getWebContentsViews();
       views.forEach((view) => {
-        browsingWindow.removeBrowserView(view);
+        browsingWindow.removeWebContentsView(view);
       });
-      browserViewManager.pipClose();
+      webContentsViewManager.pipClose();
       browsingWindow.close();
     }
-    browserViewManager.clearAllBrowserViews();
+    webContentsViewManager.clearAllWebContentsViews();
   });
   ipcMain.on('go-to-offset', (evt, val) => {
-    if (!browserViewManager) return;
-    mainWindow.removeBrowserView(mainWindow.getBrowserViews()[0]);
-    const newBrowser = val === 1 ? browserViewManager.forward() : browserViewManager.back();
+    if (!webContentsViewManager) return;
+    mainWindow.removeWebContentsView(mainWindow.getWebContentsViews()[0]);
+    const newBrowser = val === 1 ? webContentsViewManager.forward() : webContentsViewManager.back();
     if (newBrowser.page) {
-      mainWindow.addBrowserView(newBrowser.page.view);
+      mainWindow.addWebContentsView(newBrowser.page.view);
       mainWindow.send('update-browser-state', {
         url: newBrowser.page.url,
         canGoBack: newBrowser.canBack,
@@ -1111,32 +1126,32 @@ function registerMainWindowEvent(playerWindow) {
           height: mainWindow.getSize()[1] - 40,
         });
       }
-      newBrowser.page.view.setAutoResize({
+      mainWindow.setWebContentsViewAutoResize(newBrowser.page.view, {
         width: true, height: true,
       });
     }
   });
   ipcMain.on('open-history-item', openHistoryItem);
   ipcMain.on('remove-web-page', () => {
-    if (!browserViewManager) browserViewManager = new BrowserViewManager();
-    const mainBrowser = mainWindow.getBrowserViews()[0];
+    if (!webContentsViewManager) webContentsViewManager = new WebContentsViewManager();
+    const mainBrowser = mainWindow.getWebContentsViews()[0];
     if (mainBrowser) {
-      browserViewManager.pauseVideo();
-      mainWindow.removeBrowserView(mainBrowser);
+      webContentsViewManager.pauseVideo();
+      mainWindow.removeWebContentsView(mainBrowser);
     }
   });
   ipcMain.on('change-channel', (evt, args) => {
-    if (!browserViewManager) browserViewManager = new BrowserViewManager();
-    const mainBrowser = mainWindow.getBrowserViews()[0];
+    if (!webContentsViewManager) webContentsViewManager = new WebContentsViewManager();
+    const mainBrowser = mainWindow.getWebContentsViews()[0];
     if (mainBrowser) {
-      mainWindow.removeBrowserView(mainBrowser);
+      mainWindow.removeWebContentsView(mainBrowser);
     } else {
-      browserViewManager.setCurrentChannel('');
+      webContentsViewManager.setCurrentChannel('');
     }
-    const newChannel = browserViewManager.changeChannel(args.channel, args);
+    const newChannel = webContentsViewManager.changeChannel(args.channel, args);
     const view = newChannel.view ? newChannel.view : newChannel.page.view;
     const url = newChannel.view ? args.url : newChannel.page.url;
-    mainWindow.addBrowserView(view);
+    mainWindow.addWebContentsView(view);
     setTimeout(() => {
       mainWindow.send('update-browser-state', {
         url,
@@ -1162,18 +1177,18 @@ function registerMainWindowEvent(playerWindow) {
           height: mainWindow.getSize()[1] - 40,
         });
       }
-      view.setAutoResize({
+      mainWindow.setWebContentsViewAutoResize(view, {
         width: true, height: true,
       });
     }
   });
   ipcMain.on('create-browser-view', (evt, args) => {
-    if (!browserViewManager) browserViewManager = new BrowserViewManager();
-    const currentMainBrowserView = browserViewManager.create(args.channel, args);
+    if (!webContentsViewManager) webContentsViewManager = new WebContentsViewManager();
+    const currentMainWebContentsView = webContentsViewManager.create(args.channel, args);
     mainWindow.send('update-browser-state', {
       url: args.url,
-      canGoBack: currentMainBrowserView.canBack,
-      canGoForward: currentMainBrowserView.canForward,
+      canGoBack: currentMainWebContentsView.canBack,
+      canGoForward: currentMainWebContentsView.canForward,
     });
   });
   ipcMain.on('update-danmu-state', (evt, val) => {
@@ -1189,7 +1204,7 @@ function registerMainWindowEvent(playerWindow) {
     mainWindow.send('handle-danmu-display');
   });
   ipcMain.on('handle-danmu-display', (evt, code) => {
-    browsingWindow.getBrowserViews()[0].webContents.executeJavaScript(code);
+    browsingWindow.getWebContentsViews()[0].webContents.executeJavaScript(code);
   });
   ipcMain.on('mousemove', () => {
     if (browsingWindow && browsingWindow.isFocused()) {
@@ -1265,7 +1280,7 @@ function registerMainWindowEvent(playerWindow) {
         break;
       case 'recover':
         browsingWindow.setFullScreen(false);
-        browsingWindow.getBrowserViews()[0].webContents
+        browsingWindow.getWebContentsViews()[0].webContents
           .executeJavaScript(InjectJSManager.changeFullScreen(false));
         titlebarView.webContents.executeJavaScript(InjectJSManager
           .updateFullScreenIcon(false, isBrowsingWindowMax));
@@ -1294,24 +1309,24 @@ function registerMainWindowEvent(playerWindow) {
     }
   });
   ipcMain.on('shift-pip', (evt, args) => {
-    if (!browserViewManager) return;
-    const mainWindowViews = mainWindow.getBrowserViews();
+    if (!webContentsViewManager) return;
+    const mainWindowViews = mainWindow.getWebContentsViews();
     mainWindowViews
-      .forEach(mainWindowView => mainWindow.removeBrowserView(mainWindowView));
-    const browViews = browsingWindow.getBrowserViews();
+      .forEach(mainWindowView => mainWindow.removeWebContentsView(mainWindowView));
+    const browViews = browsingWindow.getWebContentsViews();
     browViews.forEach((view) => {
-      browsingWindow.removeBrowserView(view);
+      browsingWindow.removeWebContentsView(view);
     });
-    const browsers = browserViewManager.changePip(args.channel);
+    const browsers = webContentsViewManager.changePip(args.channel);
     const pipBrowser = browsers.pipBrowser;
     const mainBrowser = browsers.mainBrowser;
-    mainWindow.addBrowserView(mainBrowser.page.view);
-    browsingWindow.addBrowserView(pipBrowser);
+    mainWindow.addWebContentsView(mainBrowser.page.view);
+    browsingWindow.addWebContentsView(pipBrowser);
     createPipControlView();
     createTitlebarView();
     if (args.isGlobal) {
       isGlobal = args.isGlobal;
-      browserViewManager.pauseVideo(mainWindow.getBrowserViews()[0]);
+      webContentsViewManager.pauseVideo(mainWindow.getWebContentsViews()[0]);
       mainWindow.hide();
     }
     mainBrowser.page.view.setBounds({
@@ -1320,13 +1335,13 @@ function registerMainWindowEvent(playerWindow) {
       width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
       height: mainWindow.getSize()[1] - 40,
     });
-    mainBrowser.page.view.setAutoResize({
+    mainWindow.setWebContentsViewAutoResize(mainBrowser.page.view, {
       width: true, height: true,
     });
     pipBrowser.setBounds({
       x: 0, y: 0, width: browsingWindow.getSize()[0], height: browsingWindow.getSize()[1],
     });
-    pipBrowser.setAutoResize({
+    browsingWindow.setWebContentsViewAutoResize(pipBrowser, {
       width: true, height: true,
     });
     mainWindow.send('update-browser-state', {
@@ -1340,23 +1355,23 @@ function registerMainWindowEvent(playerWindow) {
     browsingWindow.focus();
   });
   ipcMain.on('enter-pip', (evt, args) => {
-    if (!browserViewManager) return;
-    const browsers = browserViewManager.enterPip();
+    if (!webContentsViewManager) return;
+    const browsers = webContentsViewManager.enterPip();
     const pipBrowser = browsers.pipBrowser;
     const mainBrowser = browsers.mainBrowser;
     if (!browsingWindow) {
       createBrowsingWindow({ size: args.pipInfo.pipSize, position: args.pipInfo.pipPos });
       mainWindow.send('init-pip-position');
-      mainWindow.removeBrowserView(mainWindow.getBrowserViews()[0]);
-      mainWindow.addBrowserView(mainBrowser.page.view);
-      browsingWindow.addBrowserView(pipBrowser);
+      mainWindow.removeWebContentsView(mainWindow.getWebContentsViews()[0]);
+      mainWindow.addWebContentsView(mainBrowser.page.view);
+      browsingWindow.addWebContentsView(pipBrowser);
       createPipControlView();
       createTitlebarView();
       browsingWindow.show();
     } else {
-      mainWindow.removeBrowserView(mainWindow.getBrowserViews()[0]);
-      mainWindow.addBrowserView(mainBrowser.page.view);
-      browsingWindow.addBrowserView(pipBrowser);
+      mainWindow.removeWebContentsView(mainWindow.getWebContentsViews()[0]);
+      mainWindow.addWebContentsView(mainBrowser.page.view);
+      browsingWindow.addWebContentsView(pipBrowser);
       browsingWindow.setSize(420, 236);
       createPipControlView();
       createTitlebarView();
@@ -1376,14 +1391,14 @@ function registerMainWindowEvent(playerWindow) {
       width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
       height: mainWindow.getSize()[1] - 40,
     });
-    mainBrowser.page.view.setAutoResize({
+    mainWindow.setWebContentsViewAutoResize(mainBrowser.page.view, {
       width: true,
       height: true,
     });
     pipBrowser.setBounds({
       x: 0, y: 0, width: browsingWindow.getSize()[0], height: browsingWindow.getSize()[1],
     });
-    pipBrowser.setAutoResize({
+    browsingWindow.setWebContentsViewAutoResize(pipBrowser, {
       width: true, height: true,
     });
     browsingWindow.send('update-pip-listener');
@@ -1443,7 +1458,7 @@ function registerMainWindowEvent(playerWindow) {
   });
   ipcMain.on('close-download-list', (evt, id) => {
     if (downloadListView && !downloadListView.isDestroyed()) {
-      mainWindow.removeBrowserView(downloadListView);
+      mainWindow.removeWebContentsView(downloadListView);
       downloadListView.destroy();
     }
     manualAbort = true;
@@ -1479,7 +1494,7 @@ function registerMainWindowEvent(playerWindow) {
       downloadWindow.show();
       mainWindow.send('store-download-date');
     }
-    mainWindow.removeBrowserView(downloadListView);
+    mainWindow.removeWebContentsView(downloadListView);
     downloadListView.destroy();
   });
   ipcMain.on('download-item-detail', (evt, info) => {
@@ -1514,26 +1529,26 @@ function registerMainWindowEvent(playerWindow) {
     else downloadWindow.send('continue-download-video', data);
   });
   ipcMain.on('exit-pip', (evt, args) => {
-    if (!browserViewManager) return;
+    if (!webContentsViewManager) return;
     browsingWindow.send('remove-pip-listener');
     mainWindow.show();
-    mainWindow.getBrowserViews()
-      .forEach(mainWindowView => mainWindow.removeBrowserView(mainWindowView));
-    const browViews = browsingWindow.getBrowserViews();
+    mainWindow.getWebContentsViews()
+      .forEach(mainWindowView => mainWindow.removeWebContentsView(mainWindowView));
+    const browViews = browsingWindow.getWebContentsViews();
     browViews.forEach((view) => {
-      browsingWindow.removeBrowserView(view);
+      browsingWindow.removeWebContentsView(view);
     });
-    const exitBrowser = browserViewManager.exitPip();
+    const exitBrowser = webContentsViewManager.exitPip();
     exitBrowser.page.view.webContents.executeJavaScript(args.jsRecover);
     if (args.cssRecover) exitBrowser.page.view.webContents.insertCSS(args.cssRecover);
-    mainWindow.addBrowserView(exitBrowser.page.view);
+    mainWindow.addWebContentsView(exitBrowser.page.view);
     exitBrowser.page.view.setBounds({
       x: sidebar ? 76 : 0,
       y: 40,
       width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
       height: mainWindow.getSize()[1] - 40,
     });
-    exitBrowser.page.view.setAutoResize({
+    mainWindow.setWebContentsViewAutoResize(exitBrowser.page.view, {
       width: true,
       height: true,
     });
@@ -1577,11 +1592,11 @@ function registerMainWindowEvent(playerWindow) {
       } else {
         targetWindow.maximize();
       }
-      const [mainBrowserView] = targetWindow.getBrowserViews();
-      if (mainBrowserView && !mainBrowserView.isDestroyed()) {
+      const [mainWebContentsView] = targetWindow.getWebContentsViews();
+      if (mainWebContentsView && !mainWebContentsView.isDestroyed()) {
         const bounds = targetWindow.getBounds();
         if (process.platform === 'win32' && targetWindow.isMaximized() && (bounds.x < 0 || bounds.y < 0)) {
-          targetWindow.getBrowserViews()[0].setBounds({
+          targetWindow.getWebContentsViews()[0].setBounds({
             x: sidebar ? 76 : 0,
             y: 40,
             width: sidebar ? bounds.width + (bounds.x * 2) - 76
@@ -1589,7 +1604,7 @@ function registerMainWindowEvent(playerWindow) {
             height: bounds.height - 40,
           });
         } else {
-          targetWindow.getBrowserViews()[0].setBounds({
+          targetWindow.getWebContentsViews()[0].setBounds({
             x: sidebar ? 76 : 0,
             y: 40,
             width: sidebar ? targetWindow.getSize()[0] - 76
@@ -1623,7 +1638,7 @@ function registerMainWindowEvent(playerWindow) {
       titlebarView.webContents.executeJavaScript(InjectJSManager
         .updateFullScreenIcon(browsingWindow.isFullScreen(), isBrowsingWindowMax));
     } else {
-      browsingWindow.getBrowserViews()[0].webContents
+      browsingWindow.getWebContentsViews()[0].webContents
         .executeJavaScript(InjectJSManager.emitKeydownEvent(keyCode));
     }
   });
@@ -1778,7 +1793,7 @@ function registerMainWindowEvent(playerWindow) {
   ipcMain.on('show-premium-view', (e, route) => {
     createPremiumView(e, route);
     if (preferenceWindow) {
-      preferenceWindow.addBrowserView(premiumView);
+      preferenceWindow.addWebContentsView(premiumView);
       const width = preferenceWindow.getSize()[0];
       const height = preferenceWindow.getSize()[1];
       preferenceWindow.setBounds({
@@ -1794,7 +1809,7 @@ function registerMainWindowEvent(playerWindow) {
 
   ipcMain.on('hide-premium-view', () => {
     if (premiumView && preferenceWindow) {
-      preferenceWindow.removeBrowserView(premiumView);
+      preferenceWindow.removeWebContentsView(premiumView);
     }
   });
 
@@ -2023,11 +2038,9 @@ const oauthRegex = [
 ];
 app.on('web-contents-created', (webContentsCreatedEvent, contents) => {
   if (contents.getType() === 'browserView') {
-    contents.on('new-window', (newWindowEvent, url) => {
-      if (!oauthRegex.some(re => re.test(url))) {
-        newWindowEvent.preventDefault();
-      }
-    });
+    contents.setWindowOpenHandler(({ url }) => ({
+      action: oauthRegex.some(re => re.test(url)) ? 'allow' : 'deny',
+    }));
   }
 });
 

@@ -10,7 +10,7 @@
     >
       <Icon
         :state="state"
-        @click.native="handleClose"
+        @click="handleClose"
         class="title-button"
         type="titleBarClose"
       />
@@ -25,7 +25,7 @@
     </div>
     <Icon
       v-if="!isDarwin"
-      @click.native="handleClose"
+      @click="handleClose"
       class="win-title-button no-drag"
       type="titleBarWinClose"
     />
@@ -120,7 +120,7 @@ export default {
       webview.addEventListener('did-finish-load', this.loadSuccess);
     }
   },
-  destroyed() {
+  unmounted() {
     this.remove();
   },
   methods: {

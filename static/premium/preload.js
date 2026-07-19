@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 // eslint-disable-next-line no-console
 const { ipcRenderer, clipboard } = require('electron');
-const remote = require('@electron/remote');
+const remote = require(`${__dirname}/../rendererBridge.js`);
 
 window.isDarwin = process.platform === 'darwin';
 

@@ -29,8 +29,8 @@
         :key="index"
         :index="index"
         :item-dragging="isDragging"
-        :index-of-moving-to.sync="indexOfMovingTo"
-        :index-of-moving-item.sync="indexOfMovingItem"
+        v-model:index-of-moving-to="indexOfMovingTo"
+        v-model:index-of-moving-item="indexOfMovingItem"
         :selected="info.channel === currentChannel && !showChannelManager"
         :select-sidebar="handleSidebarIcon"
         :selected-index="info.style"
@@ -351,7 +351,7 @@ export default {
       }, 100);
     }
   },
-  destroyed() {
+  unmounted() {
     this.$electron.ipcRenderer.off('losslessStreaming-info-update', this.onLosslessStreamingInfoUpdate);
   },
   methods: {
@@ -376,7 +376,7 @@ export default {
     async handleUrl({ url }: { url: string, username: string, password: string }) {
       // TODO m3u8 need user info
       if (!url) return;
-      const view = new this.$electron.remote.BrowserView();
+      const view = new this.$electron.remote.WebContentsView();
       const parseInfo = urlParseLax(/^(\w+):\/\//.test(url) ? url : `http://${url}`);
       this.channelInfo = {
         category: 'temporary',

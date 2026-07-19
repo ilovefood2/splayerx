@@ -1,26 +1,22 @@
-import Vue from 'vue';
-import VueI18n from 'vue-i18n';
+import { createApp } from 'vue';
+import { createI18n } from 'vue-i18n';
 import { hookVue } from '@/kerning';
+import { installRendererGlobals } from '@/bootstrap';
 import messages from '@/locales';
 // @ts-ignore
 import OpenUrl from '@/containers/OpenUrl.vue';
 import '@/css/style.scss';
 
-Vue.use(VueI18n);
-
-const i18n = new VueI18n({
+const i18n = createI18n({
+  legacy: true,
   // @ts-ignore
   locale: window.displayLanguage, // set locale
   fallbackLocale: 'en',
   messages, // set locale messages
 });
 
-hookVue(Vue);
-
-new Vue({
-  i18n,
+const app = createApp({
   components: { OpenUrl },
-  data: {},
   mounted() {
     // @ts-ignore
     window.ipcRenderer.on('setPreference', (event: Event, data: {
@@ -32,4 +28,8 @@ new Vue({
     });
   },
   template: '<OpenUrl/>',
-}).$mount('#app');
+});
+installRendererGlobals(app);
+app.use(i18n);
+hookVue(app);
+app.mount('#app');

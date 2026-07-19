@@ -39,26 +39,23 @@ describe('helper - proceduralQueue', () => {
     testQueue.start();
     expect(logStub).to.have.been.calledWith(testParam);
   });
-  it('should return a promise that resolves when task resolves', (done) => {
+  it('should return a promise that resolves when task resolves', async () => {
     testQueue = new ProceduralQueue();
-    const testPromise = testQueue.add(testTask);
-
-    testPromise.then((result) => {
-      expect(result).to.equal(testParam);
-      done();
-    }).catch(done);
+    const result = await testQueue.add(testTask);
+    expect(result).to.equal(testParam);
   });
-  it('should return a promise that rejects when task rejects', (done) => {
+  it('should return a promise that rejects when task rejects', async () => {
     testQueue = new ProceduralQueue();
     testTask = generateTask(testParam, true);
-    const testPromise = testQueue.add(testTask);
-
-    testPromise.catch((result) => {
-      expect(result).to.equal(testParam);
-      done();
-    }).then(() => done('Should reject but it resolves.'));
+    let rejection;
+    try {
+      await testQueue.add(testTask);
+    } catch (error) {
+      rejection = error;
+    }
+    expect(rejection).to.equal(testParam);
   });
-  it('should tasks be executed in order of adding', (done) => {
+  it('should tasks be executed in order of adding', async () => {
     const testObject = {};
     testObject.param1 = randStr();
     testObject.param2 = randStr();
@@ -68,9 +65,7 @@ describe('helper - proceduralQueue', () => {
     testQueue = new ProceduralQueue();
 
     testQueue.add(testTask1);
-    testQueue.add(testTask2).then(() => {
-      expect(logStub).to.have.been.always.calledWithExactly(testObject.param1);
-      done();
-    }).catch(done);
+    await testQueue.add(testTask2);
+    expect(logStub).to.have.been.always.calledWithExactly(testObject.param1);
   });
 });

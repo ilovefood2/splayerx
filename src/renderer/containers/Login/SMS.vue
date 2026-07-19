@@ -55,7 +55,7 @@
 </template>
 <script lang="ts">
 /* eslint-disable no-script-url */
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 import qs from 'querystring';
 // @ts-ignore
 import metadata from 'libphonenumber-js/metadata.mobile.json';
@@ -66,7 +66,7 @@ import { postMessage } from '@/../shared/utils';
 const ALI_CAPTCHA_APP_KEY = 'FFFF0N0000000000858A';
 const ALI_CAPTCHA_SCENE = 'nvc_message';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'SMS',
   components: {
   },

@@ -2,10 +2,9 @@
 import { cloneDeep } from 'lodash';
 import path from 'path';
 import { remote, OpenDialogReturnValue } from 'electron';
-import Vue from 'vue';
-import uuidv4 from 'uuid/v4';
-// @ts-ignore
-import { event } from 'vue-analytics';
+import { v4 as uuidv4 } from 'uuid';
+import { analytics } from '@/services/analytics';
+import { rendererEventBus } from '@/services/globalEvents';
 import {
   ISubtitleControlListItem, Cue, ModifiedCues, Type, IMetadata, ModifiedSubtitle, TextCue,
 } from '@/interfaces/ISubtitle';
@@ -132,8 +131,8 @@ const mutations = {
     state.isCreateSubtitleMode = !payload ? false : state.isCreateSubtitleMode;
     state.history = !payload ? [] : state.history;
     state.currentIndex = !payload ? -1 : state.currentIndex;
-    Vue.prototype.$bus.$emit('delete-modified-cancel', true);
-    Vue.prototype.$bus.$emit('delete-modified-confirm', false);
+    rendererEventBus.$emit('delete-modified-cancel', true);
+    rendererEventBus.$emit('delete-modified-confirm', false);
   },
   [editorMutations.SET_CREATE_MODE](state: SubtitleEditorState, payload: boolean) {
     state.isCreateSubtitleMode = payload;
@@ -276,9 +275,9 @@ const actions = {
     if (!payload) {
       const count = state.currentIndex + 1;
       // ga 本次修改数量
-      event('app', 'editingview-updated-subtitle', count);
+      analytics.event('app', 'editingview-updated-subtitle', String(count));
       // ga 进入高级模式使用了参考字幕
-      event('app', 'editingview-reference-used', state.didUseReference);
+      analytics.event('app', 'editingview-reference-used', String(state.didUseReference));
       dispatch(editorActions.SUBTITLE_EDITOR_SAVE);
       commit(editorMutations.UPDATE_CURRENT_EDITED_SUBTITLE, undefined);
       commit(editorMutations.SWITCH_REFERENCE_SUBTITLE, undefined);
@@ -298,7 +297,7 @@ const actions = {
     const subtitle = rootState[item.id];
     if (subtitle && subtitle.displaySource.source.isImage) {
       // can not enter editor
-      Vue.prototype.$bus.$emit('subtitle-can-not-editor', 'image');
+      rendererEventBus.$emit('subtitle-can-not-editor', 'image');
       return;
     }
     if (!(!subtitle || subtitle.displaySource.source.isImage || !subtitle.fullyRead)) {
@@ -367,7 +366,7 @@ const actions = {
           log.error('storeModified', error);
         }
         // ga 进入高级编辑
-        event('app', 'subtitle-created-by-user', 'professional-edit');
+        analytics.event('app', 'subtitle-created-by-user', 'professional-edit');
       }
       // refresh cues
       const dialogues = megreSameTime(cues.dialogues);
@@ -406,7 +405,7 @@ const actions = {
       });
     } else {
       // can not enter editor
-      Vue.prototype.$bus.$emit('subtitle-can-not-editor');
+      rendererEventBus.$emit('subtitle-can-not-editor');
     }
   },
   // eslint-disable-next-line complexity
@@ -583,7 +582,7 @@ const actions = {
       const rSubtitle = rootState[subtitleId];
       if ((!rSubtitle || !rSubtitle.fullyRead)) {
         // can not quick edit
-        Vue.prototype.$bus.$emit('subtitle-can-not-quick-edit');
+        rendererEventBus.$emit('subtitle-can-not-quick-edit');
         return;
       }
       // getAllCues
@@ -644,7 +643,7 @@ const actions = {
         log.error('storeModified', error);
       }
       // ga 快捷方式编辑
-      event('app', 'subtitle-created-by-user', 'quick-edit');
+      analytics.event('app', 'subtitle-created-by-user', 'quick-edit');
     } else {
       try {
         const tmpCues = await dispatch(`${subtitleId}/${subActions.getDialogues}`, undefined);
@@ -821,7 +820,7 @@ const actions = {
   }: any) {
     dispatch(smActions.exportSubtitle, state.currentEditedSubtitle);
     // Menu导出字幕按钮
-    event('app', 'export-subtitle', '');
+    analytics.event('app', 'export-subtitle', '');
   },
 };
 

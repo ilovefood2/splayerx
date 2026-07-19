@@ -10,7 +10,18 @@ import {
 } from './PlaybackServer';
 
 function reply(event: IpcMainEvent, channel: string, ...args: unknown[]) {
-  if (event.sender && !event.sender.isDestroyed()) event.reply(channel, ...args);
+  if (!event.sender || event.sender.isDestroyed()) return;
+  try {
+    // `event.reply()` targets the originating frame. Electron 43 can dispose
+    // that frame while keeping its WebContents alive during window teardown,
+    // which produces an uncaught WebFrameMain error. These request channels
+    // are window-scoped, so replying through WebContents is both sufficient
+    // and safe across a frame navigation or shutdown.
+    event.sender.send(channel, ...args);
+  } catch {
+    // A renderer can disappear between the isDestroyed check and reply while
+    // the app is closing. The request no longer has a recipient in that case.
+  }
 }
 
 function errorMessage(error: unknown): string {

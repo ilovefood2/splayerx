@@ -14,7 +14,7 @@ import { remote } from 'electron';
 import { promises as fsPromises } from 'fs';
 // @ts-ignore
 import nzh from 'nzh';
-import { version } from '@/../../package.json';
+import packageMetadata from '@/../../package.json';
 import { ISubtitleControlListItem, Type } from '@/interfaces/ISubtitle';
 import {
   DEFAULT_DIRNAME,
@@ -24,6 +24,8 @@ import { IEmbeddedOrigin } from '@/services/subtitle/utils/loaders';
 import Fetcher from '@/../shared/Fetcher';
 import { codeToLanguageName, LanguageCode } from './language';
 import { isBetaVersion } from '../../shared/common/platform';
+
+const { version } = packageMetadata;
 
 /**
  * @description 获取electron应用用户目录下的设定的缓存路径

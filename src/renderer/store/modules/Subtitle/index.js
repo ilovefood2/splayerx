@@ -1,4 +1,3 @@
-import Vue from 'vue';
 import {
   pick,
   partialRight,
@@ -88,43 +87,43 @@ const getters = {
 const mutations = {
   [subtitleMutations.RESET_SUBTITLES](state, resetFields) {
     if (!resetFields) {
-      Vue.set(state, 'loadingStates', {});
-      Vue.set(state, 'durations', {});
-      Vue.set(state, 'names', {});
-      Vue.set(state, 'languages', {});
-      Vue.set(state, 'formats', {});
+      state.loadingStates = {};
+      state.durations = {};
+      state.names = {};
+      state.languages = {};
+      state.formats = {};
     } else {
       const supportedFields = ['loadingStates', 'durations', 'names', 'languages', 'formats', 'types'];
       const changingFields = Object.keys(resetFields)
         .filter(field => supportedFields.includes(field));
       changingFields.forEach((field) => {
-        Vue.set(state, field, resetFields[field]);
+        state[field] = resetFields[field];
       });
     }
   },
   [subtitleMutations.LOADING_STATES_UPDATE]({ loadingStates }, { id, state }) {
-    if (loadingStates[id] !== 'failed') Vue.set(loadingStates, id, state);
+    if (loadingStates[id] !== 'failed') loadingStates[id] = state;
   },
   [subtitleMutations.VIDEO_SUBTITLE_MAP_UPDATE]({ videoSubtitleMap }, { videoSrc, ids }) {
-    Vue.set(videoSubtitleMap, videoSrc, ids);
+    videoSubtitleMap[videoSrc] = ids;
   },
   [subtitleMutations.DURATIONS_UPDATE]({ durations }, { id, duration }) {
-    Vue.set(durations, id, duration);
+    durations[id] = duration;
   },
   [subtitleMutations.NAMES_UPDATE]({ names }, { id, name }) {
-    Vue.set(names, id, name);
+    names[id] = name;
   },
   [subtitleMutations.LANGUAGES_UPDATE]({ languages }, { id, language }) {
-    Vue.set(languages, id, language);
+    languages[id] = language;
   },
   [subtitleMutations.FORMATS_UPDATE]({ formats }, { id, format }) {
-    Vue.set(formats, id, format);
+    formats[id] = format;
   },
   [subtitleMutations.TYPES_UPDATE]({ types }, { id, type }) {
-    Vue.set(types, id, type);
+    types[id] = type;
   },
   [subtitleMutations.RANKS_UPDATE]({ ranks }, { id, rank }) {
-    Vue.set(ranks, id, rank);
+    ranks[id] = rank;
   },
   [subtitleMutations.CURRENT_FIRST_SUBTITLE_ID_UPDATE](state, subtitleId) {
     state.currentFirstSubtitleId = subtitleId;

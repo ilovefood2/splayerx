@@ -8,8 +8,8 @@
     >
       <slot />
       <input
-        :checked="checkboxValue"
-        @change="$emit('change', $event.target.checked)"
+        :checked="modelValue"
+        @change="$emit('update:modelValue', $event.target.checked)"
         type="checkbox"
         class="checkbox__input"
       >
@@ -30,12 +30,9 @@ export default {
   components: {
     Icon,
   },
-  model: {
-    prop: 'checkboxValue',
-    event: 'change',
-  },
+  emits: ['update:modelValue'],
   props: {
-    checkboxValue: Boolean,
+    modelValue: Boolean,
     labelSize: {
       type: String,
       default: '14',

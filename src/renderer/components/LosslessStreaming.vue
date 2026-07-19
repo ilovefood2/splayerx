@@ -11,7 +11,7 @@
     >
       <Icon
         :state="state"
-        @click.native="handleClose"
+        @click="handleClose"
         class="title-button"
         type="titleBarClose"
       />
@@ -26,7 +26,7 @@
     </div>
     <Icon
       v-if="!isDarwin"
-      @click.native="handleClose"
+      @click="handleClose"
       class="win-title-button no-drag"
       type="titleBarWinClose"
     />
@@ -74,13 +74,13 @@
 </template>
 
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 import { ipcRenderer, remote } from 'electron';
 import path from 'path';
 import qs from 'querystring';
 import Icon from '@/components/BaseIconContainer.vue';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'LosslessStreamingInfoModal',
   components: {
     Icon,

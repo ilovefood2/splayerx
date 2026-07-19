@@ -29,9 +29,9 @@
                 :no-subtitle="$t('msg.subtitle.noReferenceSubtitle')"
                 :real-items-num="realItemsNum"
                 :computed-available-items="computedAvailableItems"
-                :hover-height.sync="hoverHeight"
+                v-model:hover-height="hoverHeight"
                 :item-height="itemHeight"
-                :trans-flag.sync="transFlag"
+                v-model:trans-flag="transFlag"
                 :show-attached="showAttached"
                 :change-subtitle="changeSubtitle"
               />
@@ -206,7 +206,7 @@ export default {
     });
     document.addEventListener('wheel', this.handleWheel);
   },
-  destroyed() {
+  unmounted() {
     document.removeEventListener('wheel', this.handleWheel);
   },
   methods: {

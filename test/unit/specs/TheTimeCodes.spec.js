@@ -1,10 +1,7 @@
 import Vuex from 'vuex';
-import { mount, createLocalVue } from '@vue/test-utils';
+import { mount } from '@vue/test-utils';
 import Video from '@/store/modules/Video';
 import TheTimeCodes from '@/components/PlayingView/TheTimeCodes.vue';
-
-const localVue = createLocalVue();
-localVue.use(Vuex);
 
 describe('Component - TheTimeCodes', () => {
   let wrapper;
@@ -17,14 +14,14 @@ describe('Component - TheTimeCodes', () => {
   });
 
   beforeEach(() => {
-    wrapper = mount(TheTimeCodes, { store, localVue });
+    wrapper = mount(TheTimeCodes, { global: { plugins: [store] } });
   });
 
   afterEach(() => {
-    wrapper.destroy();
+    wrapper.unmount();
   });
 
   it('sanity - should render correct component', () => {
-    expect(wrapper.contains(TheTimeCodes)).to.equal(true);
+    expect(wrapper.findComponent(TheTimeCodes).exists()).to.equal(true);
   });
 });

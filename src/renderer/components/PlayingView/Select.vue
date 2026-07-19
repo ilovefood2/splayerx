@@ -41,9 +41,9 @@
   </div>
 </template>
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'Select',
   components: {
   },
@@ -85,7 +85,7 @@ export default Vue.extend({
   mounted() {
     document.addEventListener('mouseup', this.globalMouseUp);
   },
-  destroyed() {
+  unmounted() {
     document.removeEventListener('mouseup', this.globalMouseUp);
   },
   methods: {

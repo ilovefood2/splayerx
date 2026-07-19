@@ -1,5 +1,5 @@
 // Be sure to call Sentry function as early as possible in the main process
-import Sentry from '../shared/sentry'; // eslint-disable-line import/order
+import Sentry, { initializeVueSentry } from '../shared/sentry'; // eslint-disable-line import/order
 
 import path from 'path';
 import os from 'os';
@@ -8,19 +8,11 @@ import Parse from 'parse';
 import electron, {
   ipcRenderer, webFrame, webUtils, OpenDialogReturnValue,
 } from 'electron';
-import Vue from 'vue';
-import VueI18n from 'vue-i18n';
+import { createApp } from 'vue';
+import { createI18n } from 'vue-i18n';
 import { mapGetters, mapActions, createNamespacedHelpers } from 'vuex';
 import osLocale from 'os-locale';
 import { throttle, isEmpty } from 'lodash';
-// @ts-ignore
-import VueAnalytics from 'vue-analytics';
-// @ts-ignore
-import VueElectron from 'vue-electron';
-// @ts-ignore
-import AsyncComputed from 'vue-async-computed';
-// @ts-ignore
-import { EventEmitter } from 'events';
 // @ts-ignore
 import App from '@/App.vue';
 import router from '@/router';
@@ -29,6 +21,8 @@ import messages from '@/locales';
 import { windowRectService } from '@/services/window/WindowRectService';
 import helpers from '@/helpers';
 import { hookVue } from '@/kerning';
+import { installRendererGlobals } from '@/bootstrap';
+import { analytics } from '@/services/analytics';
 import {
   Video as videoActions,
   Subtitle as subtitleActions,
@@ -56,7 +50,6 @@ import {
   isSubtitle, getSystemLocale, getClientUUID, getEnvironmentName, getIP,
 } from '../shared/utils';
 import { ISubtitleControlListItem, Type, ModifiedSubtitle } from './interfaces/ISubtitle';
-import { VueDevtools } from './plugins/vueDevtools.dev';
 import {
   CAST_NO_DEVICE, CAST_NOT_LOCAL, CAST_UNSUPPORTED, CAST_FAILED,
   SNAPSHOT_FAILED, SNAPSHOT_SUCCESS, LOAD_SUBVIDEO_FAILED,
@@ -67,94 +60,18 @@ import {
 // causing callbacks-registry.js 404 error. disable temporarily
 // require('source-map-support').install();
 
-Vue.config.productionTip = false;
-Vue.config.warnHandler = (warn) => {
-  log.info('render/main', warn);
-};
-Vue.config.errorHandler = (err) => {
-  log.error('render/main', err);
-};
-Vue.directive('fade-in', {
-  bind(el: HTMLElement, binding: unknown) {
-    if (!el) return;
-    const { value } = binding as { value: unknown };
-    if (value) {
-      el.classList.add('fade-in');
-      el.classList.remove('fade-out');
-    } else {
-      el.classList.add('fade-out');
-      el.classList.remove('fade-in');
-    }
-  },
-  update(el: HTMLElement, binding) {
-    const { oldValue, value } = binding;
-    if (oldValue !== value) {
-      if (value) {
-        el.classList.add('fade-in');
-        el.classList.remove('fade-out');
-      } else {
-        el.classList.add('fade-out');
-        el.classList.remove('fade-in');
-      }
-    }
-  },
-});
-
-Vue.use(VueElectron);
-Vue.use(VueI18n);
-Vue.use(AsyncComputed);
-Vue.use(VueAnalytics, {
-  id: (process.env.NODE_ENV === 'production') ? 'UA-2468227-6' : 'UA-2468227-5',
-  router,
-  set: [
-    { field: 'dimension1', value: electron.remote.app.getVersion() },
-    { field: 'dimension2', value: getEnvironmentName() },
-    { field: 'checkProtocolTask', value: null }, // fix ga not work from file:// url
-    { field: 'checkStorageTask', value: null }, // fix ga not work from file:// url
-    { field: 'historyImportTask', value: null }, // fix ga not work from file:// url
-  ],
-});
-
-// Custom plugin area
-Vue.use(InputPlugin, {
-  namespaced: true,
-  mouse: {},
-  keyboard: {},
-  wheel: {
-    phase: true,
-    direction: true,
-  },
-});
-// Vue.use(InputPlugin);
-// i18n and its plugin
-const i18n = new VueI18n({
+const i18n = createI18n({
+  legacy: true,
   locale: getSystemLocale(), // set locale
   fallbackLocale: 'en',
   messages, // set locale messages
 });
-
-// Development-only devtools area
-// VueDevtools plugin
-if (process.env.NODE_ENV === 'development') {
-  Vue.use(VueDevtools);
-}
-
-Vue.mixin(helpers);
-
-hookVue(Vue);
-
-Vue.prototype.$bus = new Vue(); // Global event bus
-Vue.prototype.$event = new EventEmitter();
-
-store.$i18n = i18n;
+store.$i18n = i18n.global;
 
 const { mapGetters: inputMapGetters } = createNamespacedHelpers('InputPlugin');
 /* eslint-disable no-new */
-new Vue({
-  i18n,
+const app = createApp({
   components: { App },
-  router,
-  store,
   data() {
     return {
       menu: null,
@@ -348,11 +265,11 @@ new Vue({
     },
     originSrc(newVal) {
       if (newVal && !this.isWheelEnd) {
-        this.$off('wheel-event', this.wheelEventHandler);
+        this.$bus.$off('wheel-event', this.wheelEventHandler);
         this.isWheelEndWatcher = this.$watch('isWheelEnd', (newVal: boolean) => {
           if (newVal) {
             this.isWheelEndWatcher(); // cancel the isWheelEnd watcher
-            this.$on('wheel-event', this.wheelEventHandler); // reset the wheel-event handler
+            this.$bus.$on('wheel-event', this.wheelEventHandler); // reset the wheel-event handler
           }
         });
       }
@@ -486,7 +403,7 @@ new Vue({
     getClientUUID().then((clientId: string) => {
       this.$ga && this.$ga.set('userId', clientId);
     });
-    this.$on('wheel-event', this.wheelEventHandler);
+    this.$bus.$on('wheel-event', this.wheelEventHandler);
 
     window.addEventListener('resize', throttle(() => {
       this.$store.commit('windowSize', this.$electron.remote.getCurrentWindow().getSize());
@@ -679,7 +596,7 @@ new Vue({
         }
       }
       if (!ctrlKey && !isAdvanceColumeItem && !isSubtitleScrollItem) {
-        this.$emit('wheel-event', { x });
+        this.$bus.$emit('wheel-event', { x });
       }
     });
     /* eslint-disable */
@@ -1527,9 +1444,38 @@ new Vue({
       }
     },
   },
-  destroyed() {
+  unmounted() {
     this.$electron.ipcRenderer.off('losslessStreaming-info-update', this.onLosslessStreamingInfoUpdate);
     ipcRenderer.off('cast-status', this.onCastStatus);
   },
   template: '<App/>',
-}).$mount('#app');
+});
+
+app.config.devtools = process.env.NODE_ENV === 'development';
+app.config.warnHandler = (warn) => {
+  log.info('render/main', warn);
+};
+app.config.errorHandler = (err, instance, info) => {
+  const stack = err instanceof Error ? err.stack : undefined;
+  log.error('render/main', `${info}\n${stack || String(err)}`);
+};
+installRendererGlobals(app);
+app.use(i18n);
+app.use(router);
+app.use(store);
+app.use(InputPlugin, {
+  namespaced: true,
+  mouse: {},
+  keyboard: {},
+  wheel: {
+    phase: true,
+    direction: true,
+  },
+});
+app.mixin(helpers);
+hookVue(app);
+initializeVueSentry(app);
+
+analytics.set('dimension1', electron.remote.app.getVersion());
+analytics.set('dimension2', getEnvironmentName());
+app.mount('#app');

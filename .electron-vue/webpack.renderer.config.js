@@ -7,11 +7,10 @@ const childProcess = require('child_process');
 const webpack = require('webpack');
 const { VueLoaderPlugin } = require('vue-loader');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
-const ExtractTextPlugin = require('extract-text-webpack-plugin');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const SentryWebpackPlugin = require('@sentry/webpack-plugin');
+const { sentryWebpackPlugin } = require('@sentry/webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
-const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 const { dependencies, optionalDependencies } = require('../package.json');
 
 let release = '';
@@ -54,11 +53,20 @@ const electronCompat = path.join(__dirname, '../src/renderer/electronCompat.js')
  * that provide pure *.vue files that need compiling
  * https://simulatedgreg.gitbooks.io/electron-vue/content/en/webpack-configurations.html#white-listing-externals
  */
-let whiteListedModules = ['vue'];
+// Vue-coupled packages must share the bundled @vue/compat runtime. Externalizing
+// them makes Node load a second, plain Vue runtime and breaks injection/rendering.
+let whiteListedModules = [
+  '@sentry/vue',
+  '@vue/compat',
+  'vue',
+  'vue-i18n',
+  'vue-router',
+  'vuex',
+];
 
 let rendererConfig = {
   mode: 'development',
-  devtool: '#module-eval-source-map',
+  devtool: 'eval-source-map',
   entry: {
     preference: [electronCompat, path.join(__dirname, '../src/renderer/preference.js')],
     about: [electronCompat, path.join(__dirname, '../src/renderer/about.js')],
@@ -74,34 +82,25 @@ let rendererConfig = {
     ...Object.keys(Object.assign({}, dependencies, optionalDependencies)).filter(
       d => !whiteListedModules.includes(d),
     ),
+    '@sentry/electron/renderer',
   ],
   module: {
     rules: [
       {
-        test: /\.(js)$/,
-        enforce: 'pre',
-        exclude: /node_modules/,
-        use: {
-          loader: 'eslint-loader',
-          options: {
-            formatter: require('eslint-friendly-formatter'),
-          },
-        },
-      },
-      {
         test: /\.css$/,
-        use: ExtractTextPlugin.extract({
-          fallback: 'style-loader',
-          use: 'css-loader',
-        }),
+        use: [
+          process.env.NODE_ENV === 'production' ? MiniCssExtractPlugin.loader : 'style-loader',
+          'css-loader',
+        ],
       },
       {
         test: /\.html$/,
-        use: 'vue-html-loader',
+        exclude: /\.vue\.html$/,
+        type: 'asset/source',
       },
       {
         test: /\.py$/,
-        use: 'raw-loader',
+        type: 'asset/source',
       },
       {
         test: /\.tsx?$/,
@@ -123,22 +122,16 @@ let rendererConfig = {
       },
       {
         test: /\.vue$/,
-        use: {
-          loader: 'vue-loader',
-          options: {
-            extractCSS: process.env.NODE_ENV === 'production',
-            loaders: {
-              i18n: 'vue-i18n-loader',
-            },
-          },
-        },
+        loader: 'vue-loader',
       },
       {
         test: /\.sass$/,
         use: [
-          'vue-style-loader',
+          process.env.NODE_ENV === 'production'
+            ? MiniCssExtractPlugin.loader
+            : 'vue-style-loader',
           'css-loader',
-          { loader: 'sass-loader', options: { indentedSyntax: 1 } },
+          { loader: 'sass-loader', options: { sassOptions: { indentedSyntax: true } } },
           {
             loader: 'sass-resources-loader',
             options: { resources: path.join(__dirname, '../src/renderer/css/global.scss') },
@@ -148,7 +141,9 @@ let rendererConfig = {
       {
         test: /\.scss$/,
         use: [
-          'vue-style-loader',
+          process.env.NODE_ENV === 'production'
+            ? MiniCssExtractPlugin.loader
+            : 'vue-style-loader',
           'css-loader',
           'sass-loader',
           {
@@ -172,45 +167,45 @@ let rendererConfig = {
       {
         test: /\.(png|jpe?g|gif|svg)(\?.*)?$/,
         exclude: [path.resolve(__dirname, '../src/renderer/assets/icon')],
-        use: [
-          {
-            loader: 'url-loader',
-            query: {
-              limit: 10000,
-              name: 'imgs/[name]--[folder].[ext]',
-            },
+        type: 'asset',
+        parser: {
+          dataUrlCondition: {
+            maxSize: 10000,
           },
-        ],
+        },
+        generator: {
+          filename: 'imgs/[name].[contenthash][ext]',
+        },
       },
       {
         test: /\.(mp4|webm|ogg|mp3|wav|flac|aac)(\?.*)?$/,
-        use: {
-          loader: 'url-loader',
-          options: {
-            limit: 10000,
-            name: 'media/[name]--[folder].[ext]',
+        type: 'asset',
+        parser: {
+          dataUrlCondition: {
+            maxSize: 10000,
           },
+        },
+        generator: {
+          filename: 'media/[name].[contenthash][ext]',
         },
       },
       {
         test: /\.(woff2?|eot|ttf|ttc|otf)(\?.*)?$/,
-        use: {
-          loader: 'url-loader',
-          query: {
-            limit: 10000,
-            name: 'fonts/[name]--[folder].[ext]',
+        type: 'asset',
+        parser: {
+          dataUrlCondition: {
+            maxSize: 10000,
           },
+        },
+        generator: {
+          filename: 'fonts/[name].[contenthash][ext]',
         },
       },
     ],
   },
-  node: {
-    __dirname: process.env.NODE_ENV !== 'production',
-    __filename: process.env.NODE_ENV !== 'production',
-  },
+  node: false,
   plugins: [
     new VueLoaderPlugin(),
-    new ExtractTextPlugin('styles.css'),
     new HtmlWebpackPlugin(generateHtmlWebpackPluginConfig('index')),
     new HtmlWebpackPlugin(generateHtmlWebpackPluginConfig('about')),
     new HtmlWebpackPlugin(generateHtmlWebpackPluginConfig('losslessStreaming')),
@@ -231,7 +226,7 @@ let rendererConfig = {
   resolve: {
     alias: {
       '@': path.join(__dirname, '../src/renderer'),
-      vue$: 'vue/dist/vue.esm.js',
+      vue$: '@vue/compat/dist/vue.esm-bundler.js',
       electron: 'electron',
       grpc: '@grpc/grpc-js',
     },
@@ -242,6 +237,9 @@ let rendererConfig = {
 
 const sharedDefinedVariables = {
   'process.platform': `"${process.platform}"`,
+  __VUE_OPTIONS_API__: 'true',
+  __VUE_PROD_DEVTOOLS__: 'false',
+  __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false',
 };
 
 if (process.env.ENVIRONMENT_NAME === 'APPX') {
@@ -252,9 +250,6 @@ if (process.env.ENVIRONMENT_NAME === 'APPX') {
  * Adjust rendererConfig for development settings
  */
 if (process.env.NODE_ENV !== 'production') {
-  if (!process.env.TEST && process.platform === 'darwin') {
-    rendererConfig.plugins.push(new ForkTsCheckerWebpackPlugin({ eslint: true, vue: true }));
-  }
   rendererConfig.plugins.push(
     new webpack.DefinePlugin(
       Object.assign(sharedDefinedVariables, {
@@ -274,16 +269,19 @@ if (process.env.NODE_ENV !== 'production') {
  */
 if (process.env.NODE_ENV === 'production') {
   rendererConfig.mode = 'production';
-  rendererConfig.devtool = '#source-map';
+  rendererConfig.devtool = 'source-map';
 
   rendererConfig.plugins.push(
-    new CopyWebpackPlugin([
-      {
-        from: path.join(__dirname, '../static'),
-        to: path.join(__dirname, '../dist/electron/static'),
-        ignore: ['.*'],
-      },
-    ]),
+    new MiniCssExtractPlugin({ filename: '[name].css', chunkFilename: 'chunks/[id].css' }),
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: path.join(__dirname, '../static'),
+          to: path.join(__dirname, '../dist/electron/static'),
+          globOptions: { ignore: ['**/.*'] },
+        },
+      ],
+    }),
     new webpack.DefinePlugin(
       Object.assign(sharedDefinedVariables, {
         'process.env.SAGI_API': `"${process.env.SAGI_API || 'apis.sagittarius.ai:8443'}"`,
@@ -293,9 +291,6 @@ if (process.env.NODE_ENV === 'production') {
         'process.env.NODE_ENV': '"production"',
       }),
     ),
-    new webpack.LoaderOptionsPlugin({
-      minimize: true,
-    }),
   );
 
   rendererConfig.optimization = {
@@ -308,26 +303,22 @@ if (process.env.NODE_ENV === 'production') {
     ],
   };
 
-  if (process.platform === 'darwin') {
-    // only check on mac, to speed up Windows build
-    rendererConfig.plugins.push(new ForkTsCheckerWebpackPlugin({ eslint: true, vue: true }));
-  }
-
-  if (release && process.env.SENTRY_AUTH_TOKEN) {
+  if (
+    release &&
+    process.env.SENTRY_AUTH_TOKEN &&
+    process.env.SENTRY_ORG &&
+    process.env.SENTRY_PROJECT
+  ) {
     rendererConfig.plugins.push(
-      new SentryWebpackPlugin({
-        release,
-        include: './dist',
-        urlPrefix: 'app:///dist/',
-        ext: ['js', 'map'],
-        ignore: ['node_modules'],
-      }),
-      new SentryWebpackPlugin({
-        release,
-        include: './src',
-        urlPrefix: 'webpack:///./src/',
-        ext: ['js', 'ts', 'vue'],
-        ignore: ['node_modules'],
+      sentryWebpackPlugin({
+        authToken: process.env.SENTRY_AUTH_TOKEN,
+        org: process.env.SENTRY_ORG,
+        project: process.env.SENTRY_PROJECT,
+        release: { name: release },
+        sourcemaps: {
+          assets: ['./dist/electron/**/*.js', './dist/electron/**/*.map'],
+          ignore: ['./dist/electron/static/**'],
+        },
       }),
     );
   }

@@ -1,13 +1,6 @@
 <template>
   <div class="welcome">
-    <transition
-      name="transform"
-      mode="out-in"
-    >
-      <router-view
-        @language-setting="handleSelection"
-      />
-    </transition>
+    <router-view @language-setting="handleSelection" />
     <transition
       name="fade"
       mode="out-in"

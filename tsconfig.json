@@ -1,8 +1,9 @@
 {
   "compilerOptions": {
-    "target": "esnext",
-    "module": "esnext",
-    "moduleResolution": "node",
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": false,
     "allowJs": true,
     "allowSyntheticDefaultImports": true,
@@ -22,8 +23,7 @@
     "skipLibCheck": true,
     "strictNullChecks": true,
     "strictFunctionTypes": true,
-    "suppressImplicitAnyIndexErrors": true,
-    "types": ["node", "mocha", "chai"]
+    "types": ["node", "vitest/globals"]
   },
   "include": ["src/**/*", "test/**/*"],
   "exclude": ["node_modules"]

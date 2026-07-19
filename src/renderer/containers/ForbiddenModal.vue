@@ -40,7 +40,7 @@
   </div>
 </template>
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 import { remove, findIndex } from 'lodash';
 import { ipcRenderer, remote } from 'electron';
 import { mapGetters, mapActions } from 'vuex';
@@ -50,7 +50,7 @@ import {
 import { getJsonConfig } from '@/../shared/config';
 import Icon from '@/components/BaseIconContainer.vue';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'ForbiddenModal',
   components: {
     Icon,

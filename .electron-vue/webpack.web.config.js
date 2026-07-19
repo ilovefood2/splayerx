@@ -6,11 +6,9 @@ const path = require('path');
 const childProcess = require('child_process');
 const webpack = require('webpack');
 const { VueLoaderPlugin } = require('vue-loader');
-const CopyWebpackPlugin = require('copy-webpack-plugin');
-const ExtractTextPlugin = require('extract-text-webpack-plugin');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const TerserPlugin = require('terser-webpack-plugin');
-const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 const { dependencies, optionalDependencies } = require('../package.json');
 
 let release = '';
@@ -51,7 +49,7 @@ function generateHtmlWebpackPluginConfig(name) {
  * that provide pure *.vue files that need compiling
  * https://simulatedgreg.gitbooks.io/electron-vue/content/en/webpack-configurations.html#white-listing-externals
  */
-let whiteListedModules = ['vue', 'vuex', 'vue-router', 'vue-i18n', 'vue-axios', 'axios', 'configcat-js', '@sentry/browser'];
+let whiteListedModules = ['vue', 'vuex', 'vue-router', 'vue-i18n', 'configcat-js', '@sentry/vue'];
 
 const entry = {
   login: path.join(__dirname, '../src/renderer/login.ts'),
@@ -63,7 +61,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 let webConfig = {
   mode: 'development',
-  devtool: '#module-eval-source-map',
+  devtool: 'eval-source-map',
   entry,
   externals: [
     ...Object.keys(Object.assign({}, dependencies, optionalDependencies)).filter(
@@ -74,30 +72,20 @@ let webConfig = {
   module: {
     rules: [
       {
-        test: /\.(js)$/,
-        enforce: 'pre',
-        exclude: /node_modules/,
-        use: {
-          loader: 'eslint-loader',
-          options: {
-            formatter: require('eslint-friendly-formatter'),
-          },
-        },
-      },
-      {
         test: /\.css$/,
-        use: ExtractTextPlugin.extract({
-          fallback: 'style-loader',
-          use: 'css-loader',
-        }),
+        use: [
+          process.env.NODE_ENV === 'production' ? MiniCssExtractPlugin.loader : 'style-loader',
+          'css-loader',
+        ],
       },
       {
         test: /\.html$/,
-        use: 'vue-html-loader',
+        exclude: /\.vue\.html$/,
+        type: 'asset/source',
       },
       {
         test: /\.py$/,
-        use: 'raw-loader',
+        type: 'asset/source',
       },
       {
         test: /\.tsx?$/,
@@ -118,23 +106,24 @@ let webConfig = {
         exclude: /node_modules/,
       },
       {
+        test: /\.js$/,
+        include: [
+          path.resolve(__dirname, '../node_modules/@sentry'),
+        ],
+        use: 'babel-loader',
+      },
+      {
         test: /\.vue$/,
-        use: {
-          loader: 'vue-loader',
-          options: {
-            extractCSS: process.env.NODE_ENV === 'production',
-            loaders: {
-              i18n: 'vue-i18n-loader',
-            },
-          },
-        },
+        loader: 'vue-loader',
       },
       {
         test: /\.sass$/,
         use: [
-          'vue-style-loader',
+          process.env.NODE_ENV === 'production'
+            ? MiniCssExtractPlugin.loader
+            : 'vue-style-loader',
           'css-loader',
-          { loader: 'sass-loader', options: { indentedSyntax: 1 } },
+          { loader: 'sass-loader', options: { sassOptions: { indentedSyntax: true } } },
           {
             loader: 'sass-resources-loader',
             options: { resources: path.join(__dirname, '../src/renderer/css/global.scss') },
@@ -144,7 +133,9 @@ let webConfig = {
       {
         test: /\.scss$/,
         use: [
-          'vue-style-loader',
+          process.env.NODE_ENV === 'production'
+            ? MiniCssExtractPlugin.loader
+            : 'vue-style-loader',
           'css-loader',
           'sass-loader',
           {
@@ -168,52 +159,53 @@ let webConfig = {
       {
         test: /\.(png|jpe?g|gif|svg)(\?.*)?$/,
         exclude: [path.resolve(__dirname, '../src/renderer/assets/icon')],
-        use: [
-          {
-            loader: 'url-loader',
-            query: {
-              limit: 10000,
-              name: 'imgs/[name].[contenthash].[ext]',
-            },
+        type: 'asset',
+        parser: {
+          dataUrlCondition: {
+            maxSize: 10000,
           },
-        ],
+        },
+        generator: {
+          filename: 'imgs/[name].[contenthash][ext]',
+        },
       },
       {
         test: /\.(mp4|webm|ogg|mp3|wav|flac|aac)(\?.*)?$/,
-        use: {
-          loader: 'url-loader',
-          options: {
-            limit: 10000,
-            name: 'media/[name].[contenthash].[ext]',
+        type: 'asset',
+        parser: {
+          dataUrlCondition: {
+            maxSize: 10000,
           },
+        },
+        generator: {
+          filename: 'media/[name].[contenthash][ext]',
         },
       },
       {
         test: /\.(woff2?|eot|ttf|ttc|otf)(\?.*)?$/,
-        use: {
-          loader: 'url-loader',
-          query: {
-            limit: 10000,
-            name: 'fonts/[name].[contenthash].[ext]',
+        type: 'asset',
+        parser: {
+          dataUrlCondition: {
+            maxSize: 10000,
           },
+        },
+        generator: {
+          filename: 'fonts/[name].[contenthash][ext]',
         },
       },
     ],
   },
-  node: {
-    __dirname: process.env.NODE_ENV !== 'production',
-    __filename: process.env.NODE_ENV !== 'production',
-  },
+  node: false,
   plugins: [
     new VueLoaderPlugin(),
-    new ExtractTextPlugin('styles.css'),
     new HtmlWebpackPlugin(generateHtmlWebpackPluginConfig('login')),
     new HtmlWebpackPlugin(generateHtmlWebpackPluginConfig('premium')),
     new webpack.HotModuleReplacementPlugin(),
   ],
   output: {
+    clean: true,
     publicPath: process.env.NODE_ENV !== 'production' ? undefined : process.env.WEB_CDN,
-    filename: '[name].[hash].js',
+    filename: '[name].[fullhash].js',
     chunkFilename: 'chunks/[contenthash].js',
     libraryTarget: 'umd',
     path: path.join(__dirname, '../dist/web'),
@@ -222,22 +214,30 @@ let webConfig = {
   resolve: {
     alias: {
       '@': path.join(__dirname, '../src/renderer'),
-      vue$: 'vue/dist/vue.esm.js',
+      vue$: '@vue/compat/dist/vue.esm-bundler.js',
       grpc: '@grpc/grpc-js',
     },
     extensions: ['.web.ts', '.web.js', '.ts', '.tsx', '.js', '.json'],
+    fallback: {
+      fs: false,
+      path: require.resolve('path-browserify'),
+      querystring: require.resolve('querystring-es3'),
+    },
   },
   target: 'web',
 };
 
-const sharedDefinedVariables = {};
+const sharedDefinedVariables = {
+  __VUE_OPTIONS_API__: 'true',
+  __VUE_PROD_DEVTOOLS__: 'false',
+  __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false',
+};
 
 /**
  * Adjust webConfig for development settings
  */
 if (process.env.NODE_ENV !== 'production') {
   webConfig.plugins.push(
-    new ForkTsCheckerWebpackPlugin({ eslint: true, vue: true }),
     new webpack.DefinePlugin(
       Object.assign(sharedDefinedVariables, {
         'process.env.SAGI_API': `"${process.env.SAGI_API || 'apis.stage.sagittarius.ai:8443'}"`,
@@ -262,9 +262,10 @@ if (process.env.NODE_ENV !== 'production') {
  */
 if (process.env.NODE_ENV === 'production') {
   webConfig.mode = 'production';
-  webConfig.devtool = '#source-map';
+  webConfig.devtool = 'source-map';
 
   webConfig.plugins.push(
+    new MiniCssExtractPlugin({ filename: '[name].css', chunkFilename: 'chunks/[id].css' }),
     new webpack.DefinePlugin(
       Object.assign(sharedDefinedVariables, {
         'process.env.SAGI_API': `"${process.env.SAGI_API || 'apis.sagittarius.ai:8443'}"`,
@@ -274,9 +275,6 @@ if (process.env.NODE_ENV === 'production') {
         'process.env.NODE_ENV': '"production"',
       }),
     ),
-    new webpack.LoaderOptionsPlugin({
-      minimize: true,
-    }),
   );
 
   webConfig.optimization = {
@@ -298,10 +296,6 @@ if (process.env.NODE_ENV === 'production') {
     },
   };
 
-  if (process.platform === 'darwin') {
-    // only check on mac, to speed up Windows build
-    webConfig.plugins.push(new ForkTsCheckerWebpackPlugin({ eslint: true, vue: true }));
-  }
 }
 
 module.exports = webConfig;

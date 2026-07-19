@@ -116,7 +116,7 @@ export default {
       movementY: NaN,
     };
   },
-  destroyed() {
+  unmounted() {
     document.removeEventListener('mousemove', this.onRecentItemMousemove);
     document.removeEventListener('mouseup', this.onRecentItemMouseup);
   },

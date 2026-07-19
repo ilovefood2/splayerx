@@ -9,6 +9,7 @@ import {
 import { mediaQuickHash } from '@/libs/utils';
 import { RawPlaylistItem, PlaylistItem, MediaItem } from '@/interfaces/IDB';
 import { log } from '@/libs/Log';
+import { cloneStructuredValue } from '@/ipcSerialization';
 
 /**
  * You can change schema info in 'constants.js'
@@ -73,7 +74,7 @@ export class InfoDB {
   public async add(schema: string, data: unknown) {
     if (!data) throw new Error(`Invalid data: ${JSON.stringify(data)}`);
     const db = await this.getDB();
-    return db.add(schema, data);
+    return db.add(schema, cloneStructuredValue(data));
   }
 
   /**
@@ -89,7 +90,7 @@ export class InfoDB {
       throw new Error('Providing out-of-line objectStore without keyPathVal is invalid.');
     }
     log.info('infoDB', `Updating ${keyPath} to ${schema}`);
-    return db.put(schema, data);
+    return db.put(schema, cloneStructuredValue(data));
   }
 
   /**

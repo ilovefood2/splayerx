@@ -10,4 +10,5 @@ files.keys().forEach((key) => {
   if (key === './index.js' || key === './Subtitle.ts') return;
   modules[key.replace(/(\.\/|(\/\w+)?\.[j|t]s)/g, '')] = files(key).default;
 });
+
 export default modules;

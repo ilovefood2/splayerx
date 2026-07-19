@@ -64,7 +64,7 @@
 
 <script lang="ts">
 import { mapGetters, mapActions } from 'vuex';
-import { Route } from 'vue-router';
+import type { NavigationGuardNext, RouteLocationNormalized } from 'vue-router';
 import path from 'path';
 import fs from 'fs';
 // @ts-ignore
@@ -261,8 +261,8 @@ export default {
         if (val) {
           this.title = this.$t('browsing.download.loading');
           this.loadingState = true;
-        } else if (this.currentMainBrowserView()) {
-          this.title = this.currentMainBrowserView().webContents.getTitle() || this.currentUrl;
+        } else if (this.currentMainWebContentsView()) {
+          this.title = this.currentMainWebContentsView().webContents.getTitle() || this.currentUrl;
         }
       },
       immediate: true,
@@ -309,13 +309,13 @@ export default {
       this.$electron.ipcRenderer.send('create-browser-view', { url: val, channel: this.calcCurrentChannel(val) });
     },
     isHomePage(val: boolean) {
-      if (this.currentMainBrowserView()) {
+      if (this.currentMainWebContentsView()) {
         if (val) {
-          this.currentMainBrowserView().setBounds({
+          this.currentMainWebContentsView().setBounds({
             x: 76, y: 0, width: 0, height: 0,
           });
         } else {
-          this.currentMainBrowserView().setBounds({
+          this.currentMainWebContentsView().setBounds({
             x: this.showSidebar ? 76 : 0,
             y: 40,
             width: this.showSidebar ? this.winSize[0] - 76 : this.winSize[0],
@@ -338,10 +338,10 @@ export default {
       this.gotDownloadInfo = false;
     },
     showSidebar(val: boolean) {
-      if (this.currentChannel && this.currentMainBrowserView()) {
+      if (this.currentChannel && this.currentMainWebContentsView()) {
         if (!val) {
           setTimeout(() => {
-            this.currentMainBrowserView().setBounds({
+            this.currentMainWebContentsView().setBounds({
               x: val ? 76 : 0,
               y: 40,
               width: val ? window.innerWidth - 76 : window.innerWidth,
@@ -349,7 +349,7 @@ export default {
             });
           }, 100);
         } else {
-          this.currentMainBrowserView().setBounds({
+          this.currentMainWebContentsView().setBounds({
             x: val ? 76 : 0,
             y: 40,
             width: val ? window.innerWidth - 76 : window.innerWidth,
@@ -433,9 +433,9 @@ export default {
           setTimeout(() => {
             this.showProgress = false;
             this.progress = 0;
-            if (this.currentMainBrowserView()) {
-              const loadUrl = this.currentMainBrowserView().webContents.getURL();
-              this.currentMainBrowserView().webContents
+            if (this.currentMainWebContentsView()) {
+              const loadUrl = this.currentMainWebContentsView().webContents.getURL();
+              this.currentMainWebContentsView().webContents
                 .executeJavaScript(InjectJSManager.calcVideoNum())
                 .then((r: number) => {
                   this.webInfo.hasVideo = this.currentChannel === 'youtube.com' && !getVideoId(loadUrl).id
@@ -449,9 +449,9 @@ export default {
       immediate: true,
     },
     headerToShow(val: boolean) {
-      if (this.currentMainBrowserView()) {
+      if (this.currentMainWebContentsView()) {
         if (!val) {
-          this.currentMainBrowserView().setBounds({
+          this.currentMainWebContentsView().setBounds({
             x: 0,
             y: 0,
             width: window.screen.width,
@@ -459,7 +459,7 @@ export default {
           });
         } else {
           const size = this.$electron.remote.getCurrentWindow().getSize();
-          this.currentMainBrowserView().setBounds({
+          this.currentMainWebContentsView().setBounds({
             x: this.showSidebar ? 76 : 0,
             y: 40,
             width: this.showSidebar ? size[0] - 76 : size[0],
@@ -498,10 +498,10 @@ export default {
       this.webInfo.canReload = false;
       this.currentUrl = 'home.page';
       this.title = this.$t('msg.titleName');
-    } else if (this.currentPage === 'webPage' && this.currentMainBrowserView()) {
-      this.title = this.currentMainBrowserView().webContents.getTitle();
-      const url = this.currentMainBrowserView().webContents.getURL()
-        ? this.currentMainBrowserView().webContents.getURL()
+    } else if (this.currentPage === 'webPage' && this.currentMainWebContentsView()) {
+      this.title = this.currentMainWebContentsView().webContents.getTitle();
+      const url = this.currentMainWebContentsView().webContents.getURL()
+        ? this.currentMainWebContentsView().webContents.getURL()
         : (browsingChannelManager.getAllAvailableChannels()
           .find(i => i.channel === this.currentChannel) as
           { url: string, channel: string, icon: string,
@@ -510,9 +510,9 @@ export default {
       this.startLoadUrl = this.currentUrl;
       this.loadingState = true;
       this.addListenerToBrowser();
-      if (!this.currentMainBrowserView().webContents.isLoading()) {
+      if (!this.currentMainWebContentsView().webContents.isLoading()) {
         this.loadingState = false;
-        this.currentMainBrowserView().webContents
+        this.currentMainWebContentsView().webContents
           .executeJavaScript(InjectJSManager.calcVideoNum())
           .then((r: number) => {
             this.webInfo.hasVideo = this.currentChannel === 'youtube.com' && !getVideoId(url).id
@@ -556,7 +556,7 @@ export default {
     this.$bus.$on('sidebar-selected', this.handleBookmarkOpen);
     this.$bus.$on('channel-manage', () => {
       if (!this.showChannelManager) {
-        if (this.currentMainBrowserView()) {
+        if (this.currentMainWebContentsView()) {
           this.removeListener();
           this.$electron.ipcRenderer.send('remove-web-page');
         }
@@ -577,7 +577,7 @@ export default {
     });
     this.$bus.$on('show-homepage', () => {
       if (!this.showHomePage) {
-        if (this.currentMainBrowserView()) {
+        if (this.currentMainWebContentsView()) {
           this.removeListener();
           this.$electron.ipcRenderer.send('remove-web-page');
         }
@@ -649,8 +649,8 @@ export default {
         e: Event,
         state: { url: string, canGoBack: boolean, canGoForward: boolean },
       ) => {
-        if (this.currentMainBrowserView()) {
-          this.title = this.currentMainBrowserView().webContents.getTitle();
+        if (this.currentMainWebContentsView()) {
+          this.title = this.currentMainWebContentsView().webContents.getTitle();
           this.currentUrl = urlParseLax(state.url).href;
           this.startLoadUrl = this.currentUrl;
           this.addListenerToBrowser();
@@ -658,10 +658,10 @@ export default {
           this.webInfo.canGoForward = state.canGoForward;
           this.updateCanGoBack(this.webInfo.canGoBack);
           this.updateCanGoForward(this.webInfo.canGoForward);
-          const loadUrl = this.currentMainBrowserView().webContents.getURL();
-          if (!this.currentMainBrowserView().webContents.isLoading()) {
+          const loadUrl = this.currentMainWebContentsView().webContents.getURL();
+          if (!this.currentMainWebContentsView().webContents.isLoading()) {
             this.loadingState = false;
-            this.currentMainBrowserView().webContents
+            this.currentMainWebContentsView().webContents
               .executeJavaScript(InjectJSManager.calcVideoNum())
               .then((r: number) => {
                 this.webInfo.hasVideo = this.currentChannel === 'youtube.com' && !getVideoId(loadUrl).id
@@ -674,7 +674,7 @@ export default {
       },
     );
   },
-  beforeDestroy() {
+  beforeUnmount() {
     this.$electron.ipcRenderer.removeAllListeners('update-browser-state');
     this.removeListener();
     this.$store.dispatch('updateBrowsingSize', this.winSize);
@@ -702,13 +702,18 @@ export default {
         }
       });
   },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  beforeRouteEnter(to: Route, from: Route, next: (vm: any) => void) {
-    next((vm: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-      vm.updateShowSidebar(true);
+  beforeRouteEnter(
+    to: RouteLocationNormalized, from: RouteLocationNormalized, next: NavigationGuardNext,
+  ) {
+    next((vm) => {
+      (vm as { updateShowSidebar: (show: boolean) => void }).updateShowSidebar(true);
     });
   },
-  beforeRouteLeave(to: Route, from: Route, next: (to: void) => void) {
+  beforeRouteLeave(
+    to: RouteLocationNormalized,
+    from: RouteLocationNormalized,
+    next: NavigationGuardNext,
+  ) {
     this.removeListener();
     this.backToLandingView = true;
     this.updateShowSidebar(false);
@@ -849,8 +854,8 @@ export default {
       }
     },
     onlineHandler() {
-      if (this.currentMainBrowserView()) {
-        this.currentMainBrowserView().setBounds({
+      if (this.currentMainWebContentsView()) {
+        this.currentMainWebContentsView().setBounds({
           x: this.showSidebar ? 76 : 0,
           y: 40,
           width: this.showSidebar ? this.winSize[0] - 76 : this.winSize[0],
@@ -861,8 +866,8 @@ export default {
       }
     },
     offlineHandler() {
-      if (this.currentMainBrowserView()) {
-        this.currentMainBrowserView().setBounds({
+      if (this.currentMainWebContentsView()) {
+        this.currentMainWebContentsView().setBounds({
           x: 76, y: 0, width: 0, height: 0,
         });
       }
@@ -901,9 +906,9 @@ export default {
       this.updateCanGoBack(this.webInfo.canGoBack);
       this.updateCanGoForward(this.webInfo.canGoForward);
       this.updateReload(true);
-      if (this.currentMainBrowserView()) {
-        const loadUrl = this.currentMainBrowserView().webContents.getURL();
-        this.currentMainBrowserView().webContents
+      if (this.currentMainWebContentsView()) {
+        const loadUrl = this.currentMainWebContentsView().webContents.getURL();
+        this.currentMainWebContentsView().webContents
           .executeJavaScript(InjectJSManager.calcVideoNum())
           .then((r: number) => {
             this.webInfo.hasVideo = this.currentChannel === 'youtube.com' && !getVideoId(loadUrl).id ? false : !!r;
@@ -983,14 +988,14 @@ export default {
         this.removeListener();
         this.$electron.ipcRenderer.send('change-channel', { url: args.url, channel: args.newChannel });
       } else if (this.currentUrl === args.url) {
-        this.currentMainBrowserView().webContents.loadURL(args.url);
+        this.currentMainWebContentsView().webContents.loadURL(args.url);
       } else {
         this.$electron.ipcRenderer.send('create-browser-view', { url: args.url, isNewWindow: true, channel: this.calcCurrentChannel(args.url) });
       }
     },
     addListenerToBrowser() {
       this.removeListener();
-      const view = this.currentMainBrowserView();
+      const view = this.currentMainWebContentsView();
       if (view) {
         view.webContents.addListener('media-started-playing', this.mediaStartedPlaying);
         view.webContents.addListener('ipc-message', this.ipcMessage);
@@ -1003,7 +1008,7 @@ export default {
       }
     },
     removeListener() {
-      const view = this.currentMainBrowserView();
+      const view = this.currentMainWebContentsView();
       if (view && view.listenerCount()) {
         view.webContents.removeListener('media-started-playing', this.mediaStartedPlaying);
         view.webContents.removeListener('ipc-message', this.ipcMessage);
@@ -1041,14 +1046,14 @@ export default {
         this.$electron.ipcRenderer.send('create-browser-view', { url, channel: this.calcCurrentChannel(url) });
       } else {
         e.preventDefault();
-        this.currentMainBrowserView().webContents.stop();
+        this.currentMainWebContentsView().webContents.stop();
         log.info('open-in-chrome', `${oldChannel}, ${newChannel}`);
         this.$electron.shell.openExternal(url);
       }
     },
     didStartLoading() {
-      if (this.currentMainBrowserView()) {
-        this.startLoadUrl = this.currentMainBrowserView().webContents.getURL();
+      if (this.currentMainWebContentsView()) {
+        this.startLoadUrl = this.currentMainWebContentsView().webContents.getURL();
       }
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1066,7 +1071,7 @@ export default {
           // TODO drag local files to play
           // this.maskToShow = false;
           // if ((args.files as string[]).length) {
-          //   this.$electron.remote.getCurrentWindow().getBrowserViews()[0].setBounds({
+          //   this.$electron.remote.getCurrentWindow().getWebContentsViews()[0].setBounds({
           //     x: 0, y: 36, width: 0, height: 0,
           //   });
           //   this.dropFiles = args.files;
@@ -1083,13 +1088,13 @@ export default {
     },
     domReady() {
       window.focus();
-      if (this.currentMainBrowserView()) {
-        this.currentMainBrowserView().webContents.focus();
+      if (this.currentMainWebContentsView()) {
+        this.currentMainWebContentsView().webContents.focus();
       }
     },
     didStopLoading() {
-      if (this.currentMainBrowserView()) {
-        this.title = this.currentMainBrowserView().webContents.getTitle();
+      if (this.currentMainWebContentsView()) {
+        this.title = this.currentMainWebContentsView().webContents.getTitle();
         this.loadingState = false;
       }
     },
@@ -1110,9 +1115,10 @@ export default {
       if (!url || url === 'about:blank') return;
       if (urlParseLax(openUrl).href === urlParseLax(this.currentUrl).href) {
         this.loadingState = true;
-        this.currentMainBrowserView().webContents.loadURL(urlParseLax(openUrl).href).then(() => {
-          this.loadingState = false;
-        });
+        this.currentMainWebContentsView().webContents
+          .loadURL(urlParseLax(openUrl).href).then(() => {
+            this.loadingState = false;
+          });
       } else {
         if (this.oauthRegex.some((re: RegExp) => re.test(url))) return;
         log.info('open-url-by-new-window', this.currentChannel);
@@ -1129,7 +1135,7 @@ export default {
           });
         } else {
           log.info('open-in-chrome', `${oldChannel}, ${newChannel}`);
-          this.currentMainBrowserView().webContents.stop();
+          this.currentMainWebContentsView().webContents.stop();
           this.$electron.shell.openExternal(openUrl);
         }
       }
@@ -1182,16 +1188,16 @@ export default {
       this.pipCategory = this.currentCategory;
       this.pipChannel = this.currentChannel;
       const findType = InjectJSManager.pipFindType(this.pipChannel) || '';
-      this.currentMainBrowserView()
+      this.currentMainWebContentsView()
         .webContents.executeJavaScript(findType)
         .then((r?: { barrageState: boolean, type?: string }) => {
           if (r) {
             if (r.type) this.pipType = r.type;
             this.barrageOpenByPage = r.barrageState;
           }
-          this.currentMainBrowserView().webContents.executeJavaScript(this.pip.adapter);
+          this.currentMainWebContentsView().webContents.executeJavaScript(this.pip.adapter);
           if (this.pipChannel === 'douyu.com') {
-            this.currentMainBrowserView().webContents
+            this.currentMainWebContentsView().webContents
               .insertCSS(InjectJSManager.douyuHideSelfPip(true));
           }
         })
@@ -1199,13 +1205,13 @@ export default {
           this.adaptFinished = true;
         });
     },
-    currentMainBrowserView() {
-      return this.$electron.remote.getCurrentWindow().getBrowserViews()[0];
+    currentMainWebContentsView() {
+      return this.$electron.remote.getCurrentWindow().getWebContentsViews()[0];
     },
     handleWindowChangeEnterPip() {
       if (this.isFullScreen) {
         this.hideMainWindow = this.isGlobal;
-        this.currentMainBrowserView().webContents
+        this.currentMainWebContentsView().webContents
           .executeJavaScript(InjectJSManager.changeFullScreen(false));
         this.headerToShow = true;
         this.$electron.ipcRenderer.send('callMainWindowMethod', 'setFullScreen', [false]);
@@ -1217,7 +1223,7 @@ export default {
       const useDefaultPosition = !this.pipPos.length
         || (this.oldDisplayId !== newDisplayId && this.oldDisplayId !== -1);
       this.oldDisplayId = newDisplayId;
-      this.currentMainBrowserView()
+      this.currentMainWebContentsView()
         .webContents.executeJavaScript(InjectJSManager.getVideoStyle(this.currentChannel))
         .then((result: CSSStyleDeclaration) => {
           const videoAspectRatio = parseFloat(result.width as string)
@@ -1309,7 +1315,7 @@ export default {
       }
     },
     handleUrlReload() {
-      const view = this.currentMainBrowserView();
+      const view = this.currentMainWebContentsView();
       if (view) {
         if (!this.loadingState) {
           this.loadingState = true;

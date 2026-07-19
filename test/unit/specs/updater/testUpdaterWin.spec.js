@@ -1,6 +1,5 @@
-import Vue from 'vue';
-import { shallowMount, createLocalVue } from '@vue/test-utils';
-import VueI18n from 'vue-i18n';
+import { shallowMount } from '@vue/test-utils';
+import { createI18n } from 'vue-i18n';
 import messages from '@/locales';
 import UpdaterNotification from '@/components/UpdaterView/UpdaterNotification.vue';
 import ipcs from './ipcMock';
@@ -9,25 +8,23 @@ import MainHelper from './mainSimulator';
 import Storage from '../../../../src/main/update/Updatestorage';
 
 const storage = new Storage();
-Vue.use(VueI18n);
-const $i18n = new VueI18n({
+const i18n = createI18n({
+  legacy: true,
   locale: 'en', // set locale
   messages, // set locale messages
 });
-const localView = createLocalVue();
-localView.use(VueI18n);
 const options = {
-  localView,
-  i18n: $i18n,
+  global: { plugins: [i18n] },
 };
 const updateInfo = { version: '0.5.1', note: 'hello' };
 const updateInfoNext = { version: '0.5.1', note: 'hello' };
 
-if (process.platform === 'win32') {
-  // only do following unit test for win32
+const describeOnWindows = process.platform === 'win32' ? describe : describe.skip;
+describeOnWindows('UpdaterNotification.vue (Windows)', () => {
+  // only execute the following unit tests on Windows
   let wrapper;
   let mainHelper;
-  describe('UpdaterNotification.vue', () => {
+  describe('update flow', () => {
     beforeEach(() => {
       const ipcMR = ipcs();
       wrapper = shallowMount(UpdaterNotification, options);
@@ -107,4 +104,4 @@ if (process.platform === 'win32') {
       }, 300);
     });
   });
-}
+});

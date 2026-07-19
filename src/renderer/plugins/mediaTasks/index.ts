@@ -36,7 +36,7 @@ export async function getSubtitleStreams(path: string) {
   return (await getStreams(path))
     .filter(({ codecType }) => codecType === CodecType.Subtitle) as ISubtitleStream[];
 }
-export { ISubtitleStream } from './mediaInfoQueue';
+export type { ISubtitleStream } from './mediaInfoQueue';
 
 export async function getSnapshotPath(
   videoPath: string,

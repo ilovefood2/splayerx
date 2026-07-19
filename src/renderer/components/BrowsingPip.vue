@@ -26,8 +26,8 @@ export default {
       return process.platform === 'darwin';
     },
   },
-  beforeDestroy() {
-    const view = electron.remote.getCurrentWindow().getBrowserViews()[0];
+  beforeUnmount() {
+    const view = electron.remote.getCurrentWindow().getWebContentsViews()[0];
     if (view) {
       view.webContents.removeAllListeners();
     }
@@ -40,7 +40,7 @@ export default {
       }
     });
     electron.ipcRenderer.on('remove-pip-listener', () => {
-      const view = electron.remote.getCurrentWindow().getBrowserViews()[0];
+      const view = electron.remote.getCurrentWindow().getWebContentsViews()[0];
       if (view) {
         if (this.canListenUrlChange) {
           view.webContents.removeListener('dom-ready', this.handleDomReady);
@@ -52,7 +52,7 @@ export default {
       }
     });
     electron.ipcRenderer.on('update-pip-listener', () => {
-      const view = electron.remote.getCurrentWindow().getBrowserViews()[0];
+      const view = electron.remote.getCurrentWindow().getWebContentsViews()[0];
       this.currentUrl = view.webContents.getURL();
       this.canListenUrlChange = this.currentUrl.includes('iqiyi') || this.currentUrl.includes('youtube');
       if (this.canListenUrlChange) {
@@ -77,7 +77,7 @@ export default {
       this.windowSize = null;
     });
     window.addEventListener('focus', () => {
-      electron.remote.getCurrentWindow().getBrowserViews()[0].webContents.focus();
+      electron.remote.getCurrentWindow().getWebContentsViews()[0].webContents.focus();
       const cursorPoint = electron.remote.screen.getCursorScreenPoint();
       const windowPos = electron.remote.getCurrentWindow().getPosition();
       this.offset = [cursorPoint.x - windowPos[0], cursorPoint.y - windowPos[1]];
@@ -163,7 +163,7 @@ export default {
         const newChannel = this.calcChannel(url);
         if (newChannel === oldChannel) {
           this.currentUrl = url;
-          const view = electron.remote.getCurrentWindow().getBrowserViews()[0];
+          const view = electron.remote.getCurrentWindow().getWebContentsViews()[0];
           if (view && view.webContents) {
             if (this.canListenUrlChange) {
               view.webContents.removeListener('dom-ready', this.handleDomReady);
@@ -187,7 +187,7 @@ export default {
       }
     },
     handleDomReady() {
-      const views = electron.remote.getCurrentWindow().getBrowserViews();
+      const views = electron.remote.getCurrentWindow().getWebContentsViews();
       if (views[0]) {
         const url = views[0].webContents.getURL();
         this.handleUrlChange(url);
@@ -197,7 +197,7 @@ export default {
       this.handleUrlChange(url);
     },
     handleStartLoading() {
-      const views = electron.remote.getCurrentWindow().getBrowserViews();
+      const views = electron.remote.getCurrentWindow().getWebContentsViews();
       if (views[0]) {
         const url = views[0].webContents.getURL();
         if (!url.includes('/up-next')) this.handleUrlChange(url);

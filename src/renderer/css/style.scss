@@ -1,7 +1,7 @@
 @charset "UTF-8";
-@import './fonts.scss';
-@import './subtitle.scss';
-@import './bookmark.scss';
+@use './fonts';
+@use './subtitle';
+@use './bookmark';
 
 * {
   margin: 0;

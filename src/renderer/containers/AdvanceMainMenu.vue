@@ -28,7 +28,7 @@
           :size="computedSize"
           :handle-row-click="changeRate"
           :is-chosen="speedChosen"
-          @click.left.native="handleClick"
+          @click.left="handleClick"
           row-type="rate"
         />
         <div
@@ -168,7 +168,7 @@
           :handle-row-click="updateSubSize"
           :chosen-size="chosenSize"
           :is-chosen="subSizeChosen"
-          @click.left.native="handleSizeClick"
+          @click.left="handleSizeClick"
           row-type="fontSize"
         />
         <advance-color-items
@@ -177,7 +177,7 @@
           :is-chosen="subColorChosen"
           :change-style="changeStyle"
           :stored-style="chosenStyle"
-          @click.left.native="handleColorClick"
+          @click.left="handleColorClick"
         />
         <advance-selected-items
           :is-subtitle-available="isSubtitleAvailable"
@@ -187,7 +187,7 @@
           :is-chosen="subDelayChosen"
           :primary-sub-delay="primaryDelay"
           :secondary-sub-delay="secondaryDelay"
-          @click.left.native="handleDelayClick"
+          @click.left="handleDelayClick"
           selected-type="subtitle"
         />
       </div>
@@ -221,7 +221,7 @@
           :handle-select-click="() => []"
           :is-chosen="showDelay"
           :audio-delay="audioDelay"
-          @click.left.native="1"
+          @click.left="1"
           selected-type="audio"
         />
         <advance-column-items
@@ -231,7 +231,7 @@
           :current-track-id="currentAudioTrackId"
           :tracks="audioTrackList"
           :switch-audio-track="switchAudioTrack"
-          @click.left.native="handleTrackClick"
+          @click.left="handleTrackClick"
         />
       </div>
     </transition>

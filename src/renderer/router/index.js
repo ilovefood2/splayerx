@@ -1,9 +1,7 @@
-import Vue from 'vue';
-import Router from 'vue-router';
+import { createRouter, createWebHashHistory } from 'vue-router';
 
-Vue.use(Router);
-
-export default new Router({
+export default createRouter({
+  history: createWebHashHistory(),
   routes: [
     {
       path: '/',
@@ -21,10 +19,6 @@ export default new Router({
       component: () => import('@/components/BrowsingView.vue'),
     },
     {
-      path: '*',
-      redirect: '/language-setting',
-    },
-    {
       path: '/welcome',
       component: () => import('@/components/Welcome/WelcomeView.vue'),
       children: [
@@ -39,6 +33,10 @@ export default new Router({
           component: () => import('@/components/Welcome/LanguageSetting.vue'),
         },
       ],
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      redirect: '/welcome/language',
     },
   ],
 });

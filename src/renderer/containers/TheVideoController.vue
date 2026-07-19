@@ -17,14 +17,14 @@
       class="notification-bubble"
     />
     <recent-playlist
+      v-bind="widgetsStatus.RecentPlaylist"
       ref="recentPlaylist"
       v-fade-in="!isEditable && !isProfessional"
       :display-state="displayState.RecentPlaylist"
       :mousemove-client-position="mousemoveClientPosition"
       :is-dragging="isDragging"
       :paused="controllerPaused"
-      :last-dragging.sync="lastDragging"
-      v-bind.sync="widgetsStatus.RecentPlaylist"
+      v-model:last-dragging="lastDragging"
       @can-hover-item="cancelPlayListTimeout"
       @conflict-resolve="conflictResolve"
       @update:playlistcontrol-showattached="updatePlaylistShowAttached"
@@ -84,8 +84,9 @@
         class="control-buttons"
       >
         <playlist-control
+          v-bind="widgetsStatus.PlaylistControl"
           v-show="displayState.PlaylistControl"
-          v-bind.sync="widgetsStatus.PlaylistControl"
+          v-model:show-attached="widgetsStatus.PlaylistControl.showAttached"
           class="button no-drag playlist"
         />
         <div
@@ -96,10 +97,11 @@
           <span>AI</span>
         </div>
         <advance-control
+          v-bind="widgetsStatus.AdvanceControl"
           ref="advance"
           v-show="displayState.AdvanceControl"
-          v-bind.sync="widgetsStatus.AdvanceControl"
-          :last-dragging.sync="lastDragging"
+          v-model:show-attached="widgetsStatus.AdvanceControl.showAttached"
+          v-model:last-dragging="lastDragging"
           @conflict-resolve="conflictResolve"
           class="button no-drag advance"
         />
@@ -111,15 +113,15 @@
       class="sub-control-wrapper"
     >
       <reference-subtitle-control
-        :showAttached.sync="referenceShowAttached"
-        :last-dragging.sync="lastDragging"
+        v-model:show-attached="referenceShowAttached"
+        v-model:last-dragging="lastDragging"
       />
     </div>
     <transition name="fade">
       <the-time-codes
         ref="theTimeCodes"
         v-if="!isProfessional"
-        :progress-trigger-stopped.sync="progressTriggerStopped"
+        v-model:progress-trigger-stopped="progressTriggerStopped"
         :show-all-widgets="showAllWidgets"
         :duration="duration"
         :show-full-time-code="showFullTimeCode"
@@ -139,12 +141,11 @@
     <forbidden-modal />
     <subtitle-editor
       ref="editor"
-      :showAttached.sync="referenceShowAttached"
+      v-model:show-attached="referenceShowAttached"
     />
   </div>
 </template>
 <script lang="ts">
-import Vue from 'vue';
 import {
   mapState, mapGetters, mapActions,
   createNamespacedHelpers,
@@ -156,6 +157,7 @@ import {
   UIStates as uiActions,
 } from '@/store/actionTypes';
 import { INPUT_COMPONENT_TYPE, getterTypes as iGT } from '@/plugins/input';
+import { getOwnComponentName } from '@/plugins/input/helpers/componentStore';
 import PlayButton from '@/components/PlayingView/PlayButton.vue';
 import VolumeIndicator from '@/components/PlayingView/VolumeIndicator.vue';
 import AdvanceControl from '@/components/PlayingView/AdvanceControl.vue';
@@ -176,6 +178,14 @@ type NamedComponent = {
   name: string,
   element: Element,
 };
+
+const createWidgetStatus = () => ({
+  selected: false,
+  showAttached: false,
+  mousedownOnOther: false,
+  mouseupOnOther: false,
+  hovering: false,
+});
 
 export default {
   name: 'TheVideoController',
@@ -210,7 +220,13 @@ export default {
       clicksTimer: 0,
       clicksDelay: 250,
       dragDelay: 200,
-      widgetsStatus: {},
+      // These controls are referenced by nested v-model expressions during the
+      // initial render, before mounted() discovers the remaining UI components.
+      widgetsStatus: {
+        RecentPlaylist: createWidgetStatus(),
+        PlaylistControl: createWidgetStatus(),
+        AdvanceControl: createWidgetStatus(),
+      },
       lastAttachedShowing: false,
       focusedTimestamp: 0,
       focusDelay: 500,
@@ -220,7 +236,11 @@ export default {
       isMousedown: false,
       isMousemove: false,
       lastDragging: false,
-      displayState: {},
+      displayState: {
+        RecentPlaylist: false,
+        PlaylistControl: true,
+        AdvanceControl: true,
+      },
       tempRecentPlaylistDisplayState: false,
       clicks: 0,
       videoChanged: false,
@@ -467,7 +487,7 @@ export default {
     window.addEventListener('mouseover', this.handleWindowMouseenter);
     window.addEventListener('mouseout', this.handleWindowMouseleave);
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('mouseover', this.handleWindowMouseenter);
     window.removeEventListener('mouseout', this.handleWindowMouseleave);
   },
@@ -506,13 +526,7 @@ export default {
         if (value.name === 'PlaylistControl' && !this.playingList.length) {
           this.displayState.PlaylistControl = false;
         }
-        this.widgetsStatus[value.name] = {
-          selected: false,
-          showAttached: false,
-          mousedownOnOther: false,
-          mouseupOnOther: false,
-          hovering: false,
-        };
+        this.widgetsStatus[value.name] = createWidgetStatus();
       }
     });
     if (this.isFolderList === false) {
@@ -580,7 +594,7 @@ export default {
     document.addEventListener('keyup', this.handleKeyup);
     document.addEventListener('wheel', this.handleWheel);
   },
-  destroyed() {
+  unmounted() {
     this.$bus.$off('cast-tick', this.onTickUpdate);
     document.removeEventListener('keydown', this.handleKeydown);
     document.removeEventListener('keyup', this.handleKeyup);
@@ -922,13 +936,8 @@ export default {
       return names;
     },
     isChildComponent(element: Element) {
-      let componentName = null;
-      this.$children.forEach((childComponenet: Vue) => {
-        if (childComponenet && childComponenet.$el === element) {
-          componentName = childComponenet.$options.name;
-        }
-      });
-      return componentName;
+      const component = getOwnComponentName(element);
+      return component ? component.name : null;
     },
     processSingleElement(element: Element) {
       const names = [];

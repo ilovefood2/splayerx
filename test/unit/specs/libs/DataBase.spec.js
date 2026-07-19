@@ -1,4 +1,5 @@
 import { info } from '@/libs/DataBase';
+import { reactive } from 'vue';
 
 describe('DataBase', () => {
   const playlistItemData1 = {
@@ -49,6 +50,21 @@ describe('DataBase', () => {
       const result = await info.getValueByKey('media-item', key);
       expect(result).to.deep.equal({ ...mediaItemData1, videoId: key });
     });
+
+    it('unwraps Vue reactive records before writing them to IndexedDB', async () => {
+      const record = reactive({
+        ...mediaItemData1,
+        metadata: { codec: 'hevc' },
+      });
+      const key = await info.add('media-item', record);
+      const result = await info.getValueByKey('media-item', key);
+
+      expect(result).to.deep.equal({
+        ...mediaItemData1,
+        metadata: { codec: 'hevc' },
+        videoId: key,
+      });
+    });
   });
   describe('method - update', () => {
     it('update to infoDB', async () => {
@@ -57,6 +73,15 @@ describe('DataBase', () => {
       const result = await info.getValueByKey('media-item', key);
       expect(result).to.deep.equal({ ...mediaItemData2, videoId: key });
       expect(key).to.equal(updateKey);
+    });
+
+    it('unwraps Vue reactive records before updating IndexedDB', async () => {
+      const key = await info.add('media-item', mediaItemData1);
+      const reactiveUpdate = reactive({ ...mediaItemData2, videoId: key });
+      await info.update('media-item', key, reactiveUpdate);
+      const result = await info.getValueByKey('media-item', key);
+
+      expect(result).to.deep.equal({ ...mediaItemData2, videoId: key });
     });
   });
   describe('method - delete', () => {

@@ -1,15 +1,14 @@
-import Vue from 'vue';
+import { createApp } from 'vue';
 import osLocale from 'os-locale';
-import VueI18n from 'vue-i18n';
+import { createI18n } from 'vue-i18n';
 import electron, { ipcRenderer } from 'electron';
 import messages from '@/locales';
 import { hookVue } from '@/kerning';
+import { installRendererGlobals } from '@/bootstrap';
 import About from '@/components/About.vue';
 import asyncStorage from '@/helpers/asyncStorage';
 import '@/css/style.scss';
 
-
-Vue.use(VueI18n);
 
 function getSystemLocale() {
   const { app } = electron.remote;
@@ -23,17 +22,15 @@ function getSystemLocale() {
   return 'en';
 }
 
-const i18n = new VueI18n({
+const i18n = createI18n({
+  legacy: true,
   locale: getSystemLocale(), // set locale
   fallbackLocale: 'en',
   messages, // set locale messages
 });
 
-hookVue(Vue);
-new Vue({
-  i18n,
+const app = createApp({
   components: { About },
-  data: {},
   mounted() {
     asyncStorage.get('preferences').then((data) => {
       if (data.displayLanguage) {
@@ -47,4 +44,8 @@ new Vue({
     });
   },
   template: '<About/>',
-}).$mount('#app');
+});
+installRendererGlobals(app);
+app.use(i18n);
+hookVue(app);
+app.mount('#app');

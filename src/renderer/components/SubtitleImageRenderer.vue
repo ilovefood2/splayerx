@@ -10,7 +10,7 @@
   />
 </template>
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 import { isEqual, pick, remove } from 'lodash';
 import { mapGetters } from 'vuex';
 import {
@@ -18,7 +18,7 @@ import {
 } from '../interfaces/ISubtitle';
 import { isValidNumber } from '../plugins/input/helpers/validators';
 
-export default Vue.extend({
+export default defineComponent({
   props: {
     currentCues: {
       type: Array,

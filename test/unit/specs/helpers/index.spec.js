@@ -67,7 +67,7 @@ describe('index.js', () => {
           dispatch,
         },
         $router: {
-          currentRoute: { name: 'playing-view' },
+          currentRoute: { value: { name: 'playing-view' } },
           push: sinon.spy(),
         },
         $bus: { $emit: emit },
@@ -94,7 +94,7 @@ describe('index.js', () => {
           dispatch,
         },
         $router: {
-          currentRoute: { name: 'landing-view' },
+          currentRoute: { value: { name: 'landing-view' } },
           push: sinon.spy(),
         },
         $bus: { $emit: emit },

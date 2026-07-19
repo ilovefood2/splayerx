@@ -2,7 +2,7 @@
 // eslint-disable-next-line no-console
 console.log('preloaded~~~~~~~');
 const { ipcRenderer } = require('electron');
-const remote = require('@electron/remote');
+const remote = require(`${__dirname}/../rendererBridge.js`);
 
 let mousedown = false;
 let isDragging = false;
@@ -21,7 +21,7 @@ window.onload = () => {
   if (window.location.href.includes('bilibili') && document.querySelector('iframe')) {
     document.querySelector('iframe').contentWindow.addEventListener('mousedown', (evt) => {
       if (!pipBtns && remote.getCurrentWindow()
-        && remote.getCurrentWindow().getBrowserViews().length > 1) {
+        && remote.getCurrentWindow().getWebContentsViews().length > 1) {
         if (evt.target.classList[0] === 'bilibili-live-player-video-danmaku') {
           offset = [evt.clientX, evt.clientY];
           if (getRatio() !== 1) {
@@ -36,7 +36,7 @@ window.onload = () => {
     }, true);
     document.querySelector('iframe').contentWindow.addEventListener('mousemove', () => {
       if (!pipBtns && remote.getCurrentWindow()
-        && remote.getCurrentWindow().getBrowserViews().length > 1) {
+        && remote.getCurrentWindow().getWebContentsViews().length > 1) {
         if (pipTimer) clearTimeout(pipTimer);
         sendToHost('mousemove', 'isMoving');
       }
@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // eslint-disable-next-line complexity
   function handleMousedown(evt) {
     if (!pipBtns && remote.getCurrentWindow()
-      && remote.getCurrentWindow().getBrowserViews().length > 1) {
+      && remote.getCurrentWindow().getWebContentsViews().length > 1) {
       const url = window.location.href;
       switch (true) {
         case url.includes('bilibili'):
@@ -213,7 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (pipBtns) {
       sendToHost('pip-btn-mouseout');
     } else if (remote.getCurrentWindow()
-      && remote.getCurrentWindow().getBrowserViews().length > 1) {
+      && remote.getCurrentWindow().getWebContentsViews().length > 1) {
       const winSize = remote.getCurrentWindow().getSize();
       if (evt.clientX <= 0 || evt.clientX >= winSize[0] || evt.clientY >= winSize[1]) {
         sendToHost('mouseout', 'out');
@@ -223,7 +223,7 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('mousedown', handleMousedown, true);
   window.addEventListener('mousemove', (evt) => {
     if (!pipBtns && remote.getCurrentWindow()
-      && remote.getCurrentWindow().getBrowserViews().length > 1) {
+      && remote.getCurrentWindow().getWebContentsViews().length > 1) {
       if (pipTimer) clearTimeout(pipTimer);
       sendToHost('mousemove', 'isMoving');
     }
@@ -253,7 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   window.addEventListener('keydown', (evt) => {
     if (pipBtns || (evt.keyCode === 13 && remote.getCurrentWindow()
-      && remote.getCurrentWindow().getBrowserViews().length > 1)) {
+      && remote.getCurrentWindow().getWebContentsViews().length > 1)) {
       sendToHost('key-events', evt.keyCode);
     }
     if (document.webkitIsFullScreen && evt.keyCode === 27) {

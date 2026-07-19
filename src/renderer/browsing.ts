@@ -1,10 +1,12 @@
-import Vue from 'vue';
+import { createApp } from 'vue';
+import { installRendererGlobals } from '@/bootstrap';
 // @ts-ignore
 import BrowsingPip from '@/components/BrowsingPip.vue';
 import '@/css/style.scss';
 
-new Vue({
+const app = createApp({
   components: { BrowsingPip },
-  data: {},
   template: '<BrowsingPip/>',
-}).$mount('#app');
+});
+installRendererGlobals(app);
+app.mount('#app');

@@ -1,24 +1,25 @@
-import { BrowserView } from 'electron';
+import { WebContentsView } from 'electron';
 import { remove } from 'lodash';
 import InjectJSManager from '../../shared/pip/InjectJSManager';
-import BrowserViewCacheManager from './BrowserViewCacheManager';
+import WebContentsViewCacheManager from './WebContentsViewCacheManager';
 
 type ChannelData = {
   currentIndex: number,
   lastUpdateTime: number,
-  list: BrowserViewHistoryItem[],
+  list: WebContentsViewHistoryItem[],
 }
 
-type BrowserViewHistoryItem = {
+type WebContentsViewHistoryItem = {
   lastUpdateTime: number,
   url: string,
-  view: BrowserView,
+  view: WebContentsView,
 }
 
-function createBrowserView(): BrowserView {
-  const view = new BrowserView({
+function createWebContentsView(): WebContentsView {
+  const view = new WebContentsView({
     webPreferences: {
       contextIsolation: false,
+      sandbox: false,
       preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
       // disableHtmlFullscreenWindowResize: true, // Electron 6 required
     },
@@ -33,7 +34,7 @@ function createBrowserView(): BrowserView {
   return view;
 }
 
-export class BrowserViewManager implements IBrowserViewManager {
+export class WebContentsViewManager implements IWebContentsViewManager {
   private historyByChannel: Map<string, ChannelData>;
 
   private currentChannel: string;
@@ -42,20 +43,20 @@ export class BrowserViewManager implements IBrowserViewManager {
 
   private singlePageChannel: string[];
 
-  private browserViewCacheManager: BrowserViewCacheManager;
+  private webContentsViewCacheManager: WebContentsViewCacheManager;
 
-  // 当前画中画BrowserView的info
+  // 当前画中画WebContentsView的info
   private currentPip: {
     pipIndex: number,
     pipChannel: string,
-    pipPage: BrowserViewHistoryItem | null,
+    pipPage: WebContentsViewHistoryItem | null,
   };
 
-  // 浏览器中后退操作所记录下来的BrowserView
-  private history: BrowserViewHistoryItem[];
+  // 浏览器中后退操作所记录下来的WebContentsView
+  private history: WebContentsViewHistoryItem[];
 
   public constructor() {
-    this.browserViewCacheManager = new BrowserViewCacheManager();
+    this.webContentsViewCacheManager = new WebContentsViewCacheManager();
     this.historyByChannel = new Map();
     this.currentPip = {
       pipIndex: -1,
@@ -67,7 +68,10 @@ export class BrowserViewManager implements IBrowserViewManager {
     this.singlePageChannel = ['qq.com', 'youku.com'];
   }
 
-  public create(channel: string, args: { url: string, isNewWindow?: boolean }): BrowserViewData {
+  public create(
+    channel: string,
+    args: { url: string, isNewWindow?: boolean },
+  ): WebContentsViewData {
     // 初始化频道数据
     if (!this.historyByChannel.has(channel)) {
       this.historyByChannel.set(channel, {
@@ -79,13 +83,13 @@ export class BrowserViewManager implements IBrowserViewManager {
 
     const currentHistory = (this.historyByChannel.get(this.currentChannel)) as ChannelData;
     const newHistory = (this.historyByChannel.get(channel)) as ChannelData;
-    // 当前BrowserView更新url
+    // 当前WebContentsView更新url
     const index = newHistory.currentIndex;
     const lastUrl = newHistory.list.length ? newHistory.list[index].url : args.url;
     // 创建上一个view数据
     const page = {
       url: lastUrl,
-      view: createBrowserView(),
+      view: createWebContentsView(),
       lastUpdateTime: newHistory.list.length ? newHistory.list[index].lastUpdateTime : Date.now(),
     };
     if (newHistory.list.length) {
@@ -100,7 +104,7 @@ export class BrowserViewManager implements IBrowserViewManager {
       }
     }
 
-    // 新建BrowserView Load Url以及禁止视频自动播放
+    // 新建WebContentsView Load Url以及禁止视频自动播放
     page.view.webContents.loadURL(page.url);
     if (channel === this.currentChannel) {
       const hasLastPage = newHistory.list.length;
@@ -117,15 +121,15 @@ export class BrowserViewManager implements IBrowserViewManager {
         if (view && !view.isDestroyed()) this.pauseVideo(view);
       } else if (this.history.length) {
         // 清除后退的记录
-        const deleteItems = remove(currentHistory.list, (list: BrowserViewHistoryItem) => {
+        const deleteItems = remove(currentHistory.list, (list: WebContentsViewHistoryItem) => {
           if (this.history.includes(list)) {
             list.view.destroy();
             return true;
           }
           return false;
         });
-        remove(this.history, (list: BrowserViewHistoryItem) => deleteItems.includes(list));
-        this.browserViewCacheManager.clearBackPagesCache(channel, deleteItems);
+        remove(this.history, (list: WebContentsViewHistoryItem) => deleteItems.includes(list));
+        this.webContentsViewCacheManager.clearBackPagesCache(channel, deleteItems);
       }
     }
 
@@ -143,7 +147,7 @@ export class BrowserViewManager implements IBrowserViewManager {
   }
 
   // 浏览器后退
-  public back(): BrowserViewData {
+  public back(): WebContentsViewData {
     const currentHistory = (this.historyByChannel.get(this.currentChannel) as ChannelData);
     const index = currentHistory.currentIndex;
     this.history.push(currentHistory.list[index]);
@@ -151,14 +155,14 @@ export class BrowserViewManager implements IBrowserViewManager {
   }
 
   // 浏览器前进
-  public forward(): BrowserViewData {
+  public forward(): WebContentsViewData {
     if (this.history.length) {
       this.history.pop();
     }
     return this.jump(false);
   }
 
-  public openHistoryPage(channel: string, url: string): BrowserViewData {
+  public openHistoryPage(channel: string, url: string): WebContentsViewData {
     const newHistory = (this.historyByChannel.get(channel) as ChannelData);
     if (!this.historyByChannel.has(channel)) {
       return this.create(channel, { url });
@@ -167,9 +171,10 @@ export class BrowserViewManager implements IBrowserViewManager {
     if (index === -1) {
       const page = {
         url,
-        view: new BrowserView({
+        view: new WebContentsView({
           webPreferences: {
             contextIsolation: false,
+            sandbox: false,
             preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
             // disableHtmlFullscreenWindowResize: true, // Electron 6 required
           },
@@ -189,7 +194,7 @@ export class BrowserViewManager implements IBrowserViewManager {
     }
     const page = newHistory.list[index];
     if (page.view && page.view.isDestroyed()) {
-      page.view = createBrowserView();
+      page.view = createWebContentsView();
       page.view.webContents.loadURL(page.url);
     } else {
       page.view.webContents.reload();
@@ -208,14 +213,14 @@ export class BrowserViewManager implements IBrowserViewManager {
 
   // 浏览器切换频道
   public changeChannel(channel: string,
-    args: { url: string, isNewWindow?: boolean }): BrowserViewData {
+    args: { url: string, isNewWindow?: boolean }): WebContentsViewData {
     const newHistory = (this.historyByChannel.get(channel) as ChannelData);
     if (!this.historyByChannel.has(channel)) {
       return this.create(channel, args);
     }
     const page = newHistory.list[newHistory.currentIndex];
     if (page.view && page.view.isDestroyed()) {
-      page.view = createBrowserView();
+      page.view = createWebContentsView();
       page.view.webContents.loadURL(page.url);
     } else if (this.currentChannel) {
       this.pauseVideo();
@@ -234,7 +239,7 @@ export class BrowserViewManager implements IBrowserViewManager {
   }
 
   // 进入画中画
-  public enterPip(): { pipBrowser: BrowserView, mainBrowser: BrowserViewData } {
+  public enterPip(): { pipBrowser: WebContentsView, mainBrowser: WebContentsViewData } {
     const currentHistory = (this.historyByChannel.get(this.currentChannel) as ChannelData);
     const currentIndex = currentHistory.currentIndex;
     const list = currentHistory.list;
@@ -246,9 +251,10 @@ export class BrowserViewManager implements IBrowserViewManager {
         canForward: false,
         page: {
           url: list[currentIndex].url,
-          view: new BrowserView({
+          view: new WebContentsView({
             webPreferences: {
               contextIsolation: false,
+              sandbox: false,
               preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
             },
           }),
@@ -265,11 +271,11 @@ export class BrowserViewManager implements IBrowserViewManager {
     }
     list[currentIndex].lastUpdateTime = Date.now();
     if (mainBrowser.page.view && mainBrowser.page.view.isDestroyed()) {
-      mainBrowser.page.view = createBrowserView();
+      mainBrowser.page.view = createWebContentsView();
       mainBrowser.page.view.webContents.loadURL(mainBrowser.page.url);
     }
     const deletePages = currentHistory.list.splice(currentIndex, currentHistory.list.length);
-    deletePages.forEach((page: BrowserViewHistoryItem, index: number) => {
+    deletePages.forEach((page: WebContentsViewHistoryItem, index: number) => {
       if (index !== 0) page.view.destroy();
     });
     this.currentPip = {
@@ -297,25 +303,25 @@ export class BrowserViewManager implements IBrowserViewManager {
         x: 76, y: 0, width: 0, height: 0,
       });
     }
-    this.browserViewCacheManager.removeCacheWhenEnterPip(this.currentChannel,
+    this.webContentsViewCacheManager.removeCacheWhenEnterPip(this.currentChannel,
       mainBrowser.page, deletePages);
     this.pauseVideo(mainBrowser.page.view, this.currentChannel, true);
     return { pipBrowser, mainBrowser };
   }
 
   // 退出画中画
-  public exitPip(): BrowserViewData {
+  public exitPip(): WebContentsViewData {
     this.pauseVideo();
     const { pipIndex, pipChannel } = this.currentPip;
     const pipHistory = (this.historyByChannel.get(pipChannel) as ChannelData);
     const list = pipHistory.list;
     pipHistory.list = list
-      .filter((page: BrowserViewHistoryItem, index: number) => index < pipIndex);
+      .filter((page: WebContentsViewHistoryItem, index: number) => index < pipIndex);
     const deleteList = list.slice(pipIndex, list.length);
-    deleteList.forEach((page: BrowserViewHistoryItem) => {
+    deleteList.forEach((page: WebContentsViewHistoryItem) => {
       page.view.destroy();
     });
-    const page = this.currentPip.pipPage as BrowserViewHistoryItem;
+    const page = this.currentPip.pipPage as WebContentsViewHistoryItem;
     pipHistory.list.push(page);
     pipHistory.currentIndex = pipIndex;
     pipHistory.lastUpdateTime = Date.now();
@@ -331,7 +337,7 @@ export class BrowserViewManager implements IBrowserViewManager {
         x: 76, y: 0, width: 0, height: 0,
       });
     }
-    this.browserViewCacheManager.recoverCacheWhenExitPip(pipChannel, page, deleteList);
+    this.webContentsViewCacheManager.recoverCacheWhenExitPip(pipChannel, page, deleteList);
     return {
       canBack: (this.historyByChannel.get(this.currentChannel) as ChannelData).currentIndex > 0,
       canForward: false,
@@ -340,16 +346,16 @@ export class BrowserViewManager implements IBrowserViewManager {
   }
 
   // 在画中画模式下切换画中画
-  public changePip(channel: string): { pipBrowser: BrowserView,
-    mainBrowser: BrowserViewData, } {
+  public changePip(channel: string): { pipBrowser: WebContentsView,
+    mainBrowser: WebContentsViewData, } {
     this.currentChannel = channel;
-    this.pauseVideo((this.currentPip.pipPage as BrowserViewHistoryItem).view,
+    this.pauseVideo((this.currentPip.pipPage as WebContentsViewHistoryItem).view,
       this.currentPip.pipChannel);
     return this.enterPip();
   }
 
-  // 暂停当前BrowserView下的视频
-  public pauseVideo(view?: BrowserView, currentChannel?: string, enterPip?: boolean): void {
+  // 暂停当前WebContentsView下的视频
+  public pauseVideo(view?: WebContentsView, currentChannel?: string, enterPip?: boolean): void {
     const pausedChannel = currentChannel || this.currentChannel;
     const currentHistory = (this.historyByChannel.get(this.currentChannel) as ChannelData);
     const currentIndex = currentHistory.currentIndex;
@@ -418,7 +424,7 @@ export class BrowserViewManager implements IBrowserViewManager {
     this.currentChannel = newChannel;
   }
 
-  public clearAllBrowserViews(isDeepClear?: boolean): void {
+  public clearAllWebContentsViews(isDeepClear?: boolean): void {
     this.currentChannel = '';
     this.currentPip = {
       pipIndex: -1,
@@ -429,7 +435,7 @@ export class BrowserViewManager implements IBrowserViewManager {
     isDeepClear = isDeepClear || false;
     this.historyByChannel.forEach((history) => {
       history.lastUpdateTime = Date.now();
-      history.list.forEach((item: BrowserViewHistoryItem) => {
+      history.list.forEach((item: WebContentsViewHistoryItem) => {
         item.view.destroy();
       });
     });
@@ -438,21 +444,21 @@ export class BrowserViewManager implements IBrowserViewManager {
     }
   }
 
-  public clearBrowserViewsByChannel(channel: string): void {
-    this.browserViewCacheManager.clearCacheByChannel(channel);
+  public clearWebContentsViewsByChannel(channel: string): void {
+    this.webContentsViewCacheManager.clearCacheByChannel(channel);
     this.historyByChannel.delete(channel);
   }
 
   public clearCustomizedCache(channel: string): void {
     if (!this.singlePageChannel.concat(this.multiPagesChannel).includes(channel)) {
-      this.clearBrowserViewsByChannel(channel);
+      this.clearWebContentsViewsByChannel(channel);
     }
   }
 
-  private jump(left: boolean): BrowserViewData {
+  private jump(left: boolean): WebContentsViewData {
     this.pauseVideo();
     const channel: ChannelData = this.historyByChannel.get(this.currentChannel) as ChannelData;
-    const result: BrowserViewData = {
+    const result: WebContentsViewData = {
       canBack: false,
       canForward: false,
       page: undefined,
@@ -468,7 +474,7 @@ export class BrowserViewManager implements IBrowserViewManager {
     channel.lastUpdateTime = Date.now();
     channel.currentIndex = index;
     if (result.page.view && result.page.view.isDestroyed()) {
-      result.page.view = createBrowserView();
+      result.page.view = createWebContentsView();
       result.page.view.webContents.loadURL(result.page.url);
     }
     result.page.lastUpdateTime = Date.now();
@@ -483,24 +489,24 @@ export class BrowserViewManager implements IBrowserViewManager {
     return result;
   }
 
-  private addCacheByChannel(channel: string, page: BrowserViewHistoryItem): void {
+  private addCacheByChannel(channel: string, page: WebContentsViewHistoryItem): void {
     switch (true) {
       case this.multiPagesChannel.includes(channel):
-        this.browserViewCacheManager.addChannelToMulti(channel, page);
+        this.webContentsViewCacheManager.addChannelToMulti(channel, page);
         break;
       case this.singlePageChannel.includes(channel):
-        this.browserViewCacheManager.addChannelToSingle(channel, page);
+        this.webContentsViewCacheManager.addChannelToSingle(channel, page);
         break;
       default:
-        this.browserViewCacheManager.addChannelToSingle(channel, page);
+        this.webContentsViewCacheManager.addChannelToSingle(channel, page);
         break;
     }
   }
 
   private changeCacheUrl(oldChannel: string, newChannel: string,
-    oldPage: BrowserViewHistoryItem, newPage: BrowserViewHistoryItem): void {
+    oldPage: WebContentsViewHistoryItem, newPage: WebContentsViewHistoryItem): void {
     const isMulti = this.multiPagesChannel.includes(newChannel);
-    this.browserViewCacheManager.changeCacheUrl(
+    this.webContentsViewCacheManager.changeCacheUrl(
       oldChannel,
       newChannel,
       oldPage,
@@ -510,26 +516,26 @@ export class BrowserViewManager implements IBrowserViewManager {
   }
 }
 
-export type BrowserViewData = {
+export type WebContentsViewData = {
   canBack: boolean,
   canForward: boolean,
-  page?: BrowserViewHistoryItem,
-  view?: BrowserView,
+  page?: WebContentsViewHistoryItem,
+  view?: WebContentsView,
 }
 
-export interface IBrowserViewManager {
-  create(channel: string, args: { url: string, isNewWindow?: boolean }): BrowserViewData,
-  back(): BrowserViewData,
-  forward(): BrowserViewData,
-  changeChannel(channel: string, args: { url: string, isNewWindow?: boolean }): BrowserViewData,
-  enterPip(): { pipBrowser: BrowserView, mainBrowser: BrowserViewData },
-  exitPip(): BrowserViewData,
-  changePip(channel: string): { pipBrowser: BrowserView, mainBrowser: BrowserViewData },
+export interface IWebContentsViewManager {
+  create(channel: string, args: { url: string, isNewWindow?: boolean }): WebContentsViewData,
+  back(): WebContentsViewData,
+  forward(): WebContentsViewData,
+  changeChannel(channel: string, args: { url: string, isNewWindow?: boolean }): WebContentsViewData,
+  enterPip(): { pipBrowser: WebContentsView, mainBrowser: WebContentsViewData },
+  exitPip(): WebContentsViewData,
+  changePip(channel: string): { pipBrowser: WebContentsView, mainBrowser: WebContentsViewData },
   pipClose(): void,
-  pauseVideo(view?: BrowserView, currentChannel?: string, enterPip?: boolean): void,
-  clearAllBrowserViews(isDeepClear?: boolean): void,
-  clearBrowserViewsByChannel(channel: string): void,
-  openHistoryPage(channel: string, url: string): BrowserViewData,
+  pauseVideo(view?: WebContentsView, currentChannel?: string, enterPip?: boolean): void,
+  clearAllWebContentsViews(isDeepClear?: boolean): void,
+  clearWebContentsViewsByChannel(channel: string): void,
+  openHistoryPage(channel: string, url: string): WebContentsViewData,
   setCurrentChannel(newChannel: string): void,
   clearCustomizedCache(channel: string): void,
 }

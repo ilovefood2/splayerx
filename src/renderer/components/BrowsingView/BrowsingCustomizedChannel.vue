@@ -195,7 +195,7 @@ export default {
       this.getFailed = false;
       this.nameInvalid = false;
       this.getChannelInfo = true;
-      this.view = new this.$electron.remote.BrowserView();
+      this.view = new this.$electron.remote.WebContentsView();
       const url = /^(\w+):\/\//.test(this.url) ? this.url : `http://${this.url}`;
       this.view.webContents.addListener('did-fail-load', (e: Event, errorCode: number, errorDescription: string, validatedURL: string) => {
         if (errorCode !== -3) {

@@ -14,7 +14,7 @@
       >
         <Icon
           :state="state"
-          @click.native="handleClose"
+          @click="handleClose"
           class="titlebar__button"
           type="titleBarClose"
         />
@@ -108,7 +108,7 @@
           type="titleBarWinFull"
         />
         <Icon
-          @click.native="handleClose"
+          @click="handleClose"
           class="titlebar__button"
           type="titleBarWinClose"
         />
@@ -198,7 +198,7 @@ export default {
       this.disableRoute = false;
     });
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.onmousedown = null;
     window.onmousemove = null;
     window.onmouseup = null;
@@ -212,7 +212,7 @@ export default {
       this.$store.dispatch(actionType, actionPayload);
     },
     handleMouseup(panel: string) {
-      const currentRoute = this.$router.currentRoute;
+      const currentRoute = this.$router.currentRoute.value;
       const sameRoute = currentRoute && currentRoute.name === panel;
       if (!this.disableRoute && !sameRoute) {
         this.$router.push({ name: panel });

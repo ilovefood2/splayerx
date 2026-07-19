@@ -2,14 +2,14 @@ import {
   MutationTree, GetterTree, ActionTree,
   Module, ActionContext,
 } from 'vuex';
-import uuidv4 from 'uuid/v4';
+import { v4 as uuidv4 } from 'uuid';
 import {
   isEqual, sortBy, differenceWith, flatten, remove, debounce, difference, cloneDeep,
 } from 'lodash';
-import Vue from 'vue';
 import { remote, SaveDialogReturnValue } from 'electron';
 import { extname, basename, join } from 'path';
 import { existsSync } from 'fs';
+import { rendererEventBus } from '@/services/globalEvents';
 import store from '@/store';
 import { SubtitleManager as m } from '@/store/mutationTypes';
 import {
@@ -395,13 +395,12 @@ const mutations: MutationTree<ISubtitleManagerState> = {
     state.isRefreshing = isRefreshing;
   },
   [m.addSubtitleId](state, { id, entity }: { id: string, entity: IEntity }) {
-    Vue.set(state.allSubtitles, id, entity);
+    state.allSubtitles[id] = entity;
     const { primarySubtitleId, secondarySubtitleId } = state;
     if (primarySubtitleId && !state.allSubtitles[primarySubtitleId]) state.primarySubtitleId = '';
     if (secondarySubtitleId && !state.allSubtitles[secondarySubtitleId]) state.secondarySubtitleId = '';
   },
   [m.deleteSubtitleId](state, id: string) {
-    Vue.set(state.allSubtitles, id, undefined);
     delete state.allSubtitles[id];
   },
   [m.setPrimaryDelay](state, delayInSeconds: number) {
@@ -427,7 +426,7 @@ interface IAddSubtitleOptions {
   mediaHash: string,
 }
 function privacyConfirm(): Promise<boolean> {
-  const { $bus } = Vue.prototype;
+  const $bus = rendererEventBus;
   $bus.$emit('privacy-confirm');
   return new Promise((resolve) => {
     $bus.$once('subtitle-refresh-continue', resolve);
@@ -435,7 +434,7 @@ function privacyConfirm(): Promise<boolean> {
 }
 
 function deleteModifiedConfirm(): Promise<boolean> {
-  const { $bus } = Vue.prototype;
+  const $bus = rendererEventBus;
   $bus.$emit('delete-modified-confirm', true);
   return new Promise((resolve) => {
     $bus.$once('delete-modified-cancel', (result: boolean) => {
@@ -464,7 +463,10 @@ let aiProgressTimer: number | undefined;
 function progressText(key: string, values: object): string {
   const i18n = (store as { $i18n?: { t: Function, locale: string } }).$i18n;
   if (!i18n) return '';
-  return i18n.t(key, i18n.locale, values) as string;
+  // vue-i18n 11 uses the active global locale automatically. Passing the
+  // legacy Vue 2 `(key, locale, values)` signature drops named values, which
+  // leaves progress bubbles showing a bare "%" instead of the percentage.
+  return i18n.t(key, values) as string;
 }
 
 function showAIProgress(content: string): void {
@@ -1581,7 +1583,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
   async [a.exportSubtitle]({
     getters, dispatch, rootState, rootGetters,
   }, item: ISubtitleControlListItem) {
-    const { $bus } = Vue.prototype;
+    const $bus = rendererEventBus;
     // if (process.windowsStore) {
     //   addBubble(APPX_EXPORT_NOT_WORK);
     //   return;

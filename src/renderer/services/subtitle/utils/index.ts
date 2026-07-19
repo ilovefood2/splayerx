@@ -3,7 +3,7 @@ import { encodingExists, decode } from 'iconv-lite';
 import {
   open, read, close, readFile, existsSync, outputFile,
 } from 'fs-extra';
-import uuidv4 from 'uuid/v4';
+import { v4 as uuidv4 } from 'uuid';
 import { extname, join } from 'path';
 import {
   ITags, IOrigin, Type, Format, IParser, ILoader, Cue, IVideoSegments, IMetadata, TextCue,

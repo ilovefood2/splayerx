@@ -9,9 +9,20 @@ declare global {
       setCrossThreadCache(key: string[] | string, val: any): void,
     }
 
-    interface BrowserView {
+    interface WebContentsView {
       destroy(): void,
       isDestroyed(): boolean,
+    }
+
+    interface BrowserWindow {
+      addWebContentsView(view: WebContentsView): void,
+      removeWebContentsView(view: WebContentsView): void,
+      getWebContentsViews(): WebContentsView[],
+      setWebContentsView(view: WebContentsView | null): void,
+      setWebContentsViewAutoResize(
+        view: WebContentsView,
+        options: { width?: boolean, height?: boolean },
+      ): void,
     }
 
     interface IpcMain {
@@ -32,8 +43,19 @@ declare global {
 declare module 'electron' {
   export const remote: any;
 
-  interface BrowserView {
+  interface WebContentsView {
     destroy(): void,
     isDestroyed(): boolean,
+  }
+
+  interface BrowserWindow {
+    addWebContentsView(view: WebContentsView): void,
+    removeWebContentsView(view: WebContentsView): void,
+    getWebContentsViews(): WebContentsView[],
+    setWebContentsView(view: WebContentsView | null): void,
+    setWebContentsViewAutoResize(
+      view: WebContentsView,
+      options: { width?: boolean, height?: boolean },
+    ): void,
   }
 }

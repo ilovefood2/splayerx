@@ -16,7 +16,7 @@
         <p class="content"><!--eslint-disable-line-->{{ content }}</p>
       </div>
       <Icon
-        @click.native.left="bubbleHandler()"
+        @click.left="bubbleHandler()"
         :type="didFailed ? 'close' : 'findSnapshot'"
         class="bubble-close"
       />

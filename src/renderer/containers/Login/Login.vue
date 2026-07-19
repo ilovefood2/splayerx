@@ -19,7 +19,7 @@
           type="titleBarWinFull"
         />
         <Icon
-          @mouseup.native="handleClose"
+          @mouseup="handleClose"
           class="title-button no-drag"
           type="titleBarWinClose"
         />
@@ -31,7 +31,7 @@
       >
         <Icon
           id="close"
-          @mouseup.native="handleClose"
+          @mouseup="handleClose"
           class="title-button no-drag"
           type="titleBarClose"
         />
@@ -54,7 +54,7 @@
         class="win-icons"
       >
         <Icon
-          @mouseup.native="handleClose"
+          @mouseup="handleClose"
           class="title-button no-drag"
           type="titleBarWinClose"
         />
@@ -64,12 +64,12 @@
   </div>
 </template>
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 
 import Icon from '@/components/BaseIconContainer.vue';
 import { postMessage } from '@/../shared/utils';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'Login',
   components: {
     Icon,
