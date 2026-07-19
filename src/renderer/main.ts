@@ -36,6 +36,7 @@ import {
 import { Video as videoMutations } from '@/store/mutationTypes';
 import { log } from '@/libs/Log';
 import asyncStorage from '@/helpers/asyncStorage';
+import { getVolumeWheelAdjustment } from '@/helpers/volumeWheel';
 import { videodata } from '@/store/video';
 import { addBubble } from '@/helpers/notificationControl';
 import { getAITranslator, makeAITranslationKey } from '@/services/subtitle/ai';
@@ -83,14 +84,14 @@ const app = createApp({
       canSendVolumeGa: true,
       openChannelMenu: false,
       selectedMenuItem: undefined,
-      maxVoume: 100,
+      maxVolume: 100,
       volumeMutating: false,
     };
   },
   computed: {
     ...mapGetters(['volume', 'muted', 'intrinsicWidth', 'intrinsicHeight', 'ratio', 'winAngle', 'winWidth', 'winHeight', 'winPos', 'winSize', 'chosenStyle', 'chosenSize', 'mediaHash', 'list', 'enabledSecondarySub', 'isRefreshing', 'browsingSize', 'pipSize', 'pipPos', 'barrageOpen', 'isPip', 'pipAlwaysOnTop', 'isMaximized', 'pipMode',
       'primarySubtitleId', 'secondarySubtitleId', 'audioTrackList', 'isFullScreen', 'paused', 'casting', 'castPaused', 'singleCycle', 'playlistLoop', 'isHiddenByBossKey', 'isMinimized', 'isFocused', 'originSrc', 'defaultDir', 'ableToPushCurrentSubtitle', 'displayLanguage', 'calculatedNoSub', 'sizePercent', 'snapshotSavedPath', 'duration', 'reverseScrolling', 'pipSize', 'pipPos',
-      'showSidebar', 'volumeWheelTriggered', 'preferenceData', 'userInfo', 'canTryToUploadCurrentSubtitle', 'gettingTemporaryViewInfo', 'isDarkMode',
+      'showSidebar', 'preferenceData', 'userInfo', 'canTryToUploadCurrentSubtitle', 'gettingTemporaryViewInfo', 'isDarkMode',
       'isEditable', 'isProfessional', 'referenceSubtitle', 'subtitleEditMenuPrevEnable', 'subtitleEditMenuNextEnable', 'subtitleEditMenuEnterEnable', 'editorHistory', 'editorCurrentIndex',
     ]),
     ...inputMapGetters({
@@ -516,67 +517,38 @@ const app = createApp({
           break;
       }
     });
-    /* eslint-disable */
-    window.addEventListener('wheel', (e) => {
-      // ctrlKey is the official way of detecting pinch zoom on mac for chrome
-      if (!e.ctrlKey) {
-        let isAdvanceColumeItem;
-        let isSubtitleScrollItem;
-        const advance = document.querySelector('.mainMenu');
-        const subtitle = document.querySelector('.subtitle-scroll-items');
-        if (advance) {
-          const nodeList = advance.childNodes;
-          for (let i = 0; i < nodeList.length; i += 1) {
-            isAdvanceColumeItem = nodeList[i].contains(e.target as Node);
-            if (isAdvanceColumeItem) break;
-          }
-        }
-        if (subtitle) {
-          const subList = subtitle.childNodes;
-          for (let i = 0; i < subList.length; i += 1) {
-            isSubtitleScrollItem = subList[i].contains(e.target as Node);
-            if (isSubtitleScrollItem) break;
-          }
-        }
-        if (this.volumeWheelTriggered) {
-          if (e.deltaY) {
-            if (this.canSendVolumeGa) {
-              this.$ga.event('app', 'volume', 'wheel');
-              this.canSendVolumeGa = false;
-              setTimeout(() => {
-                this.canSendVolumeGa = true;
-              }, 1000);
-            }
-            if (this.wheelDirection === 'vertical' || this.playlistDisplayState) {
-              let step = Math.abs(e.deltaY) * 0.06;
-              // in windows if wheel setting more lines per step, make it limited.
-              if (process.platform !== 'darwin' && step > 6) {
-                step = 6;
-              }
-              if (
-                (process.platform !== 'darwin' && !this.reverseScrolling) ||
-                (process.platform === 'darwin' && this.reverseScrolling)
-              ) {
-                if (e.deltaY < 0) {
-                  this.$store.dispatch(
-                    videoActions.INCREASE_VOLUME, { step, max: this.maxVolume },
-                  );
-                } else this.$store.dispatch(videoActions.DECREASE_VOLUME, step);
-              } else if (
-                (process.platform === 'darwin' && !this.reverseScrolling) ||
-                (process.platform !== 'darwin' && this.reverseScrolling)
-              ) {
-                  if (e.deltaY > 0) {
-                    this.$store.dispatch(
-                      videoActions.INCREASE_VOLUME, { step, max: this.maxVolume },
-                    );
-                  } else this.$store.dispatch(videoActions.DECREASE_VOLUME, step);
-              }
-            }
-          }
-        }
+    window.addEventListener('wheel', (event) => {
+      if (this.currentRouteName !== 'playing-view') return;
+
+      const target = event.target as Node;
+      const advance = document.querySelector('.mainMenu');
+      const subtitle = document.querySelector('.subtitle-scroll-items');
+      if ((advance && advance.contains(target)) || (subtitle && subtitle.contains(target))) return;
+
+      const adjustment = getVolumeWheelAdjustment(event, {
+        platform: process.platform,
+        reverseScrolling: this.reverseScrolling,
+      });
+      if (!adjustment) return;
+
+      this.setMaxVolume();
+      if (this.canSendVolumeGa) {
+        this.$ga.event('app', 'volume', 'wheel');
+        this.canSendVolumeGa = false;
+        setTimeout(() => {
+          this.canSendVolumeGa = true;
+        }, 1000);
       }
-    });
+
+      if (adjustment.increase) {
+        this.$store.dispatch(videoActions.INCREASE_VOLUME, {
+          step: adjustment.step,
+          max: this.maxVolume,
+        });
+      } else {
+        this.$store.dispatch(videoActions.DECREASE_VOLUME, adjustment.step);
+      }
+    }, { capture: true, passive: true });
     window.addEventListener('wheel', (event) => {
       const { deltaX: x, ctrlKey, target } = event;
       let isAdvanceColumeItem;
