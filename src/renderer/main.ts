@@ -5,7 +5,9 @@ import path from 'path';
 import os from 'os';
 import fs, { promises as fsPromises } from 'fs';
 import Parse from 'parse';
-import electron, { ipcRenderer, webFrame, OpenDialogReturnValue } from 'electron';
+import electron, {
+  ipcRenderer, webFrame, webUtils, OpenDialogReturnValue,
+} from 'electron';
 import Vue from 'vue';
 import VueI18n from 'vue-i18n';
 import { mapGetters, mapActions, createNamespacedHelpers } from 'vuex';
@@ -688,7 +690,10 @@ new Vue({
       e.preventDefault();
       this.$bus.$emit('drop');
       this.$store.commit('source', 'drop');
-      const files = Array.prototype.map.call(e.dataTransfer!.files, (f: File) => f.path) as string[]
+      const files = Array.prototype.map.call(
+        e.dataTransfer!.files,
+        (file: File) => webUtils.getPathForFile(file),
+      ) as string[];
       const onlyFolders = files.every((file: fs.PathLike) => fs.statSync(file).isDirectory());
       if (this.currentRouteName === 'landing-view' && !onlyFolders && files.every((file) => isSubtitle(file))) {
         this.$electron.ipcRenderer.send('drop-subtitle', files);
@@ -970,7 +975,10 @@ new Vue({
         if (!this.paused) {
           this.$bus.$emit('toggle-playback');
         }
-        const options = { types: ['window'], thumbnailSize: { width: this.winWidth, height: this.winHeight } };
+        const options: Electron.SourcesOptions = {
+          types: ['window'],
+          thumbnailSize: { width: this.winWidth, height: this.winHeight },
+        };
         const date = new Date();
         const imgName = `SPlayer-${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}-${date.getHours()}.${date.getMinutes()}.${date.getSeconds()}.png`;
         electron.desktopCapturer.getSources(options).then(sources => {
@@ -1002,7 +1010,7 @@ new Vue({
               });
             }
           });
-        }).catch(error => {
+        }).catch((error: Error) => {
           if (error) {
             log.info('render/main', 'Snapshot failed .');
             addBubble(SNAPSHOT_FAILED, { id: imgName });
@@ -1190,8 +1198,7 @@ new Vue({
         const app = electron.remote.app;
         const Report = Parse.Object.extend('SPlayerBugReport');
         let report = new Report();
-        // @ts-ignore
-        let location = electron.crashReporter.getCrashesDirectory();
+        let location = app.getPath('crashDumps');
         if (!location) location = path.join(app.getPath('temp'), `${app.name} Crashes`);
         const crashReportPath = path.join(location, 'completed');
         const dumpfiles: Parse.File[] = [];

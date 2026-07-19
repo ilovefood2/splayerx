@@ -45,6 +45,8 @@ function generateHtmlWebpackPluginConfig(name) {
   };
 }
 
+const electronCompat = path.join(__dirname, '../src/renderer/electronCompat.js');
+
 /**
  * List of node_modules to include in webpack bundle
  *
@@ -58,15 +60,15 @@ let rendererConfig = {
   mode: 'development',
   devtool: '#module-eval-source-map',
   entry: {
-    preference: path.join(__dirname, '../src/renderer/preference.js'),
-    about: path.join(__dirname, '../src/renderer/about.js'),
-    losslessStreaming: path.join(__dirname, '../src/renderer/losslessStreaming.js'),
-    payment: path.join(__dirname, '../src/renderer/payment.ts'),
-    index: path.join(__dirname, '../src/renderer/main.ts'),
-    browsing: path.join(__dirname, '../src/renderer/browsing.ts'),
-    openUrl: path.join(__dirname, '../src/renderer/openUrl.ts'),
-    download: path.join(__dirname, '../src/renderer/download.ts'),
-    downloadList: path.join(__dirname, '../static/download/downloadList.ts'),
+    preference: [electronCompat, path.join(__dirname, '../src/renderer/preference.js')],
+    about: [electronCompat, path.join(__dirname, '../src/renderer/about.js')],
+    losslessStreaming: [electronCompat, path.join(__dirname, '../src/renderer/losslessStreaming.js')],
+    payment: [electronCompat, path.join(__dirname, '../src/renderer/payment.ts')],
+    index: [electronCompat, path.join(__dirname, '../src/renderer/main.ts')],
+    browsing: [electronCompat, path.join(__dirname, '../src/renderer/browsing.ts')],
+    openUrl: [electronCompat, path.join(__dirname, '../src/renderer/openUrl.ts')],
+    download: [electronCompat, path.join(__dirname, '../src/renderer/download.ts')],
+    downloadList: [electronCompat, path.join(__dirname, '../static/download/downloadList.ts')],
   },
   externals: [
     ...Object.keys(Object.assign({}, dependencies, optionalDependencies)).filter(

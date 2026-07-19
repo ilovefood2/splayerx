@@ -3,6 +3,7 @@ import './helpers/setUserDataDir';
 import '../shared/sentry';
 
 import { app, BrowserWindow, session, Tray, ipcMain, globalShortcut, nativeImage, systemPreferences, BrowserView, webContents, inAppPurchase, screen, dialog, Notification, shell } from 'electron' // eslint-disable-line
+import { initialize as initializeRemote, enable as enableRemote } from '@electron/remote/main';
 import {
   throttle, debounce, uniq, uniqBy,
 } from 'lodash';
@@ -30,6 +31,13 @@ import InjectJSManager from '../../src/shared/pip/InjectJSManager';
 import Locale from '../shared/common/localize';
 
 import losslessStreamingInstance from './helpers/LosslessStreaming';
+
+// Electron removed the built-in `remote` module in v14. SPlayer still has a
+// number of legacy renderer call sites, so bridge them through the maintained
+// @electron/remote package while they are migrated to explicit IPC. Enabling
+// every WebContents here also covers BrowserViews and independent player windows.
+initializeRemote();
+app.on('web-contents-created', (event, contents) => enableRemote(contents));
 
 // requestSingleInstanceLock is not going to work for mas
 // https://github.com/electron-userland/electron-packager/issues/923
@@ -240,7 +248,6 @@ function createPipControlView() {
   if (pipControlView && !pipControlView.isDestroyed()) pipControlView.destroy();
   pipControlView = new BrowserView({
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
     },
@@ -261,7 +268,6 @@ function createDownloadListView(title, list, url, isVip, resolution, path) {
   if (downloadListView && !downloadListView.isDestroyed()) downloadListView.destroy();
   downloadListView = new BrowserView({
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       nodeIntegration: true,
       preload: `${require('path').resolve(__static, 'download/preload.js')}`,
@@ -330,7 +336,6 @@ function createTitlebarView() {
   if (titlebarView) titlebarView.destroy();
   titlebarView = new BrowserView({
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       preload: `${require('path').resolve(__static, 'pip/titlebarPreload.js')}`,
     },
@@ -502,7 +507,6 @@ function createOpenUrlWindow() {
     resizable: false,
     show: false,
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       webSecurity: false,
       nodeIntegration: true,
@@ -543,11 +547,9 @@ function createPremiumView(e, route) {
   if (!premiumView) {
     premiumView = new BrowserView({
       webPreferences: {
-        enableRemoteModule: true,
         contextIsolation: false,
         preload: `${require('path').resolve(__static, 'premium/preload.js')}`,
         webSecurity: false,
-        nativeWindowOpen: true,
       },
     });
     premiumView.setBackgroundColor('#3B3B41');
@@ -582,7 +584,6 @@ function createPreferenceWindow(e, route) {
     resizable: false,
     show: false,
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       webSecurity: false,
       nodeIntegration: true,
@@ -643,7 +644,6 @@ function createAboutWindow() {
     resizable: false,
     show: false,
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       webSecurity: false,
       nodeIntegration: true,
@@ -685,7 +685,6 @@ function createDownloadWindow(args) {
     minHeight: 500,
     resizable: true,
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       webSecurity: false,
       nodeIntegration: true,
@@ -722,7 +721,6 @@ function createBrowsingWindow(args) {
     frame: false,
     titleBarStyle: 'none',
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       webSecurity: false,
       nodeIntegration: true,
@@ -793,7 +791,6 @@ function createPaymentWindow(url, orderID, channel) {
     resizable: false,
     show: false,
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       webSecurity: false,
       nodeIntegration: true,
@@ -860,7 +857,6 @@ function createLosslessStreamingWindow() {
     resizable: true,
     show: false,
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       webSecurity: false,
       nodeIntegration: true,
@@ -1836,7 +1832,6 @@ function createMainWindow(openDialog, playlistId, requestedFiles) {
     // it can be set true here and be changed during player starting
     transparent: false, // set to false to solve the backdrop-filter bug
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       webSecurity: false,
       nodeIntegration: true,

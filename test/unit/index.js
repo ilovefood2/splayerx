@@ -1,3 +1,4 @@
+import './electronCompat';
 import Vue from 'vue'
 Vue.config.devtools = false
 Vue.config.productionTip = false
@@ -10,4 +11,6 @@ testsContext.keys().forEach(testsContext)
 // you can also change this to match only the subset of files that
 // you want coverage for.
 const srcContext = require.context('../../src/renderer', true, /\.(ts|js|vue)$/)
-srcContext.keys().filter(key => !key.endsWith('.d.ts')).forEach(srcContext)
+srcContext.keys()
+  .filter(key => !key.endsWith('.d.ts') && key !== './electronCompat.js')
+  .forEach(srcContext)

@@ -18,10 +18,8 @@ type BrowserViewHistoryItem = {
 function createBrowserView(): BrowserView {
   const view = new BrowserView({
     webPreferences: {
-      enableRemoteModule: true,
       contextIsolation: false,
       preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
-      nativeWindowOpen: true,
       // disableHtmlFullscreenWindowResize: true, // Electron 6 required
     },
   });
@@ -171,10 +169,8 @@ export class BrowserViewManager implements IBrowserViewManager {
         url,
         view: new BrowserView({
           webPreferences: {
-            enableRemoteModule: true,
             contextIsolation: false,
             preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
-            nativeWindowOpen: true,
             // disableHtmlFullscreenWindowResize: true, // Electron 6 required
           },
         }),
@@ -252,10 +248,8 @@ export class BrowserViewManager implements IBrowserViewManager {
           url: list[currentIndex].url,
           view: new BrowserView({
             webPreferences: {
-              enableRemoteModule: true,
               contextIsolation: false,
               preload: `${require('path').resolve(__static, 'pip/preload.js')}`,
-              nativeWindowOpen: true,
             },
           }),
           lastUpdateTime: Date.now(),
@@ -346,7 +340,7 @@ export class BrowserViewManager implements IBrowserViewManager {
   }
 
   // 在画中画模式下切换画中画
-  public changePip(channel: string): { pipBrowser: Electron.BrowserView,
+  public changePip(channel: string): { pipBrowser: BrowserView,
     mainBrowser: BrowserViewData, } {
     this.currentChannel = channel;
     this.pauseVideo((this.currentPip.pipPage as BrowserViewHistoryItem).view,

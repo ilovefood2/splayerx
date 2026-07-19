@@ -313,7 +313,7 @@ export default {
     });
     window.addEventListener('keydown', (e) => {
       if ([67, 79, 80].includes(e.keyCode) && e.target.tagName === 'INPUT') {
-        electron.ipcRenderer.sendTo(electron.remote.getCurrentWindow().webContents.id, 'keydown');
+        electron.ipcRenderer.emit('keydown', {});
       }
     });
     electron.ipcRenderer.on('update-download-state', (evt, state) => {
@@ -399,7 +399,7 @@ export default {
           url: this.url,
           time: Date.now(),
         });
-        electron.ipcRenderer.sendTo(electron.remote.getCurrentWindow().webContents.id, 'store-download-info', {
+        electron.ipcRenderer.emit('store-download-info', {}, {
           resolution: parseInt(this.selectedItem.definition, 10) || 480, path: this.path,
         });
       }

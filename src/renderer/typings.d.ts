@@ -87,7 +87,7 @@ declare module 'vue/types/vue' {
     $store: any,
     $bus: Vue,
     $ga: any,
-    $electron: Electron.RendererInterface,
+    $electron: typeof import('electron'),
   }
 }
 

@@ -85,7 +85,9 @@ class BrowsingDownload implements IBrowsingDownload {
         log.error('file not found', Path.join(this.path, this.name));
         this.abort();
         this.req = null;
-        electron.ipcRenderer.sendTo(electron.remote.getCurrentWindow().webContents.id, 'file-not-found', this.id);
+        electron.ipcRenderer.emit(
+          'file-not-found', {} as Electron.IpcRendererEvent, this.id,
+        );
       }
       this.progress += chunk.length;
     });
@@ -181,7 +183,9 @@ class BrowsingDownload implements IBrowsingDownload {
         log.error('file not found', Path.join(this.path, this.name));
         this.abort();
         this.req = null;
-        electron.ipcRenderer.sendTo(electron.remote.getCurrentWindow().webContents.id, 'file-not-found', this.id);
+        electron.ipcRenderer.emit(
+          'file-not-found', {} as Electron.IpcRendererEvent, this.id,
+        );
       }
       this.progress += chunk.length;
     });

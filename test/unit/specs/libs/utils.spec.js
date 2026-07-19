@@ -25,8 +25,11 @@ describe('libs utils', () => {
   });
 
   it('should successfully calculate text width', () => {
-    expect(JSON.stringify(calculateTextSize(fontSize, fontFamily, lineHeight, zoom, text)))
-      .to.be.equal(JSON.stringify({ width: 164.281, height: 14 }));
+    const size = calculateTextSize(fontSize, fontFamily, lineHeight, zoom, text);
+    // Font metrics vary slightly between Chromium releases. Verify the rendered
+    // dimensions while allowing sub-pixel differences introduced by upgrades.
+    expect(size.width).to.be.closeTo(164.28, 0.1);
+    expect(size.height).to.be.closeTo(14.4, 0.5);
   });
 
   it('should successfully generate ShortCutImage', () => {

@@ -1300,7 +1300,7 @@ export default class Menubar {
       return new MenuItem(options);
     }
     if (arg1.enabled === undefined) arg1.enabled = true;
-    let menuIcon: string | Electron.nativeImage = '';
+    let menuIcon: string | Electron.NativeImage = '';
     switch (arg1.icon) {
       case 'enter-pip':
         menuIcon = nativeTheme.shouldUseDarkColors ? nativeImage.createFromDataURL(require('../../../build/icons/mojave-pip.png')) : nativeImage.createFromDataURL(require('../../../build/icons/normal-pip.png'));

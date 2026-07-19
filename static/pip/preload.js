@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 // eslint-disable-next-line no-console
 console.log('preloaded~~~~~~~');
-const { ipcRenderer, remote } = require('electron');
+const { ipcRenderer } = require('electron');
+const remote = require('@electron/remote');
 
 let mousedown = false;
 let isDragging = false;

@@ -1,7 +1,8 @@
 // eslint-disable-next-line no-console
 console.log('titlebar-preloaded~~~~~~~');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { ipcRenderer, remote } = require('electron');
+const { ipcRenderer } = require('electron');
+const remote = require('@electron/remote');
 const isDarwin = process.platform === 'darwin';
 let offset = null;
 let windowSize = null;

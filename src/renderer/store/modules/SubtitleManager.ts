@@ -1638,7 +1638,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
             }
             dispatch('UPDATE_DEFAULT_DIR', value.filePath);
           }
-        }).catch(error => console.warn(error));
+        }).catch((error: Error) => console.warn(error));
       }
     }
   },

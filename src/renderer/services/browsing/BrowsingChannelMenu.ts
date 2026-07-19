@@ -35,7 +35,7 @@ class BrowsingChannelMenu implements IBrowsingChannelMenu {
       this.currentChannel = channel;
       this.removeChannel = new remote.MenuItem({
         label: this.locale.$t('browsing.remove'),
-        click() { ipcRenderer.sendTo(remote.getCurrentWindow().webContents.id, 'remove-channel', channel); },
+        click() { ipcRenderer.emit('remove-channel', {} as Electron.IpcRendererEvent, channel); },
       });
       this.channelMenu.append(this.removeChannel);
       this.channelMenu.popup();
@@ -51,14 +51,14 @@ class BrowsingChannelMenu implements IBrowsingChannelMenu {
       this.editChannel = new remote.MenuItem({
         label: this.locale.$t('browsing.edit'),
         click() {
-          ipcRenderer.sendTo(remote.getCurrentWindow().webContents.id, 'edit-channel', item);
+          ipcRenderer.emit('edit-channel', {} as Electron.IpcRendererEvent, item);
         },
       });
       this.channelMenu.append(this.editChannel);
       this.deleteChannel = new remote.MenuItem({
         label: this.locale.$t('browsing.delete'),
         click() {
-          ipcRenderer.sendTo(remote.getCurrentWindow().webContents.id, 'delete-channel', channel);
+          ipcRenderer.emit('delete-channel', {} as Electron.IpcRendererEvent, channel);
         },
       });
       this.channelMenu.append(this.deleteChannel);
@@ -76,12 +76,14 @@ class BrowsingChannelMenu implements IBrowsingChannelMenu {
       this.storeTemporaryChannel = new remote.MenuItem({
         label: this.locale.$t('browsing.saveTemporary'),
         enabled: !gettingTemporaryViewInfo,
-        click() { ipcRenderer.sendTo(remote.getCurrentWindow().webContents.id, 'store-temporary-channel', item); },
+        click() {
+          ipcRenderer.emit('store-temporary-channel', {} as Electron.IpcRendererEvent, item);
+        },
       });
       this.channelMenu.append(this.storeTemporaryChannel);
       this.removeChannel = new remote.MenuItem({
         label: this.locale.$t('browsing.remove'),
-        click() { ipcRenderer.sendTo(remote.getCurrentWindow().webContents.id, 'remove-channel', channel); },
+        click() { ipcRenderer.emit('remove-channel', {} as Electron.IpcRendererEvent, channel); },
       });
       this.channelMenu.append(this.removeChannel);
       this.channelMenu.popup();
