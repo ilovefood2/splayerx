@@ -25,6 +25,7 @@ import { mouse } from './helpers/mouse';
 import MenuService from './menu/MenuService';
 import registerMediaTasks from './helpers/mediaTasksPlugin';
 import { registerScrollTouchBridge } from './helpers/scrollTouchBridge';
+import { registerPreferenceWindowControls } from './helpers/preferenceWindowControls';
 import { WebContentsViewManager } from './helpers/WebContentsViewManager';
 import InjectJSManager from '../../src/shared/pip/InjectJSManager';
 import Locale from '../shared/common/localize';
@@ -611,6 +612,7 @@ function createPreferenceWindow(e, route) {
   };
   if (!preferenceWindow) {
     preferenceWindow = new BrowserWindow(preferenceWindowOptions);
+    registerPreferenceWindowControls(preferenceWindow);
     // 如果播放窗口顶置，打开首选项也顶置
     if (mainWindow && mainWindow.isAlwaysOnTop()) {
       preferenceWindow.setAlwaysOnTop(true);

@@ -5,19 +5,28 @@
     }"
     class="preference tablist"
   >
-    <div class="tablist__tabs">
+    <div
+      :class="{ 'tablist__tabs--darwin': isDarwin }"
+      class="tablist__tabs"
+    >
       <div
         v-if="isDarwin"
         @mouseover="state = 'hover'"
         @mouseout="state = 'default'"
         class="titlebar titlebar--mac no-drag"
       >
-        <Icon
-          :state="state"
+        <button
           @click="handleClose"
-          class="titlebar__button"
-          type="titleBarClose"
-        />
+          aria-label="Close Preferences"
+          class="titlebar__close-button no-drag"
+          type="button"
+        >
+          <Icon
+            :state="state"
+            class="titlebar__button"
+            type="titleBarClose"
+          />
+        </button>
         <Icon
           class="titlebar__button--disable"
           type="titleBarExitFull"
@@ -91,7 +100,12 @@
       :style="{
         marginTop: isDarwin ? '' : '36px',
       }"
+      @wheel.prevent="handlePanelWheel"
+      aria-label="Preference content"
       class="tablist__tabpanel"
+      ref="tabpanel"
+      role="region"
+      tabindex="0"
     >
       <div
         v-if="!isDarwin"
@@ -134,6 +148,7 @@
 import electron, { ipcRenderer } from 'electron';
 import { mapGetters } from 'vuex';
 import Icon from '@/components/BaseIconContainer.vue';
+import { applyWheelScroll } from '@/helpers/wheelScroll';
 
 export default {
   name: 'Preference',
@@ -190,7 +205,6 @@ export default {
   },
   mounted() {
     document.title = 'Preference SPlayer';
-    if (this.isDarwin) document.body.classList.add('drag');
     ipcRenderer.on('add-payment', () => {
       this.disableRoute = true;
     });
@@ -206,7 +220,10 @@ export default {
   methods: {
     // Methods to handle window behavior
     handleClose() {
-      electron.remote.getCurrentWindow().close();
+      ipcRenderer.send('close-preference');
+    },
+    handlePanelWheel(event: WheelEvent) {
+      applyWheelScroll(this.$refs.tabpanel as HTMLElement, event);
     },
     mainDispatchProxy(actionType: string, actionPayload: string) {
       this.$store.dispatch(actionType, actionPayload);
@@ -238,8 +255,23 @@ export default {
       margin-bottom: 18px;
       width: fit-content;
 
+      .titlebar__close-button {
+        align-items: center;
+        border: 0;
+        cursor: pointer;
+        display: flex;
+        height: 20px;
+        justify-content: center;
+        margin: -4px 4px -4px -4px;
+        padding: 0;
+        pointer-events: auto;
+        width: 20px;
+        -webkit-app-region: no-drag;
+      }
+
       .titlebar__button {
-        margin-right: 8px;
+        margin-right: 0;
+        pointer-events: none;
         width: 12px;
         height: 12px;
         background-repeat: no-repeat;
@@ -292,6 +324,10 @@ export default {
     display: flex;
     flex-direction: column;
     padding-bottom: 6px;
+
+    &--darwin {
+      -webkit-app-region: drag;
+    }
   }
 
   &__tab {
@@ -322,7 +358,9 @@ export default {
 
   &__tabpanel {
     width: calc(100% - 110px);
-    overflow-y: scroll;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-app-region: no-drag;
     background:  #434348;
     z-index: 1;
   }
