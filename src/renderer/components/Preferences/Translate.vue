@@ -113,7 +113,9 @@
       </div>
     </div>
     <div class="settingItem aiTranslate">
-      <BaseCheckBox v-model="aiTranslateEnabled">
+      <BaseCheckBox
+        v-model="aiTranslateEnabled"
+      >
         {{ $t('preferences.translate.aiTranslateEnable') }}
       </BaseCheckBox>
       <div
@@ -441,7 +443,12 @@ export default {
         return this.$store.getters.aiTranslateEnabled;
       },
       set(val) {
-        this.persistAI({ aiTranslateEnabled: val });
+        // Enabling the preference while a video is already open must take
+        // effect immediately. Previously this only affected the next media
+        // load, making the checkbox appear to do nothing.
+        this.persistAI({ aiTranslateEnabled: val }).then(() => {
+          if (val) this.$store.dispatch('ensureAITranslation');
+        });
       },
     },
     aiTranslateProvider: {
@@ -579,7 +586,7 @@ export default {
       });
     },
     persistAI(partial) {
-      this.$store.dispatch('setPreference', partial).then(() => {
+      return this.$store.dispatch('setPreference', partial).then(() => {
         electron.ipcRenderer.send('preference-to-main', this.preferenceData);
       });
     },

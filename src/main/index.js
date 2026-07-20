@@ -588,6 +588,17 @@ function createPremiumView(e, route) {
   }
 }
 
+function syncStoredPreferencesToWindow() {
+  if (!preferenceWindow || preferenceWindow.webContents.isDestroyed()) return;
+  try {
+    const preferencePath = path.join(userDataPath, 'storage', 'preferences.json');
+    const stored = JSON.parse(fs.readFileSync(preferencePath, 'utf8'));
+    preferenceWindow.webContents.send('preferenceDispatch', 'setPreference', stored);
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.error('Unable to synchronize preferences', error);
+  }
+}
+
 function createPreferenceWindow(e, route) {
   const preferenceWindowOptions = {
     useContentSize: true,
@@ -619,6 +630,10 @@ function createPreferenceWindow(e, route) {
     }
     if (route) preferenceWindow.loadURL(`${preferenceURL}#/${route}`);
     else preferenceWindow.loadURL(`${preferenceURL}`);
+    // Preferences has its own renderer/Vuex instance. Restore a definitive
+    // snapshot after its IPC listener exists so a newly opened window cannot
+    // show default values while playback is already using persisted settings.
+    preferenceWindow.webContents.once('did-finish-load', syncStoredPreferencesToWindow);
     preferenceWindow.on('closed', () => {
       preferenceWindow = null;
       if (paymentWindow) {
@@ -629,10 +644,14 @@ function createPreferenceWindow(e, route) {
   } else {
     if (!preferenceWindow.webContents.isDestroyed()) {
       preferenceWindow.webContents.send('route-change', route);
+      syncStoredPreferencesToWindow();
     }
     preferenceWindow.focus();
   }
   preferenceWindow.once('ready-to-show', () => {
+    // `did-finish-load` can precede Vue mounting its IPC listener. Send again
+    // at first paint, immediately before exposing the window to the user.
+    syncStoredPreferencesToWindow();
     preferenceWindow.show();
   });
   preferenceWindow.on('focus', () => {

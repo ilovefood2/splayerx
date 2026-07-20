@@ -54,10 +54,19 @@ export class AITranslationError extends Error {
 }
 
 /** Trim trailing slashes and a trailing `/chat/completions` if the user pasted a full URL. */
-function resolveEndpoint(baseUrl: string): string {
+function resolveEndpoint(baseUrl: string, responses = false): string {
   const url = (baseUrl || DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
+  if (responses && /\/responses$/.test(url)) return url;
   if (/\/chat\/completions$/.test(url)) return url;
-  return `${url}/chat/completions`;
+  return `${url}/${responses ? 'responses' : 'chat/completions'}`;
+}
+
+/** Official GPT-5.x models use the Responses API. Keep other compatible
+ * gateways on Chat Completions, which is still the most widely supported API. */
+function usesResponsesAPI(config: AITranslatorConfig): boolean {
+  const baseUrl = (config.baseUrl || DEFAULT_BASE_URL).trim();
+  return /^https:\/\/(api\.)?openai\.com\/v1(?:\/|$)/i.test(baseUrl)
+    && /^gpt-5(?:[.-]|$)/i.test(config.model || '');
 }
 
 export function isTowerModel(model: string): boolean {
@@ -180,8 +189,16 @@ async function requestCompletion(
   }
 
   const json = await response.json().catch(() => undefined) as
-    | { choices?: { message?: { content?: string } }[] }
+    | { choices?: { message?: { content?: string } }[], output_text?: string,
+      output?: { content?: { text?: string }[] }[] }
     | undefined;
+  if (json && typeof json.output_text === 'string') return json.output_text;
+  if (json && Array.isArray(json.output)) {
+    const output = json.output
+      .reduce((all: string[], item) => all.concat((item.content || [])
+        .map(part => part.text).filter((text): text is string => typeof text === 'string')), []);
+    if (output.length) return output.join('');
+  }
   const choices = json && json.choices;
   const first = choices && choices[0];
   const message = first && first.message;
@@ -238,15 +255,24 @@ export async function translateLines(
 ): Promise<string[]> {
   if (!texts.length) return [];
   if (isTowerModel(config.model)) return translateTowerLines(texts, config, options);
-  const endpoint = resolveEndpoint(config.baseUrl);
-  const body = {
-    model: config.model || DEFAULT_MODEL,
-    temperature: config.temperature === undefined ? DEFAULT_TEMPERATURE : config.temperature,
-    messages: [
-      { role: 'system', content: buildSystemPrompt(config) },
-      { role: 'user', content: buildUserPayload(texts) },
-    ],
-  };
+  const responses = usesResponsesAPI(config);
+  const endpoint = resolveEndpoint(config.baseUrl, responses);
+  const body = responses
+    ? {
+      model: config.model || DEFAULT_MODEL,
+      input: [
+        { role: 'system', content: buildSystemPrompt(config) },
+        { role: 'user', content: buildUserPayload(texts) },
+      ],
+    }
+    : {
+      model: config.model || DEFAULT_MODEL,
+      temperature: config.temperature === undefined ? DEFAULT_TEMPERATURE : config.temperature,
+      messages: [
+        { role: 'system', content: buildSystemPrompt(config) },
+        { role: 'user', content: buildUserPayload(texts) },
+      ],
+    };
   const content = await requestCompletion(endpoint, body, config, options);
   const translations = parseTranslations(content, texts.length);
   if (!translations) {

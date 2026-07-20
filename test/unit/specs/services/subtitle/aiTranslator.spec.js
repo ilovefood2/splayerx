@@ -57,6 +57,20 @@ describe('services/subtitle/ai - translateLines', () => {
     expect(systemPrompt).to.contain('speaker intent');
   });
 
+  it('uses the Responses API for official GPT-5 models', async () => {
+    let seenUrl = '';
+    global.fetch = mockFetch((url, init) => {
+      seenUrl = url;
+      const request = JSON.parse(init.body);
+      expect(request.messages).to.equal(undefined);
+      expect(request.input).to.have.length(2);
+      return { body: { output_text: '{"translations":["你好"]}' } };
+    });
+    const out = await translateLines(['hello'], { ...config, model: 'gpt-5.6-terra' });
+    expect(seenUrl).to.equal('https://api.openai.com/v1/responses');
+    expect(out).to.deep.equal(['你好']);
+  });
+
   it('does not double-append when a full completions URL is configured', async () => {
     let seenUrl = '';
     global.fetch = mockFetch((url) => { seenUrl = url; return { body: { choices: [{ message: { content: '{"translations":["a"]}' } }] } }; });

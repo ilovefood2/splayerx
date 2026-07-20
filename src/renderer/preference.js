@@ -105,6 +105,7 @@ const app = createApp({
     return {
       didGetUserInfo: false,
       didGetUserBalance: false,
+      preferencesReady: false,
     };
   },
   computed: {
@@ -114,7 +115,12 @@ const app = createApp({
   },
   async mounted() {
     drag(this.$el);
+    // Electron's remote app path is available here, but not reliably during
+    // module evaluation. Keep the child preference UI unmounted until its
+    // persisted state has been restored so controls never render defaults and
+    // then drift from the real values.
     this.$store.commit('getLocalPreference');
+    this.preferencesReady = true;
     ipcRenderer.on('clear-signIn-callback', () => {
       this.removeCallback(() => { });
     });
@@ -205,7 +211,7 @@ const app = createApp({
       }
     },
   },
-  template: '<Preference/>',
+  template: '<Preference v-if="preferencesReady"/>',
 });
 installRendererGlobals(app);
 app.use(i18n);

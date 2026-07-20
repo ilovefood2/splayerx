@@ -3,8 +3,36 @@ import { SubtitleManager as subtitleActions } from '@/store/actionTypes';
 import { SubtitleManager as subtitleMutations } from '@/store/mutationTypes';
 import { Type } from '@/interfaces/ISubtitle';
 import { LanguageCode } from '@/libs/language';
+import { ipcRenderer } from 'electron';
 
 describe('store/modules/SubtitleManager', () => {
+  it('enables and synchronizes the Preferences checkbox for an explicit AI translation', async () => {
+    const send = vi.spyOn(ipcRenderer, 'send');
+    const dispatches = [];
+
+    await SubtitleManager.actions[subtitleActions.translateWithAI]({
+      getters: {
+        aiTranslateEnabled: false,
+        aiTranslateTargetLanguage: LanguageCode['zh-CN'],
+        displayLanguage: LanguageCode.en,
+        primaryLanguage: LanguageCode.en,
+        list: [],
+        primarySubtitleId: '',
+      },
+      dispatch: (type, payload) => {
+        dispatches.push([type, payload]);
+        return Promise.resolve();
+      },
+    });
+
+    expect(dispatches[0]).to.deep.equal(['setPreference', { aiTranslateEnabled: true }]);
+    expect(send).toHaveBeenCalledWith(
+      'main-to-preference',
+      { aiTranslateEnabled: true },
+    );
+    expect(dispatches[1][0]).to.equal(subtitleActions.transcribeAndTranslate);
+  });
+
   it('selects an AI subtitle without waiting for preference storage', async () => {
     let finishStorage;
     const storage = new Promise((resolve) => { finishStorage = resolve; });

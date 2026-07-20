@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   isEqual, sortBy, differenceWith, flatten, remove, debounce, difference, cloneDeep,
 } from 'lodash';
-import { remote, SaveDialogReturnValue } from 'electron';
+import { ipcRenderer, remote, SaveDialogReturnValue } from 'electron';
 import { extname, basename, join } from 'path';
 import { existsSync } from 'fs';
 import { rendererEventBus } from '@/services/globalEvents';
@@ -509,6 +509,12 @@ function trackAIProgress(key: string, describe: (translated: number, total: numb
   aiProgressTimer = window.setInterval(() => {
     const translator = getAITranslator(key);
     if (!translator) return;
+    if (translator.error) {
+      log.warn('SubtitleManager', `AI translation failed: ${translator.error.message}`);
+      endAIProgress();
+      addBubble(AI_TRANSLATE_NO_PROVIDER);
+      return;
+    }
     const { translated, total } = translator.progress;
     if (translated > 0) {
       endAIProgress();
@@ -1107,6 +1113,20 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       addBubble(AI_TRANSLATE_NO_SOURCE, { target: codeToLanguageName(targetCode) });
       return undefined;
     }
+    // The player/menu command is an explicit opt-in. Keep the preference in
+    // sync with that command so the settings checkbox reflects the active AI
+    // subtitle mode and automatic retries remain enabled for this video.
+    if (!getters.aiTranslateEnabled) {
+      await dispatch('setPreference', { aiTranslateEnabled: true });
+    }
+    // Preferences runs in a separate renderer with its own Vuex store. Always
+    // synchronize it, even when the player already considers AI enabled: that
+    // is precisely when an already-open Preferences window can be stale.
+    // Do not send the Vuex preference object itself here. Vue 3 makes it a
+    // reactive Proxy, which Electron cannot structured-clone reliably across
+    // renderer/main/renderer IPC. A plain, minimal payload also guarantees the
+    // Preferences checkbox receives the value for this explicit command.
+    ipcRenderer.send('main-to-preference', { aiTranslateEnabled: true });
     const source = await findAITextReference(
       getters.list as ISubtitleControlListItem[],
       targetCode,
