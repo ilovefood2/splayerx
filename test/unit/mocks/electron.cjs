@@ -53,6 +53,8 @@ class BrowserWindow extends EventEmitter {
 
   hide() {}
 
+  isDestroyed() { return false; }
+
   isFocused() { return true; }
 
   isFullScreen() { return false; }
@@ -144,7 +146,34 @@ const nativeTheme = Object.assign(new EventEmitter(), {
   shouldUseDarkColors: false,
   themeSource: 'system',
 });
-class Menu { static buildFromTemplate() { return new Menu(); } popup() {} }
+class Menu {
+  static applicationMenu = null;
+
+  static buildFromTemplate() { return new Menu(); }
+
+  static getApplicationMenu() { return Menu.applicationMenu; }
+
+  static setApplicationMenu(menu) { Menu.applicationMenu = menu; }
+
+  constructor() { this.items = []; }
+
+  append(item) { this.items.push(item); }
+
+  clear() { this.items = []; }
+
+  getMenuItemById(id) {
+    for (const item of this.items) {
+      if (item.id === id) return item;
+      if (item.submenu && typeof item.submenu.getMenuItemById === 'function') {
+        const nestedItem = item.submenu.getMenuItemById(id);
+        if (nestedItem) return nestedItem;
+      }
+    }
+    return null;
+  }
+
+  popup() {}
+}
 class MenuItem { constructor(options = {}) { Object.assign(this, options); } }
 class Notification { show() {} }
 class Tray {}

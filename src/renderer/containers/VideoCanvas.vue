@@ -64,6 +64,7 @@ export default {
       lastCoverDetectingTime: 0,
       maskBackground: 'rgba(255, 255, 255, 0)', // drag and drop related var
       asyncTasksDone: false, // window should not be closed until asyncTasks Done (only use
+      closeTasksStarted: false,
       nowRate: 1,
       quit: false,
       needToRestore: false,
@@ -456,11 +457,11 @@ export default {
     beforeUnloadHandler(e: BeforeUnloadEvent) {
       if (!this.asyncTasksDone && !this.needToRestore) {
         e.returnValue = false;
-        if (typeof this.$electron.remote.app.hide === 'function') { // macOS only
-          this.$electron.remote.app.hide();
-        } else {
-          this.$electron.remote.getCurrentWindow().hide();
-        }
+        if (this.closeTasksStarted) return;
+        this.closeTasksStarted = true;
+        // Keep the asynchronous save out of view without hiding sibling player
+        // windows. app.hide() hides every window in the application on macOS.
+        this.$electron.remote.getCurrentWindow().hide();
         this.$electron.remote.getCurrentWebContents().audioMuted = true;
         this.handleLeaveVideo(this.videoId)
           .finally(() => {

@@ -19,6 +19,7 @@ import Locale from '../../shared/common/localize';
 import menuTemplate from './menu.json';
 import { IMenuDisplayInfo } from '../../renderer/interfaces/IRecentPlay';
 import { ISubtitleControlListItem, Type } from '../../renderer/interfaces/ISubtitle';
+import { isEventFromWindow } from '../helpers/WindowRouting';
 
 function separator(): Electron.MenuItem {
   return new MenuItem({ type: 'separator' });
@@ -108,6 +109,10 @@ export default class Menubar {
 
   public focusMainWindow(window: Electron.BrowserWindow) {
     this.mainWindow = window;
+  }
+
+  public isEventFromMainWindow(event: Electron.IpcMainEvent) {
+    return isEventFromWindow(event, this.mainWindow);
   }
 
   public popupMenu() {

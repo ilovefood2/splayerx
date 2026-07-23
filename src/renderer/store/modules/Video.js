@@ -9,7 +9,7 @@ import {
   Subtitle as subtitleActions,
 } from '../actionTypes';
 
-const state = {
+const createState = () => ({
   // error state
   errorCode: 0,
   errorMessage: '',
@@ -60,7 +60,9 @@ const state = {
   ratio: 0,
   audioDelay: 0,
   defaultDir: '',
-};
+});
+
+const initialState = createState();
 
 const getters = {
   // network state
@@ -132,7 +134,7 @@ function mutationToState(mutationType) {
 
 function mutationer(mutationType) {
   const stateType = mutationToState(mutationType);
-  if (typeof state[stateType] !== 'object') {
+  if (typeof initialState[stateType] !== 'object') {
     return (state, p) => {
       state[stateType] = p;
     };
@@ -336,7 +338,9 @@ const actions = {
 };
 
 export default {
-  state,
+  // Each player window needs its own playback state. Returning a fresh object
+  // prevents volume and mute mutations from leaking between store instances.
+  state: createState,
   getters,
   mutations,
   actions,

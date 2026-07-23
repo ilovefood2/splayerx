@@ -26,6 +26,11 @@ import MenuService from './menu/MenuService';
 import registerMediaTasks from './helpers/mediaTasksPlugin';
 import { registerScrollTouchBridge } from './helpers/scrollTouchBridge';
 import { registerPreferenceWindowControls } from './helpers/preferenceWindowControls';
+import {
+  isEventFromWindow,
+  isUsableWindow,
+  sendToWindows,
+} from './helpers/WindowRouting';
 import { WebContentsViewManager } from './helpers/WebContentsViewManager';
 import InjectJSManager from '../../src/shared/pip/InjectJSManager';
 import Locale from '../shared/common/localize';
@@ -105,11 +110,14 @@ let downloadWindow = null;
 let lastDownloadDate = 0;
 let paymentWindow = null;
 let openUrlWindow = null;
+let openUrlOwnerWindow = null;
 let losslessStreamingWindow = null;
 let webContentsViewManager = null;
+let browsingOwnerWindow = null;
 let pipControlView = null;
 let titlebarView = null;
 let downloadListView = null;
+let downloadListOwnerWindow = null;
 let premiumView = null;
 let maskView = null;
 let maskEventTimer = 0;
@@ -118,6 +126,7 @@ let manualAbort = false;
 let isBrowsingWindowMax = false;
 let availableChannels = [];
 let tray = null;
+let castOwnerWindow = null;
 let pipTimer = 0;
 let needToRestore = false;
 let isVip = true; // set no limits
@@ -173,8 +182,7 @@ const tempFolderPath = path.join(app.getPath('temp'), 'splayer');
 if (!fs.existsSync(tempFolderPath)) fs.mkdirSync(tempFolderPath, { recursive: true });
 
 function isUsableMainWindow(window) {
-  return window && mainWindows.has(window) && !window.isDestroyed()
-    && !window.webContents.isDestroyed();
+  return mainWindows.has(window) && isUsableWindow(window);
 }
 
 function getActiveMainWindow() {
@@ -187,6 +195,14 @@ function getActiveMainWindow() {
 function getSenderMainWindow(sender) {
   const senderWindow = sender && BrowserWindow.fromWebContents(sender);
   return isUsableMainWindow(senderWindow) ? senderWindow : getActiveMainWindow();
+}
+
+function getBrowsingOwner() {
+  return isUsableMainWindow(browsingOwnerWindow) ? browsingOwnerWindow : null;
+}
+
+function getDownloadListOwner() {
+  return isUsableMainWindow(downloadListOwnerWindow) ? downloadListOwnerWindow : null;
 }
 
 function setActiveMainWindow(window) {
@@ -202,9 +218,7 @@ function restoreMainWindowMenu(window) {
 }
 
 function broadcastToMainWindows(channel, ...args) {
-  mainWindows.forEach((window) => {
-    if (isUsableMainWindow(window)) window.webContents.send(channel, ...args);
-  });
+  sendToWindows(mainWindows, channel, ...args);
 }
 
 function hackWindowsRightMenu(win) {
@@ -274,9 +288,13 @@ function createPipControlView() {
   });
 }
 
-function createDownloadListView(title, list, url, isVip, resolution, path) {
+function createDownloadListView(
+  title, list, url, isVip, resolution, path, ownerWindow = getActiveMainWindow(),
+) {
+  if (!isUsableMainWindow(ownerWindow)) return;
   locale.refreshDisplayLanguage();
   if (downloadListView && !downloadListView.isDestroyed()) downloadListView.destroy();
+  downloadListOwnerWindow = ownerWindow;
   downloadListView = new WebContentsView({
     webPreferences: {
       contextIsolation: false,
@@ -285,7 +303,7 @@ function createDownloadListView(title, list, url, isVip, resolution, path) {
       preload: `${require('path').resolve(__static, 'download/preload.js')}`,
     },
   });
-  mainWindow.addWebContentsView(downloadListView);
+  ownerWindow.addWebContentsView(downloadListView);
   downloadListView.setBackgroundColor('#00FFFFFF');
   const availableList = list.find(i => i.ext === 'mp4')
     ? list.filter(i => i.acodec !== 'none' && i.vcodec !== 'none').filter(i => i.ext === 'mp4').sort((a, b) => parseInt(a['format_note'], 10) - parseInt(b['format_note'], 10))
@@ -335,10 +353,10 @@ function createDownloadListView(title, list, url, isVip, resolution, path) {
   downloadListView.setBounds({
     x: sidebar ? 76 : 0,
     y: 40,
-    width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
-    height: mainWindow.getSize()[1] - 40,
+    width: sidebar ? ownerWindow.getSize()[0] - 76 : ownerWindow.getSize()[0],
+    height: ownerWindow.getSize()[1] - 40,
   });
-  mainWindow.setWebContentsViewAutoResize(downloadListView, {
+  ownerWindow.setWebContentsViewAutoResize(downloadListView, {
     width: true,
     height: true,
   });
@@ -509,7 +527,8 @@ function setBoundsCenterByOriginWindow(origin, win, width, height) {
   }
 }
 
-function createOpenUrlWindow() {
+function createOpenUrlWindow(ownerWindow = getActiveMainWindow()) {
+  if (isUsableMainWindow(ownerWindow)) openUrlOwnerWindow = ownerWindow;
   const openUrlWindowOptions = {
     useContentSize: true,
     frame: false,
@@ -541,6 +560,7 @@ function createOpenUrlWindow() {
     openUrlWindow.loadURL(`${openUrlWindowURL}`);
     openUrlWindow.on('closed', () => {
       openUrlWindow = null;
+      openUrlOwnerWindow = null;
     });
   } else {
     openUrlWindow.focus();
@@ -738,21 +758,25 @@ function createDownloadWindow(args) {
   downloadWindow.loadURL(`${downloadURL}`);
   downloadWindow.on('closed', () => {
     downloadWindow = null;
-    if (process.platform === 'win32' && isGlobal) {
-      app.quit();
-    }
   });
   downloadWindow.once('ready-to-show', () => {
     if (args.show) downloadWindow.show();
     if (Object.prototype.toString.call(args.info).toLowerCase() === '[object array]') {
-      downloadWindow.send('continue-download-video', args.info);
+      downloadWindow.webContents.send('continue-download-video', args.info);
     } else if (Object.prototype.toString.call(args.info).toLowerCase() === '[object object]' && !manualAbort) {
-      downloadWindow.send('download-video', args.info);
+      downloadWindow.webContents.send('download-video', args.info);
     }
     manualAbort = false;
   });
 }
-function createBrowsingWindow(args) {
+function createBrowsingWindow(args, ownerWindow = getActiveMainWindow()) {
+  if (browsingWindow && !browsingWindow.isDestroyed()) {
+    if (!getBrowsingOwner() && isUsableMainWindow(ownerWindow)) {
+      browsingOwnerWindow = ownerWindow;
+    }
+    return browsingWindow;
+  }
+  browsingOwnerWindow = isUsableMainWindow(ownerWindow) ? ownerWindow : null;
   const browsingWindowOptions = {
     useContentSize: true,
     frame: false,
@@ -771,16 +795,25 @@ function createBrowsingWindow(args) {
   browsingWindow = new BrowserWindow(browsingWindowOptions);
   browsingWindow.loadURL(`${browsingURL}`);
   browsingWindow.on('closed', () => {
+    const ownerWindow = getBrowsingOwner();
+    const closedGlobalPlayer = isGlobal;
     browsingWindow = null;
-    if (process.platform === 'win32' && isGlobal) {
-      app.quit();
+    browsingOwnerWindow = null;
+    isGlobal = false;
+    if (process.platform === 'win32' && closedGlobalPlayer && ownerWindow) {
+      ownerWindow.close();
     }
   });
   browsingWindow.once('ready-to-show', () => {
     session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
       if (details.requestHeaders.Cookie) {
-        if (downloadWindow) downloadWindow.send('download-headers', details.requestHeaders);
-        if (mainWindow) mainWindow.send('get-info-cookie', details.requestHeaders.Cookie);
+        if (downloadWindow) {
+          downloadWindow.webContents.send('download-headers', details.requestHeaders);
+        }
+        if (isUsableMainWindow(browsingOwnerWindow)) {
+          browsingOwnerWindow.webContents
+            .send('get-info-cookie', details.requestHeaders.Cookie);
+        }
       }
       callback({ requestHeaders: details.requestHeaders });
     });
@@ -791,11 +824,18 @@ function createBrowsingWindow(args) {
       browsingWindow.setPosition(args.position[0], args.position[1]);
     }
     browsingWindow.on('focus', () => {
-      menuService?.updateFocusedWindow(false, mainWindow && mainWindow.isVisible());
+      if (isUsableMainWindow(browsingOwnerWindow)) {
+        setActiveMainWindow(browsingOwnerWindow);
+      }
+      menuService?.updateFocusedWindow(
+        false,
+        browsingOwnerWindow && browsingOwnerWindow.isVisible(),
+      );
     });
     browsingWindow.on('move', throttle(() => {
-      if (!mainWindow) return;
-      mainWindow.send('update-pip-pos', browsingWindow.getPosition());
+      if (!isUsableMainWindow(browsingOwnerWindow)) return;
+      browsingOwnerWindow.webContents
+        .send('update-pip-pos', browsingWindow.getPosition());
     }, 100));
     browsingWindow.on('always-on-top-changed', (e, top) => {
       if (pipControlView) {
@@ -807,11 +847,12 @@ function createBrowsingWindow(args) {
         hideBrowsingWindow = false;
         browsingWindow.hide();
         setTimeout(() => {
-          mainWindow.focus();
+          if (isUsableMainWindow(browsingOwnerWindow)) browsingOwnerWindow.focus();
         }, 0);
       }
     });
   }
+  return browsingWindow;
 }
 
 function createPaymentWindow(url, orderID, channel) {
@@ -923,21 +964,24 @@ function createLosslessStreamingWindow() {
 
 
 function openHistoryItem(evt, args) {
+  const targetWindow = evt && evt.sender
+    ? getSenderMainWindow(evt.sender) : getActiveMainWindow();
+  if (!targetWindow) return;
   if (!webContentsViewManager) webContentsViewManager = new WebContentsViewManager();
   if (!availableChannels.find(i => [args.channel, calcCurrentChannel(args.url)]
     .includes(i.channel))) {
-    mainWindow.send('add-temporary-site', args);
+    targetWindow.webContents.send('add-temporary-site', args);
   } else {
     const newChannel = webContentsViewManager.openHistoryPage(args.channel, args.url);
     const view = newChannel.view ? newChannel.view : newChannel.page.view;
-    mainWindow.addWebContentsView(view);
-    mainWindow.send('update-browser-state', {
+    targetWindow.addWebContentsView(view);
+    targetWindow.webContents.send('update-browser-state', {
       url: args.url,
       canGoBack: newChannel.canBack,
       canGoForward: newChannel.canForward,
     });
-    const bounds = mainWindow.getBounds();
-    if (process.platform === 'win32' && mainWindow.isMaximized() && (bounds.x < 0 || bounds.y < 0)) {
+    const bounds = targetWindow.getBounds();
+    if (process.platform === 'win32' && targetWindow.isMaximized() && (bounds.x < 0 || bounds.y < 0)) {
       view.setBounds({
         x: sidebar ? 76 : 0,
         y: 40,
@@ -949,11 +993,11 @@ function openHistoryItem(evt, args) {
       view.setBounds({
         x: sidebar ? 76 : 0,
         y: 40,
-        width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
-        height: mainWindow.getSize()[1] - 40,
+        width: sidebar ? targetWindow.getSize()[0] - 76 : targetWindow.getSize()[0],
+        height: targetWindow.getSize()[1] - 40,
       });
     }
-    mainWindow.setWebContentsViewAutoResize(view, {
+    targetWindow.setWebContentsViewAutoResize(view, {
       width: true, height: true,
     });
   }
@@ -1026,11 +1070,14 @@ function registerMainWindowEvent(playerWindow) {
   ipcMain.on('update-available-channels', (e, channels) => {
     availableChannels = channels;
   });
-  ipcMain.on('open-url-window', () => {
-    createOpenUrlWindow();
+  ipcMain.on('open-url-window', (e) => {
+    createOpenUrlWindow(getSenderMainWindow(e.sender));
   });
   ipcMain.on('send-url', (e, urlInfo) => {
-    const targetWindow = getSenderMainWindow(e.sender);
+    const senderWindow = BrowserWindow.fromWebContents(e.sender);
+    const targetWindow = senderWindow === openUrlWindow
+      && isUsableMainWindow(openUrlOwnerWindow)
+      ? openUrlOwnerWindow : getSenderMainWindow(e.sender);
     if (targetWindow) targetWindow.webContents.send('send-url', urlInfo);
   });
   ipcMain.on('browser-window-mask', () => {
@@ -1086,23 +1133,28 @@ function registerMainWindowEvent(playerWindow) {
         browsingWindow.removeWebContentsView(view);
       });
       webContentsViewManager.pipClose();
-      mainWindow.send('update-pip-state', args);
+      const ownerWindow = getBrowsingOwner();
+      if (ownerWindow) ownerWindow.webContents.send('update-pip-state', args);
     }
   });
-  ipcMain.on('remove-main-window', () => {
-    webContentsViewManager.pauseVideo(mainWindow.getWebContentsViews()[0]);
-    mainWindow.hide();
+  ipcMain.on('remove-main-window', (event) => {
+    const targetWindow = getSenderMainWindow(event.sender);
+    if (!targetWindow || !webContentsViewManager) return;
+    webContentsViewManager.pauseVideo(targetWindow.getWebContentsViews()[0]);
+    targetWindow.hide();
   });
   ipcMain.on('clear-browsers-by-channel', (evt, channel) => {
     if (!webContentsViewManager) return;
     webContentsViewManager.clearWebContentsViewsByChannel(channel);
   });
-  ipcMain.on('remove-browser', () => {
+  ipcMain.on('remove-browser', (event) => {
     if (!webContentsViewManager) return;
-    if (mainWindow.getWebContentsViews().length) webContentsViewManager.pauseVideo();
-    mainWindow.getWebContentsViews()
-      .forEach(mainWindowView => mainWindow.removeWebContentsView(mainWindowView));
-    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    const targetWindow = getSenderMainWindow(event.sender);
+    if (!targetWindow) return;
+    if (targetWindow.getWebContentsViews().length) webContentsViewManager.pauseVideo();
+    targetWindow.getWebContentsViews()
+      .forEach(mainWindowView => targetWindow.removeWebContentsView(mainWindowView));
+    if (targetWindow.isMaximized()) targetWindow.unmaximize();
     if (browsingWindow) {
       const views = browsingWindow.getWebContentsViews();
       views.forEach((view) => {
@@ -1115,17 +1167,19 @@ function registerMainWindowEvent(playerWindow) {
   });
   ipcMain.on('go-to-offset', (evt, val) => {
     if (!webContentsViewManager) return;
-    mainWindow.removeWebContentsView(mainWindow.getWebContentsViews()[0]);
+    const targetWindow = getSenderMainWindow(evt.sender);
+    if (!targetWindow) return;
+    targetWindow.removeWebContentsView(targetWindow.getWebContentsViews()[0]);
     const newBrowser = val === 1 ? webContentsViewManager.forward() : webContentsViewManager.back();
     if (newBrowser.page) {
-      mainWindow.addWebContentsView(newBrowser.page.view);
-      mainWindow.send('update-browser-state', {
+      targetWindow.addWebContentsView(newBrowser.page.view);
+      targetWindow.webContents.send('update-browser-state', {
         url: newBrowser.page.url,
         canGoBack: newBrowser.canBack,
         canGoForward: newBrowser.canForward,
       });
-      const bounds = mainWindow.getBounds();
-      if (process.platform === 'win32' && mainWindow.isMaximized() && (bounds.x < 0 || bounds.y < 0)) {
+      const bounds = targetWindow.getBounds();
+      if (process.platform === 'win32' && targetWindow.isMaximized() && (bounds.x < 0 || bounds.y < 0)) {
         newBrowser.page.view.setBounds({
           x: sidebar ? 76 : 0,
           y: 40,
@@ -1137,46 +1191,51 @@ function registerMainWindowEvent(playerWindow) {
         newBrowser.page.view.setBounds({
           x: sidebar ? 76 : 0,
           y: 40,
-          width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
-          height: mainWindow.getSize()[1] - 40,
+          width: sidebar ? targetWindow.getSize()[0] - 76 : targetWindow.getSize()[0],
+          height: targetWindow.getSize()[1] - 40,
         });
       }
-      mainWindow.setWebContentsViewAutoResize(newBrowser.page.view, {
+      targetWindow.setWebContentsViewAutoResize(newBrowser.page.view, {
         width: true, height: true,
       });
     }
   });
   ipcMain.on('open-history-item', openHistoryItem);
-  ipcMain.on('remove-web-page', () => {
+  ipcMain.on('remove-web-page', (event) => {
     if (!webContentsViewManager) webContentsViewManager = new WebContentsViewManager();
-    const mainBrowser = mainWindow.getWebContentsViews()[0];
+    const targetWindow = getSenderMainWindow(event.sender);
+    if (!targetWindow) return;
+    const mainBrowser = targetWindow.getWebContentsViews()[0];
     if (mainBrowser) {
       webContentsViewManager.pauseVideo();
-      mainWindow.removeWebContentsView(mainBrowser);
+      targetWindow.removeWebContentsView(mainBrowser);
     }
   });
   ipcMain.on('change-channel', (evt, args) => {
     if (!webContentsViewManager) webContentsViewManager = new WebContentsViewManager();
-    const mainBrowser = mainWindow.getWebContentsViews()[0];
+    const targetWindow = getSenderMainWindow(evt.sender);
+    if (!targetWindow) return;
+    const mainBrowser = targetWindow.getWebContentsViews()[0];
     if (mainBrowser) {
-      mainWindow.removeWebContentsView(mainBrowser);
+      targetWindow.removeWebContentsView(mainBrowser);
     } else {
       webContentsViewManager.setCurrentChannel('');
     }
     const newChannel = webContentsViewManager.changeChannel(args.channel, args);
     const view = newChannel.view ? newChannel.view : newChannel.page.view;
     const url = newChannel.view ? args.url : newChannel.page.url;
-    mainWindow.addWebContentsView(view);
+    targetWindow.addWebContentsView(view);
     setTimeout(() => {
-      mainWindow.send('update-browser-state', {
+      if (!isUsableMainWindow(targetWindow)) return;
+      targetWindow.webContents.send('update-browser-state', {
         url,
         canGoBack: newChannel.canBack,
         canGoForward: newChannel.canForward,
       });
     }, 150);
     if (!view.isDestroyed()) {
-      const bounds = mainWindow.getBounds();
-      if (process.platform === 'win32' && mainWindow.isMaximized() && (bounds.x < 0 || bounds.y < 0)) {
+      const bounds = targetWindow.getBounds();
+      if (process.platform === 'win32' && targetWindow.isMaximized() && (bounds.x < 0 || bounds.y < 0)) {
         view.setBounds({
           x: sidebar ? 76 : 0,
           y: 40,
@@ -1188,19 +1247,21 @@ function registerMainWindowEvent(playerWindow) {
         view.setBounds({
           x: sidebar ? 76 : 0,
           y: 40,
-          width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
-          height: mainWindow.getSize()[1] - 40,
+          width: sidebar ? targetWindow.getSize()[0] - 76 : targetWindow.getSize()[0],
+          height: targetWindow.getSize()[1] - 40,
         });
       }
-      mainWindow.setWebContentsViewAutoResize(view, {
+      targetWindow.setWebContentsViewAutoResize(view, {
         width: true, height: true,
       });
     }
   });
   ipcMain.on('create-browser-view', (evt, args) => {
     if (!webContentsViewManager) webContentsViewManager = new WebContentsViewManager();
+    const targetWindow = getSenderMainWindow(evt.sender);
+    if (!targetWindow) return;
     const currentMainWebContentsView = webContentsViewManager.create(args.channel, args);
-    mainWindow.send('update-browser-state', {
+    targetWindow.webContents.send('update-browser-state', {
       url: args.url,
       canGoBack: currentMainWebContentsView.canBack,
       canGoForward: currentMainWebContentsView.canForward,
@@ -1210,13 +1271,16 @@ function registerMainWindowEvent(playerWindow) {
     pipControlView.webContents.executeJavaScript(InjectJSManager.initBarrageIcon(val));
   });
   ipcMain.on('pin', () => {
-    mainWindow.send('pip-float-on-top');
+    const ownerWindow = getBrowsingOwner();
+    if (ownerWindow) ownerWindow.webContents.send('pip-float-on-top');
   });
   ipcMain.on('pip', () => {
-    mainWindow.send('handle-exit-pip');
+    const ownerWindow = getBrowsingOwner();
+    if (ownerWindow) ownerWindow.webContents.send('handle-exit-pip');
   });
   ipcMain.on('danmu', () => {
-    mainWindow.send('handle-danmu-display');
+    const ownerWindow = getBrowsingOwner();
+    if (ownerWindow) ownerWindow.webContents.send('handle-danmu-display');
   });
   ipcMain.on('handle-danmu-display', (evt, code) => {
     browsingWindow.getWebContentsViews()[0].webContents.executeJavaScript(code);
@@ -1273,7 +1337,7 @@ function registerMainWindowEvent(playerWindow) {
   });
   ipcMain.on('update-mouse-info', (evt, args) => {
     if (browsingWindow && browsingWindow.isFocused()) {
-      browsingWindow.send('update-mouse-info', args);
+      browsingWindow.webContents.send('update-mouse-info', args);
     }
   });
   ipcMain.on('update-full-state', (evt, isFullScreen) => {
@@ -1325,9 +1389,12 @@ function registerMainWindowEvent(playerWindow) {
   });
   ipcMain.on('shift-pip', (evt, args) => {
     if (!webContentsViewManager) return;
-    const mainWindowViews = mainWindow.getWebContentsViews();
+    const targetWindow = getSenderMainWindow(evt.sender);
+    if (!targetWindow) return;
+    browsingOwnerWindow = targetWindow;
+    const mainWindowViews = targetWindow.getWebContentsViews();
     mainWindowViews
-      .forEach(mainWindowView => mainWindow.removeWebContentsView(mainWindowView));
+      .forEach(mainWindowView => targetWindow.removeWebContentsView(mainWindowView));
     const browViews = browsingWindow.getWebContentsViews();
     browViews.forEach((view) => {
       browsingWindow.removeWebContentsView(view);
@@ -1335,22 +1402,22 @@ function registerMainWindowEvent(playerWindow) {
     const browsers = webContentsViewManager.changePip(args.channel);
     const pipBrowser = browsers.pipBrowser;
     const mainBrowser = browsers.mainBrowser;
-    mainWindow.addWebContentsView(mainBrowser.page.view);
+    targetWindow.addWebContentsView(mainBrowser.page.view);
     browsingWindow.addWebContentsView(pipBrowser);
     createPipControlView();
     createTitlebarView();
-    if (args.isGlobal) {
-      isGlobal = args.isGlobal;
-      webContentsViewManager.pauseVideo(mainWindow.getWebContentsViews()[0]);
-      mainWindow.hide();
+    isGlobal = !!args.isGlobal;
+    if (isGlobal) {
+      webContentsViewManager.pauseVideo(targetWindow.getWebContentsViews()[0]);
+      targetWindow.hide();
     }
     mainBrowser.page.view.setBounds({
       x: sidebar ? 76 : 0,
       y: 40,
-      width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
-      height: mainWindow.getSize()[1] - 40,
+      width: sidebar ? targetWindow.getSize()[0] - 76 : targetWindow.getSize()[0],
+      height: targetWindow.getSize()[1] - 40,
     });
-    mainWindow.setWebContentsViewAutoResize(mainBrowser.page.view, {
+    targetWindow.setWebContentsViewAutoResize(mainBrowser.page.view, {
       width: true, height: true,
     });
     pipBrowser.setBounds({
@@ -1359,42 +1426,48 @@ function registerMainWindowEvent(playerWindow) {
     browsingWindow.setWebContentsViewAutoResize(pipBrowser, {
       width: true, height: true,
     });
-    mainWindow.send('update-browser-state', {
+    targetWindow.webContents.send('update-browser-state', {
       url: mainBrowser.page.url,
       canGoBack: mainBrowser.canBack,
       canGoForward: mainBrowser.canForward,
     });
     pipControlView.webContents
       .executeJavaScript(InjectJSManager.updateBarrageState(args.barrageOpen, args.opacity));
-    menuService?.updateFocusedWindow(false, mainWindow && mainWindow.isVisible());
+    menuService?.updateFocusedWindow(false, targetWindow.isVisible());
     browsingWindow.focus();
   });
   ipcMain.on('enter-pip', (evt, args) => {
     if (!webContentsViewManager) return;
+    const targetWindow = getSenderMainWindow(evt.sender);
+    if (!targetWindow) return;
+    browsingOwnerWindow = targetWindow;
     const browsers = webContentsViewManager.enterPip();
     const pipBrowser = browsers.pipBrowser;
     const mainBrowser = browsers.mainBrowser;
     if (!browsingWindow) {
-      createBrowsingWindow({ size: args.pipInfo.pipSize, position: args.pipInfo.pipPos });
-      mainWindow.send('init-pip-position');
-      mainWindow.removeWebContentsView(mainWindow.getWebContentsViews()[0]);
-      mainWindow.addWebContentsView(mainBrowser.page.view);
+      createBrowsingWindow(
+        { size: args.pipInfo.pipSize, position: args.pipInfo.pipPos },
+        targetWindow,
+      );
+      targetWindow.webContents.send('init-pip-position');
+      targetWindow.removeWebContentsView(targetWindow.getWebContentsViews()[0]);
+      targetWindow.addWebContentsView(mainBrowser.page.view);
       browsingWindow.addWebContentsView(pipBrowser);
       createPipControlView();
       createTitlebarView();
       browsingWindow.show();
     } else {
-      mainWindow.removeWebContentsView(mainWindow.getWebContentsViews()[0]);
-      mainWindow.addWebContentsView(mainBrowser.page.view);
+      targetWindow.removeWebContentsView(targetWindow.getWebContentsViews()[0]);
+      targetWindow.addWebContentsView(mainBrowser.page.view);
       browsingWindow.addWebContentsView(pipBrowser);
       browsingWindow.setSize(420, 236);
       createPipControlView();
       createTitlebarView();
       browsingWindow.show();
     }
-    if (args.isGlobal) {
-      isGlobal = args.isGlobal;
-      mainWindow.hide();
+    isGlobal = !!args.isGlobal;
+    if (isGlobal) {
+      targetWindow.hide();
     }
     browsingWindow.webContents.closeDevTools();
     browsingWindow.setAspectRatio(args.pipInfo.aspectRatio);
@@ -1403,10 +1476,10 @@ function registerMainWindowEvent(playerWindow) {
     mainBrowser.page.view.setBounds({
       x: sidebar ? 76 : 0,
       y: 40,
-      width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
-      height: mainWindow.getSize()[1] - 40,
+      width: sidebar ? targetWindow.getSize()[0] - 76 : targetWindow.getSize()[0],
+      height: targetWindow.getSize()[1] - 40,
     });
-    mainWindow.setWebContentsViewAutoResize(mainBrowser.page.view, {
+    targetWindow.setWebContentsViewAutoResize(mainBrowser.page.view, {
       width: true,
       height: true,
     });
@@ -1416,8 +1489,8 @@ function registerMainWindowEvent(playerWindow) {
     browsingWindow.setWebContentsViewAutoResize(pipBrowser, {
       width: true, height: true,
     });
-    browsingWindow.send('update-pip-listener');
-    mainWindow.send('update-browser-state', {
+    browsingWindow.webContents.send('update-pip-listener');
+    targetWindow.webContents.send('update-browser-state', {
       url: mainBrowser.page.url,
       canGoBack: mainBrowser.canBack,
       canGoForward: mainBrowser.canForward,
@@ -1425,20 +1498,24 @@ function registerMainWindowEvent(playerWindow) {
     pipControlView.webContents
       .executeJavaScript(InjectJSManager.updateBarrageState(args.barrageOpen, args.opacity));
     pipControlViewTitle(args.isGlobal);
-    menuService?.updateFocusedWindow(false, mainWindow && mainWindow.isVisible());
+    menuService?.updateFocusedWindow(false, targetWindow.isVisible());
     browsingWindow.focus();
   });
   ipcMain.on('update-pip-size', (evt, args) => {
-    mainWindow.send('update-pip-size', args);
+    const ownerWindow = getBrowsingOwner();
+    if (ownerWindow) ownerWindow.webContents.send('update-pip-size', args);
   });
   ipcMain.on('update-sidebar', (evt, sidebarstate) => {
     sidebar = sidebarstate;
-    if (downloadListView && !downloadListView.isDestroyed()) {
+    const targetWindow = getSenderMainWindow(evt.sender);
+    const ownerWindow = getDownloadListOwner();
+    if (targetWindow && ownerWindow === targetWindow
+      && downloadListView && !downloadListView.isDestroyed()) {
       downloadListView.setBounds({
         x: sidebar ? 76 : 0,
         y: 40,
-        width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
-        height: mainWindow.getSize()[1] - 40,
+        width: sidebar ? ownerWindow.getSize()[0] - 76 : ownerWindow.getSize()[0],
+        height: ownerWindow.getSize()[1] - 40,
       });
     }
   });
@@ -1448,8 +1525,9 @@ function registerMainWindowEvent(playerWindow) {
   });
   ipcMain.on('show-download-list', (evt, info) => {
     if (!downloadListView || downloadListView.isDestroyed()) {
+      const targetWindow = getSenderMainWindow(evt.sender);
       createDownloadListView(info.title, info.list, info.url,
-        true, info.resolution, info.path); // set no limits
+        true, info.resolution, info.path, targetWindow); // set no limits
     }
   });
   ipcMain.on('update-download-list', () => {
@@ -1473,11 +1551,13 @@ function registerMainWindowEvent(playerWindow) {
   });
   ipcMain.on('close-download-list', (evt, id) => {
     if (downloadListView && !downloadListView.isDestroyed()) {
-      mainWindow.removeWebContentsView(downloadListView);
+      const ownerWindow = getDownloadListOwner();
+      if (ownerWindow) ownerWindow.removeWebContentsView(downloadListView);
       downloadListView.destroy();
+      downloadListOwnerWindow = null;
     }
     manualAbort = true;
-    if (downloadWindow && id) downloadWindow.send('abort-download', id);
+    if (downloadWindow && id) downloadWindow.webContents.send('abort-download', id);
   });
   ipcMain.on('open-download-list', () => {
     if (!downloadWindow) {
@@ -1487,7 +1567,7 @@ function registerMainWindowEvent(playerWindow) {
     }
   });
   ipcMain.on('downloading-network-error', (evt, id) => {
-    if (downloadWindow) downloadWindow.send('downloading-network-error', id);
+    if (downloadWindow) downloadWindow.webContents.send('downloading-network-error', id);
   });
   ipcMain.on('show-notification', (evt, info) => {
     const notification = new Notification({ title: locale.$t('browsing.download.downloadCompleted'), body: info.name });
@@ -1505,20 +1585,23 @@ function registerMainWindowEvent(playerWindow) {
   });
   ipcMain.on('transfer-download-info', (evt, info) => {
     if (downloadWindow) {
-      downloadWindow.send('transfer-download-info', info);
+      downloadWindow.webContents.send('transfer-download-info', info);
       downloadWindow.show();
-      mainWindow.send('store-download-date');
+      const ownerWindow = getDownloadListOwner();
+      if (ownerWindow) ownerWindow.webContents.send('store-download-date');
     }
-    mainWindow.removeWebContentsView(downloadListView);
-    downloadListView.destroy();
+    const ownerWindow = getDownloadListOwner();
+    if (ownerWindow) ownerWindow.removeWebContentsView(downloadListView);
+    if (downloadListView && !downloadListView.isDestroyed()) downloadListView.destroy();
+    downloadListOwnerWindow = null;
   });
   ipcMain.on('download-item-detail', (evt, info) => {
     if (downloadWindow) {
-      downloadWindow.send('add-download-item', info);
+      downloadWindow.webContents.send('add-download-item', info);
     }
   });
   ipcMain.on('transfer-progress', (evt, progress) => {
-    downloadWindow.send('transfer-progress', progress);
+    downloadWindow.webContents.send('transfer-progress', progress);
   });
   ipcMain.on('update-download-date', (evt, date) => {
     lastDownloadDate = date;
@@ -1537,18 +1620,25 @@ function registerMainWindowEvent(playerWindow) {
       createDownloadWindow({
         show: false, info: Object.assign(info, { date: lastDownloadDate }),
       });
-    } else downloadWindow.send('download-video', Object.assign(info, { date: lastDownloadDate }));
+    } else {
+      downloadWindow.webContents.send(
+        'download-video',
+        Object.assign(info, { date: lastDownloadDate }),
+      );
+    }
   });
   ipcMain.on('continue-download-list', (evt, data) => {
     if (!downloadWindow) createDownloadWindow({ show: false, info: data });
-    else downloadWindow.send('continue-download-video', data);
+    else downloadWindow.webContents.send('continue-download-video', data);
   });
   ipcMain.on('exit-pip', (evt, args) => {
     if (!webContentsViewManager) return;
-    browsingWindow.send('remove-pip-listener');
-    mainWindow.show();
-    mainWindow.getWebContentsViews()
-      .forEach(mainWindowView => mainWindow.removeWebContentsView(mainWindowView));
+    const targetWindow = getBrowsingOwner() || getSenderMainWindow(evt.sender);
+    if (!targetWindow) return;
+    browsingWindow.webContents.send('remove-pip-listener');
+    targetWindow.show();
+    targetWindow.getWebContentsViews()
+      .forEach(mainWindowView => targetWindow.removeWebContentsView(mainWindowView));
     const browViews = browsingWindow.getWebContentsViews();
     browViews.forEach((view) => {
       browsingWindow.removeWebContentsView(view);
@@ -1556,18 +1646,18 @@ function registerMainWindowEvent(playerWindow) {
     const exitBrowser = webContentsViewManager.exitPip();
     exitBrowser.page.view.webContents.executeJavaScript(args.jsRecover);
     if (args.cssRecover) exitBrowser.page.view.webContents.insertCSS(args.cssRecover);
-    mainWindow.addWebContentsView(exitBrowser.page.view);
+    targetWindow.addWebContentsView(exitBrowser.page.view);
     exitBrowser.page.view.setBounds({
       x: sidebar ? 76 : 0,
       y: 40,
-      width: sidebar ? mainWindow.getSize()[0] - 76 : mainWindow.getSize()[0],
-      height: mainWindow.getSize()[1] - 40,
+      width: sidebar ? targetWindow.getSize()[0] - 76 : targetWindow.getSize()[0],
+      height: targetWindow.getSize()[1] - 40,
     });
-    mainWindow.setWebContentsViewAutoResize(exitBrowser.page.view, {
+    targetWindow.setWebContentsViewAutoResize(exitBrowser.page.view, {
       width: true,
       height: true,
     });
-    mainWindow.send('update-browser-state', {
+    targetWindow.webContents.send('update-browser-state', {
       url: exitBrowser.page.url,
       canGoBack: exitBrowser.canBack,
       canGoForward: exitBrowser.canForward,
@@ -1579,8 +1669,9 @@ function registerMainWindowEvent(playerWindow) {
     } else {
       browsingWindow.hide();
     }
-    mainWindow.show();
-    menuService?.updateFocusedWindow(true, mainWindow && mainWindow.isVisible());
+    targetWindow.show();
+    menuService?.updateFocusedWindow(true, targetWindow.isVisible());
+    isGlobal = false;
   });
   ipcMain.on('set-window-minimize', (event) => {
     const targetWindow = getSenderMainWindow(event.sender);
@@ -1645,7 +1736,7 @@ function registerMainWindowEvent(playerWindow) {
     }
   });
   ipcMain.on('update-route-name', (e, route) => {
-    routeName = route;
+    if (isEventFromWindow(e, mainWindow)) routeName = route;
   });
   ipcMain.on('key-events', (e, keyCode) => {
     if (keyCode === 13) {
@@ -1662,16 +1753,10 @@ function registerMainWindowEvent(playerWindow) {
     if (!targetWindow) return;
     const subtitleFiles = [];
     const videoFiles = [];
-    args.forEach((file) => {
-      if (isSubtitle((file)) || fs.statSync(file).isDirectory()) {
-        subtitleFiles.push(file);
-      } else if (isVideo(file) || isAudio(file)) {
-        videoFiles.push(file);
-      }
-    });
+    args.forEach(file => collectOpenPath(file, videoFiles, subtitleFiles));
     const filesToOpen = getAllValidVideo(!videoFiles.length,
       videoFiles.concat(subtitleFiles));
-    if (process.mas && !videoFiles.length && subtitleFiles.length && !filesToOpen) {
+    if (process.mas && !videoFiles.length && subtitleFiles.length && !filesToOpen.length) {
       targetWindow.webContents.send('open-subtitle-in-mas', subtitleFiles[0]);
     } else if (videoFiles.length + subtitleFiles.length > 0) {
       targetWindow.webContents.send('open-file', {
@@ -1708,17 +1793,13 @@ function registerMainWindowEvent(playerWindow) {
   ipcMain.on('add-preference', createPreferenceWindow);
 
   ipcMain.on('add-browsing', (e, args) => {
-    createBrowsingWindow(args);
+    createBrowsingWindow(args, getSenderMainWindow(e.sender));
   });
   ipcMain.on('clear-history', () => {
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send('file.clearHistory');
-    }
+    broadcastToMainWindows('file.clearHistory');
   });
   ipcMain.on('preference-to-main', (e, args) => {
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send('mainDispatch', 'setPreference', args);
-    }
+    broadcastToMainWindows('mainDispatch', 'setPreference', args);
     if (premiumView && !premiumView.webContents.isDestroyed()) {
       premiumView.webContents.send('setPreference', args);
     }
@@ -1726,7 +1807,7 @@ function registerMainWindowEvent(playerWindow) {
       aboutWindow.webContents.send('setPreference', args);
     }
     if (downloadWindow && !downloadWindow.webContents.isDestroyed()) {
-      downloadWindow.send('setPreference', args);
+      downloadWindow.webContents.send('setPreference', args);
     }
     if (downloadListView && !downloadListView.isDestroyed()) {
       downloadListView.webContents.send('setPreference', args);
@@ -1759,9 +1840,7 @@ function registerMainWindowEvent(playerWindow) {
       applePayVerifyLock = true;
       try {
         await applePayVerify.verifyAfterOpenApp();
-        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-          mainWindow.webContents.send('payment-success');
-        }
+        broadcastToMainWindows('payment-success');
       } catch (error) {
         // empty
       }
@@ -1795,9 +1874,7 @@ function registerMainWindowEvent(playerWindow) {
     if (premiumView && !premiumView.webContents.isDestroyed()) {
       premiumView.webContents.send('payment-success', paymentOrigin);
     }
-    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send('payment-success');
-    }
+    broadcastToMainWindows('payment-success');
     if (paymentWindow && !paymentWindow.webContents.isDestroyed()) {
       paymentWindowCloseTag = true;
       paymentWindow.close();
@@ -1893,8 +1970,22 @@ function createMainWindow(openDialog, playlistId, requestedFiles) {
 
   playerWindow.on('closed', () => {
     mainWindows.delete(playerWindow);
-    if (mainWindow === playerWindow) {
+    const closedActiveWindow = mainWindow === playerWindow;
+    if (closedActiveWindow) {
       mainWindow = Array.from(mainWindows).reverse().find(isUsableMainWindow) || null;
+    }
+    if (castOwnerWindow === playerWindow) {
+      castOwnerWindow = null;
+      castService.stop();
+    }
+    if (openUrlOwnerWindow === playerWindow && openUrlWindow) openUrlWindow.close();
+    if (browsingOwnerWindow === playerWindow && browsingWindow) browsingWindow.close();
+    if (downloadListOwnerWindow === playerWindow) {
+      if (downloadListView && !downloadListView.isDestroyed()) downloadListView.destroy();
+      downloadListView = null;
+      downloadListOwnerWindow = null;
+    }
+    if (closedActiveWindow) {
       if (mainWindow) {
         // macOS does not consistently emit a new focus event when the front
         // window closes, so explicitly restore the newly exposed window menu.
@@ -1914,7 +2005,9 @@ function createMainWindow(openDialog, playlistId, requestedFiles) {
 
   if (process.env.NODE_ENV === 'development') {
     setTimeout(() => { // wait some time to prevent `Object not found` error
-      if (isUsableMainWindow(playerWindow)) playerWindow.openDevTools({ mode: 'detach' });
+      if (isUsableMainWindow(playerWindow)) {
+        playerWindow.webContents.openDevTools({ mode: 'detach' });
+      }
     }, 1000);
   }
   playerWindow.on('focus', () => {
@@ -1929,7 +2022,7 @@ function createMainWindow(openDialog, playlistId, requestedFiles) {
     if (!focusedWindow || focusedWindow.webContents.isDestroyed()) return;
     if (focusedWindow.isMaximized()) return;
     if (process.platform === 'darwin' && focusedWindow !== browsingWindow) return;
-    focusedWindow.send(`mouse-${channel}`, ...args);
+    focusedWindow.webContents.send(`mouse-${channel}`, ...args);
   });
 });
 
@@ -2008,16 +2101,16 @@ app.on('ready', () => {
   createMainWindow();
   app.name = 'SPlayer';
   globalShortcut.register('CmdOrCtrl+Shift+I+O+P', () => {
-    if (mainWindow) mainWindow.openDevTools({ mode: 'detach' });
+    if (mainWindow) mainWindow.webContents.openDevTools({ mode: 'detach' });
   });
   globalShortcut.register('CmdOrCtrl+Shift+J+K+L', () => {
-    if (preferenceWindow) preferenceWindow.openDevTools({ mode: 'detach' });
+    if (preferenceWindow) preferenceWindow.webContents.openDevTools({ mode: 'detach' });
   });
   globalShortcut.register('CmdOrCtrl+Shift+Q+W+E', () => {
     if (premiumView) premiumView.webContents.openDevTools();
   });
   globalShortcut.register('CmdOrCtrl+Shift+Z+X+C', () => {
-    if (paymentWindow) paymentWindow.openDevTools({ mode: 'detach' });
+    if (paymentWindow) paymentWindow.webContents.openDevTools({ mode: 'detach' });
   });
 
   if (process.platform === 'win32') {
@@ -2066,7 +2159,8 @@ app.on('add-window-losslessStreaming', createLosslessStreamingWindow);
 app.on('new-main-window', () => createMainWindow());
 app.on('open-history-item', (evt, args) => {
   openHistoryItem(evt, args);
-  mainWindow.send('update-current-channel', args.channel);
+  const targetWindow = getActiveMainWindow();
+  if (targetWindow) targetWindow.webContents.send('update-current-channel', args.channel);
 });
 
 app.on('menu-create-main-window', () => {
@@ -2100,9 +2194,7 @@ app.on('refresh-token', async (account) => {
   global['account'] = account;
   menuService?.updateAccount(account);
   saveToken(account.token);
-  if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-    mainWindow.webContents.send('sign-in', account);
-  }
+  broadcastToMainWindows('sign-in', account);
   if (preferenceWindow && !preferenceWindow.webContents.isDestroyed()) {
     preferenceWindow.webContents.send('sign-in', account);
   }
@@ -2125,9 +2217,7 @@ app.on('sign-in', async () => { // eslint-disable-line complexity
         // notify web handle success
         premiumView.webContents.send('applePay-success', paymentOrigin);
       }
-      if (mainWindow && !mainWindow.webContents.isDestroyed() && success) {
-        mainWindow.webContents.send('payment-success');
-      }
+      if (success) broadcastToMainWindows('payment-success');
     } catch (error) {
       if (premiumView && !premiumView.webContents.isDestroyed()) {
         premiumView.webContents.send('applePay-fail', paymentOrigin, error);
@@ -2138,9 +2228,7 @@ app.on('sign-in', async () => { // eslint-disable-line complexity
     applePayVerifyLock = true;
     try {
       await applePayVerify.verifyAfterOpenApp();
-      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-        mainWindow.webContents.send('payment-success');
-      }
+      broadcastToMainWindows('payment-success');
     } catch (error) {
       // empty
     }
@@ -2158,9 +2246,7 @@ app.on('sign-out', () => {
   global['account'] = undefined;
   menuService?.updateAccount(undefined);
   saveToken('');
-  if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-    mainWindow.webContents.send('sign-in', undefined);
-  }
+  broadcastToMainWindows('sign-in', undefined);
   if (preferenceWindow && !preferenceWindow.webContents.isDestroyed()) {
     preferenceWindow.webContents.send('sign-in', undefined);
   }
@@ -2180,9 +2266,7 @@ app.on('losslessStreaming-stop', () => {
   losslessStreamingInstance.stop();
 });
 app.on('losslessStreaming-info-update', (info, prevInfo) => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('losslessStreaming-info-update', info, prevInfo);
-  }
+  broadcastToMainWindows('losslessStreaming-info-update', info, prevInfo);
   if (!info.enabled) {
     if (losslessStreamingWindow) {
       losslessStreamingWindow.close();
@@ -2247,9 +2331,7 @@ if (process.platform === 'darwin') {
               // notify web handle success
               premiumView.webContents.send('applePay-success', paymentOrigin);
             }
-            if (mainWindow && !mainWindow.webContents.isDestroyed() && verifySuccess) {
-              mainWindow.webContents.send('payment-success');
-            }
+            if (verifySuccess) broadcastToMainWindows('payment-success');
           } catch (error) {
             if (premiumView && !premiumView.webContents.isDestroyed()) {
               premiumView.webContents.send('applePay-fail', paymentOrigin, error);
@@ -2324,14 +2406,17 @@ app.on('ready', () => castService.startBackgroundDiscovery());
 ipcMain.handle('cast-list-devices', async () => castService.listDevices());
 
 castService.on('status', (status) => {
-  if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-    mainWindow.webContents.send('cast-status', status);
-  }
+  const targetWindow = isUsableMainWindow(castOwnerWindow)
+    ? castOwnerWindow : getActiveMainWindow();
+  if (targetWindow) targetWindow.webContents.send('cast-status', status);
+  if (!status.casting) castOwnerWindow = null;
 });
 
 ipcMain.handle('cast-start', async (e, {
   device, filePath, cues, currentTime, volume,
 }) => {
+  const ownerWindow = getSenderMainWindow(e.sender);
+  castOwnerWindow = ownerWindow;
   try {
     await castService.cast(
       device, filePath, cues || [], currentTime || 0,
@@ -2339,6 +2424,7 @@ ipcMain.handle('cast-start', async (e, {
     );
     return { ok: true };
   } catch (error) {
+    if (castOwnerWindow === ownerWindow) castOwnerWindow = null;
     return { ok: false, reason: error.message };
   }
 });

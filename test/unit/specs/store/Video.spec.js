@@ -3,6 +3,19 @@ import { Video as videoActions, Subtitle as subtitleActions } from '@/store/acti
 import { Video as videoMutations } from '@/store/mutationTypes';
 
 describe('store/modules/Video', () => {
+  it('creates independent playback state for each player window', () => {
+    const firstWindow = Video.state();
+    const secondWindow = Video.state();
+
+    Video.mutations[videoMutations.VOLUME_UPDATE](firstWindow, 35);
+    Video.mutations[videoMutations.MUTED_UPDATE](firstWindow, true);
+
+    expect(firstWindow.volume).to.equal(35);
+    expect(firstWindow.muted).to.equal(true);
+    expect(secondWindow.volume).to.equal(100);
+    expect(secondWindow.muted).to.equal(false);
+  });
+
   it('preserves HTTP playback URLs', () => {
     const url = 'http://127.0.0.1:54321/media/token/movie.mp4';
     expect(Video.getters.convertedSrc({ currentSrc: url, src: '/Volumes/movie.mp4' }))
