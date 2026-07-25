@@ -450,15 +450,17 @@ export default {
       });
     },
     // open single video
-    async openVideoFile(videoFile) {
+    async openVideoFile(videoFile, options = {}) {
       if (!videoFile) return;
       let id;
       let playlist;
-      this.$store.dispatch('FolderList', {
-        id: '',
-        paths: [videoFile],
-        items: [],
-      });
+      if (!options.keepCurrentFolderList) {
+        this.$store.dispatch('FolderList', {
+          id: '',
+          paths: [videoFile],
+          items: [],
+        });
+      }
       const knownVideoPromise = this.$store.getters.incognitoMode
         ? Promise.resolve(null)
         : this.infoDB.get('media-item', 'path', videoFile).then((knownVideo) => {
@@ -501,11 +503,13 @@ export default {
       if (!quickHash || !playlist) return;
       if (this.$store.getters.originSrc === videoFile) {
         this.$store.commit('ID_UPDATE', playlist.items[0]);
-        this.$store.dispatch('FolderList', {
-          id,
-          paths: [videoFile],
-          items: playlist.items.slice(0, 1),
-        });
+        if (!options.keepCurrentFolderList) {
+          this.$store.dispatch('FolderList', {
+            id,
+            paths: [videoFile],
+            items: playlist.items.slice(0, 1),
+          });
+        }
       }
     },
     bookmarkAccessing(vidPath) {

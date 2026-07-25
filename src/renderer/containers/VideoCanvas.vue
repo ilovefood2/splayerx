@@ -196,7 +196,7 @@ export default {
       this.switchingLock = true;
       videodata.paused = false;
       if (this.nextVideo !== '') {
-        if (this.isFolderList) this.openVideoFile(this.nextVideo);
+        if (this.isFolderList) this.openVideoFile(this.nextVideo, { keepCurrentFolderList: true });
         else this.playFile(this.nextVideo, this.nextVideoId);
       } else if (this.nextVideo === '') { // 单曲循环时，nextVideo返回空字符串
         this.$store.commit('LOOP_UPDATE', true);
