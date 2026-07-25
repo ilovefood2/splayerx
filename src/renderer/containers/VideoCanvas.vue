@@ -7,9 +7,9 @@
       :key="originSrc"
       :needtimeupdate="true"
       :last-audio-track-id="lastAudioTrackId"
-      :events="['loadedmetadata', 'audiotrack', 'playing', 'ended']"
+      :events="['loadedmetadata', 'audiotrack', 'playing', 'ended', 'timeupdate']"
       :styles="{objectFit: 'contain', width: '100%', height: '100%'}"
-      :loop="loop"
+      :loop="loop && !isFolderList"
       :crossOrigin="'anonymous'"
       :src="convertedSrc"
       :playback-rate="rate"
@@ -23,6 +23,7 @@
       @loadedmetadata="onMetaLoaded"
       @playing="switchingLock = false"
       @ended="$bus.$emit('next-video')"
+      @timeupdate="handleVideoTimeupdate"
       @audiotrack="onAudioTrack"
     />
     <div
@@ -72,6 +73,7 @@ export default {
       winAngleBeforeFullScreen: 0, // winAngel before full screen
       winSizeBeforeFullScreen: [], // winSize before full screen
       switchingLock: false,
+      folderAutoplayFallbackFired: false,
       audioCtx: null,
       gainNode: null,
       enableVideoInfoStore: false, // tag can save video data when quit
@@ -81,7 +83,7 @@ export default {
     ...mapGetters([
       'videoId', 'nextVideoId', 'originSrc', 'convertedSrc', 'volume', 'muted', 'rate', 'paused', 'casting', 'castPaused', 'duration', 'ratio', 'currentAudioTrackId', 'enabledSecondarySub', 'subToTop',
       'winSize', 'winPos', 'winAngle', 'isFullScreen', 'winWidth', 'winHeight', 'chosenStyle', 'chosenSize', 'nextVideo', 'loop', 'playinglistRate', 'isFolderList', 'playingList', 'playingIndex', 'playListId', 'items',
-      'previousVideo', 'previousVideoId', 'incognitoMode', 'nsfwProcessDone', 'hwhevc',
+      'previousVideo', 'previousVideoId', 'incognitoMode', 'nsfwProcessDone', 'hwhevc', 'playlistLoop',
     ]),
     ...mapGetters({
       videoWidth: 'intrinsicWidth',
@@ -115,6 +117,7 @@ export default {
     },
     originSrc(val: string, oldVal: string) {
       this.enableVideoInfoStore = false;
+      this.folderAutoplayFallbackFired = false;
       if (process.mas && oldVal) {
         this.$bus.$emit(`stop-accessing-${oldVal}`, oldVal);
       }
@@ -183,8 +186,12 @@ export default {
       this[this.paused ? 'play' : 'pause']();
       // this.$ga.event('app', 'toggle-playback');
     }, 50, { leading: true }));
-    this.$bus.$on('next-video', () => {
+    this.$bus.$on('next-video', async () => {
       if (this.switchingLock) return;
+      if (this.isFolderList) {
+        await this.openNextFolderVideo();
+        return;
+      }
       if (this.nextVideo === undefined) { // 非列表循环或单曲循环时，当前播放列表已经播完
         this.$router.push({ name: 'landing-view' });
         return;
@@ -315,6 +322,54 @@ export default {
       setTimeout(() => {
         this.enableVideoInfoStore = true;
       }, 20);
+    },
+    async openNextFolderVideo() {
+      this.folderAutoplayFallbackFired = true;
+      const list = await this.getCurrentFolderVideos();
+      const index = list.findIndex((item: string) => item === this.originSrc);
+      const nextVideo = index >= 0 ? list[index + 1] : list[0];
+      if (!nextVideo) {
+        if (this.playlistLoop && list.length > 1) {
+          await this.openFolderVideo(list[0], list);
+        } else {
+          this.$router.push({ name: 'landing-view' });
+        }
+        return;
+      }
+      await this.openFolderVideo(nextVideo, list);
+    },
+    handleVideoTimeupdate(event: Event) {
+      if (!this.isFolderList || this.switchingLock || this.folderAutoplayFallbackFired) return;
+      const video = event.target as HTMLVideoElement;
+      if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+      if (video.currentTime < video.duration - 0.25) return;
+      this.$bus.$emit('next-video');
+    },
+    async getCurrentFolderVideos() {
+      let list = Array.isArray(this.playingList) ? this.playingList.filter(Boolean) : [];
+      if (list.length <= 1 || !list.includes(this.originSrc)) {
+        list = await this.findSimilarVideoByVidPath(this.originSrc);
+        if (list.length > 0) {
+          this.$store.dispatch('FolderList', {
+            id: this.playListId,
+            paths: list,
+            items: this.items,
+          });
+        }
+      }
+      return list;
+    },
+    async openFolderVideo(video: string, list: string[]) {
+      this.switchingLock = true;
+      videodata.paused = false;
+      if (list.length > 0) {
+        this.$store.dispatch('FolderList', {
+          id: this.playListId,
+          paths: list,
+          items: this.items,
+        });
+      }
+      await this.openVideoFile(video, { keepCurrentFolderList: true });
     },
     amplifyAudio(gain: number) {
       if (this.gainNode && this.gainNode.gain) this.gainNode.gain.value = gain;
