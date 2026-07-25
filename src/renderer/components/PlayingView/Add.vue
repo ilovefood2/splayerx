@@ -1,8 +1,11 @@
 <template>
   <div
     ref="button"
+    draggable="false"
     @mouseenter="addMouseenter"
     @mouseleave="addMouseleave"
+    @dragstart.prevent
+    @mousedown.left.stop
     @mouseup.left="addMouseup"
     :style="{
       cursor: isInRange ? 'pointer' : `${cursorUrl}, pointer`,
@@ -82,6 +85,8 @@ export default {
   background-color: rgba(0, 0, 0, 0.12);
   transition: background-color 150ms ease-out, transform 100ms ease-out;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .btnMask {
@@ -98,5 +103,6 @@ export default {
 
 .addUi {
   margin: auto;
+  -webkit-user-drag: none;
 }
 </style>
