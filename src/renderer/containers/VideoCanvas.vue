@@ -7,7 +7,7 @@
       :key="originSrc"
       :needtimeupdate="true"
       :last-audio-track-id="lastAudioTrackId"
-      :events="['loadedmetadata', 'audiotrack', 'playing']"
+      :events="['loadedmetadata', 'audiotrack', 'playing', 'ended']"
       :styles="{objectFit: 'contain', width: '100%', height: '100%'}"
       :loop="loop"
       :crossOrigin="'anonymous'"
@@ -22,6 +22,7 @@
       :autoplay="false"
       @loadedmetadata="onMetaLoaded"
       @playing="switchingLock = false"
+      @ended="$bus.$emit('next-video')"
       @audiotrack="onAudioTrack"
     />
     <div

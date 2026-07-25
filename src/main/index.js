@@ -1939,11 +1939,14 @@ function createMainWindow(openDialog, playlistId, requestedFiles) {
     // it can be set true here and be changed during player starting
     transparent: false, // set to false to solve the backdrop-filter bug
     webPreferences: {
+      // The renderer is still bundled around Electron's `process` and `require`
+      // globals. Isolating this window before a preload bridge exists prevents
+      // Vue from mounting and leaves the app stuck on a black startup window.
       contextIsolation: false,
-      webSecurity: false,
+      webSecurity: true,
       nodeIntegration: true,
-      experimentalFeatures: true,
-      webviewTag: true,
+      experimentalFeatures: false,
+      webviewTag: false,
     },
     // See https://github.com/electron/electron/blob/master/docs/api/browser-window.md#showing-window-gracefully
     backgroundColor: '#000000',
