@@ -185,12 +185,8 @@ export default {
     }, 50, { leading: true }));
     this.$bus.$on('next-video', () => {
       if (this.switchingLock) return;
-      if (this.nextVideo === undefined && this.duration > 60) { // 非列表循环或单曲循环时，当前播放列表已经播完
+      if (this.nextVideo === undefined) { // 非列表循环或单曲循环时，当前播放列表已经播完
         this.$router.push({ name: 'landing-view' });
-        return;
-      }
-      if (this.duration <= 60 && this.isFolderList) {
-        this.$store.dispatch('singleCycle');
         return;
       }
       this.switchingLock = true;
@@ -307,8 +303,6 @@ export default {
       });
       this.changeWindowRotate(this.winAngle);
       this.windowRectControl();
-
-      if (this.duration <= 60 && this.isFolderList) this.$store.dispatch('singleCycle');
 
       if (mediaInfo && mediaInfo.audioTrackId) this.lastAudioTrackId = mediaInfo.audioTrackId;
       this.gainNode = this.audioCtx.createGain();
