@@ -356,6 +356,14 @@
     "imooc": "慕课网",
     "icourse163": "中国大学MOOC",
     "openLocalFile": "Open Local File ...",
+    "networkLocations": {
+      "title": "Network locations",
+      "add": "Add location",
+      "empty": "Add a mounted SMB, NFS, or shared folder for one-click access.",
+      "open": "Open {name}",
+      "remove": "Remove {name}",
+      "unavailable": "Location unavailable. Check the network connection."
+    },
     "enterPip": "Enter Picture in Picture (P)",
     "exitPip": "Exit Picture in Picture (P)",
     "enterPop": "Play in New Window (O)",

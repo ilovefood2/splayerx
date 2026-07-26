@@ -54,6 +54,10 @@
         </div>
       </transition>
     </div>
+    <NetworkLocations
+      v-if="!item.backgroundUrl"
+      :on-open="openNetworkLocation"
+    />
     <div
       ref="mask"
       class="mask"
@@ -134,6 +138,7 @@ import Icon from '@/components/BaseIconContainer.vue';
 import NotificationBubble from '@/components/NotificationBubble.vue';
 import PlaylistItem from '@/components/LandingView/PlaylistItem.vue';
 import VideoItem from '@/components/LandingView/VideoItem.vue';
+import NetworkLocations from '@/components/LandingView/NetworkLocations.vue';
 import { log } from '@/libs/Log';
 import Sagi from '@/libs/sagi';
 import { Browsing as browsingActions } from '@/store/actionTypes';
@@ -146,6 +151,7 @@ export default {
     NotificationBubble,
     PlaylistItem,
     VideoItem,
+    NetworkLocations,
   },
   data() {
     return {
@@ -395,6 +401,11 @@ export default {
         this.$store.dispatch('UPDATE_DEFAULT_DIR', defaultPath);
         this.openFilesByDialog({ defaultPath });
       }
+    },
+    openNetworkLocation(locationPath: string) {
+      this.$store.commit('source', '');
+      this.$electron.remote.app.addRecentDocument(locationPath);
+      return this.openFolder(locationPath);
     },
     openOrMove() {
       if (this.firstIndex === 1) {
