@@ -26,6 +26,25 @@ import { addBubble } from './notificationControl';
 
 const clock = FakeTimers.createClock();
 
+async function expandInputPaths(inputPaths, assumeDirectories = false) {
+  const pathGroups = await Promise.all(inputPaths.map(async (inputPath) => {
+    if (path.basename(inputPath).startsWith('.')) return [];
+
+    let isDirectory = assumeDirectories;
+    if (!assumeDirectories) {
+      const stats = await fsPromises.stat(inputPath);
+      isDirectory = stats.isDirectory();
+    }
+    if (!isDirectory) return [inputPath];
+
+    const entries = await fsPromises.readdir(inputPath, { withFileTypes: true });
+    return entries
+      .filter(entry => !entry.isDirectory() && !entry.name.startsWith('.'))
+      .map(entry => path.join(inputPath, entry.name));
+  }));
+  return pathGroups.flat();
+}
+
 export default {
   data() {
     return {
@@ -103,7 +122,7 @@ export default {
         }],
         properties: opts,
         securityScopedBookmarks: process.mas,
-      }).then(({ filePaths, bookmarks }) => {
+      }).then(async ({ filePaths, bookmarks }) => {
         this.showingPopupDialog = false;
         if (process.mas && get(bookmarks, 'length') > 0) {
           // TODO: put bookmarks to database
@@ -112,7 +131,8 @@ export default {
         if (filePaths && filePaths.length) {
           this.$store.commit('source', '');
           // if selected files contain folders only, then call openFolder()
-          const onlyFolders = filePaths.every(file => fs.statSync(file).isDirectory());
+          const pathStats = await Promise.all(filePaths.map(file => fsPromises.stat(file)));
+          const onlyFolders = pathStats.every(stats => stats.isDirectory());
           filePaths.forEach(file => remote.app.addRecentDocument(file));
           if (onlyFolders) {
             this.openFolder(...filePaths);
@@ -233,14 +253,7 @@ export default {
     },
     async addFiles(...files) { // eslint-disable-line complexity
       const videoFiles = [];
-
-      for (let i = 0; i < files.length; i += 1) {
-        if (fs.statSync(files[i]).isDirectory()) {
-          const dirPath = files[i];
-          const dirFiles = fs.readdirSync(dirPath).map(file => path.join(dirPath, file));
-          files.push(...dirFiles);
-        }
-      }
+      files = await expandInputPaths(files);
 
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];
@@ -281,17 +294,10 @@ export default {
     // the difference between openFolder and openFile function
     // is the way they treat the situation of empty folders and error files
     async openFolder(...folders) {
-      const files = [];
       let containsSubFiles = false;
       const subtitleFiles = [];
       const videoFiles = [];
-
-      folders.forEach((dirPath) => {
-        if (fs.statSync(dirPath).isDirectory()) {
-          const dirFiles = fs.readdirSync(dirPath).map(file => path.join(dirPath, file));
-          files.push(...dirFiles);
-        }
-      });
+      const files = await expandInputPaths(folders, true);
 
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];
@@ -321,18 +327,11 @@ export default {
         let containsSubFiles = false;
         const subtitleFiles = [];
         const videoFiles = [];
-
-        for (let i = 0; i < files.length; i += 1) {
-          if (fs.statSync(files[i]).isDirectory()) {
-            const dirPath = files[i];
-            const dirFiles = fs.readdirSync(dirPath).map(file => path.join(dirPath, file));
-            files.push(...dirFiles);
-          }
-        }
+        files = await expandInputPaths(files);
 
         files.forEach((tempFilePath) => {
           const baseName = path.basename(tempFilePath);
-          if (baseName.startsWith('.') || fs.statSync(tempFilePath).isDirectory()) return;
+          if (baseName.startsWith('.')) return;
           if (isSubtitle((tempFilePath))) {
             subtitleFiles.push({ src: tempFilePath, type: 'local' });
             containsSubFiles = true;
@@ -424,20 +423,33 @@ export default {
     async createPlayList(...videoFiles) {
       const hash = await mediaQuickHash.try(videoFiles[0]);
       if (!hash) return;
-      const id = await this.infoDB.addPlaylist(videoFiles);
-      const playlistItem = await this.infoDB.get('recent-played', id);
-      this.$store.dispatch('PlayingList', { id, paths: videoFiles, items: playlistItem.items });
-
-      const videoId = playlistItem.items[playlistItem.playedIndex];
-      this.$store.dispatch('SRC_SET', { src: videoFiles[0], id: videoId, mediaHash: hash });
+      this.$store.dispatch('PlayingList', { id: '', paths: videoFiles, items: [] });
+      this.$store.dispatch('SRC_SET', { src: videoFiles[0], id: NaN, mediaHash: hash });
       if (this.$router.currentRoute.value.name !== 'playing-view') {
         this.$router.push({ name: 'playing-view' });
       }
       this.$bus.$emit('new-file-open');
-      setTimeout(() => {
-        this.$bus.$emit('open-playlist');
-        this.$bus.$emit('new-playlist');
-      }, 300);
+
+      // Only the first item is needed to start playback. Index the rest in the
+      // background so large SMB/NFS folders do not hold the player on the landing page.
+      this.infoDB.addPlaylist(videoFiles, { [videoFiles[0]]: hash })
+        .then(async (id) => {
+          const playlistItem = await this.infoDB.get('recent-played', id);
+          if (!playlistItem || !this.$store.getters.playingList.includes(videoFiles[0])) return;
+          this.$store.dispatch('PlayingList', {
+            id,
+            paths: videoFiles,
+            items: playlistItem.items,
+          });
+          const currentIndex = videoFiles.indexOf(this.$store.getters.originSrc);
+          if (currentIndex >= 0 && playlistItem.items[currentIndex]) {
+            this.$store.commit('ID_UPDATE', playlistItem.items[currentIndex]);
+          }
+          this.$bus.$emit('open-playlist');
+          this.$bus.$emit('new-playlist');
+        })
+        .catch(ex => log.error('createPlayList', ex));
+      return hash;
     },
     async openUrlFile(url) {
       const id = await this.infoDB.addPlaylist([url]);

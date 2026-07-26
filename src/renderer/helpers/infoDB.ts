@@ -125,7 +125,7 @@ export class InfoDB {
    * @param  {Array} videos
    * Add a new playlist to recent-played and add the corresponding media-items
    */
-  async addPlaylist(videos: string[]) {
+  async addPlaylist(videos: string[], knownHashes: Record<string, string> = {}) {
     let playlist: RawPlaylistItem = {
       items: [],
       hpaths: [],
@@ -134,7 +134,7 @@ export class InfoDB {
     };
     if (videos.length > 1) {
       for (const videoPath of videos) {
-        const quickHash = await mediaQuickHash.try(videoPath);
+        const quickHash = knownHashes[videoPath] || await mediaQuickHash.try(videoPath);
         if (quickHash) {
           const data = {
             quickHash,
