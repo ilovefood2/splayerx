@@ -1,0 +1,3 @@
+-keep class jcifs.** { *; }
+-dontwarn org.bouncycastle.**
+-dontwarn javax.annotation.**
