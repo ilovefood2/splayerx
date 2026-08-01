@@ -14,12 +14,18 @@ export type VolumeWheelAdjustment = {
   step: number,
 };
 
+export function isHorizontalWheel(event: Pick<VolumeWheelEvent, 'deltaX' | 'deltaY'>): boolean {
+  return Number.isFinite(event.deltaX)
+    && Number.isFinite(event.deltaY)
+    && Math.abs(event.deltaX) > Math.abs(event.deltaY);
+}
+
 export function getVolumeWheelAdjustment(
   event: VolumeWheelEvent,
   options: VolumeWheelOptions,
 ): VolumeWheelAdjustment | null {
   const { ctrlKey, deltaX, deltaY } = event;
-  if (ctrlKey || !deltaY || Math.abs(deltaX) >= Math.abs(deltaY)) return null;
+  if (ctrlKey || !deltaY || isHorizontalWheel(event)) return null;
 
   let step = Math.abs(deltaY) * 0.06;
   if (options.platform !== 'darwin') step = Math.min(step, 6);

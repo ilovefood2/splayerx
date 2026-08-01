@@ -36,7 +36,7 @@ import {
 import { Video as videoMutations } from '@/store/mutationTypes';
 import { log } from '@/libs/Log';
 import asyncStorage from '@/helpers/asyncStorage';
-import { getVolumeWheelAdjustment } from '@/helpers/volumeWheel';
+import { getVolumeWheelAdjustment, isHorizontalWheel } from '@/helpers/volumeWheel';
 import { videodata } from '@/store/video';
 import { addBubble } from '@/helpers/notificationControl';
 import { getAITranslator, makeAITranslationKey } from '@/services/subtitle/ai';
@@ -550,7 +550,9 @@ const app = createApp({
       }
     }, { capture: true, passive: true });
     window.addEventListener('wheel', (event) => {
-      const { deltaX: x, ctrlKey, target } = event;
+      const {
+        deltaX: x, deltaY: y, ctrlKey, target,
+      } = event;
       let isAdvanceColumeItem;
       let isSubtitleScrollItem;
       const advance = document.querySelector('.mainMenu');
@@ -570,7 +572,10 @@ const app = createApp({
         }
       }
       if (!ctrlKey && !isAdvanceColumeItem && !isSubtitleScrollItem) {
-        this.$bus.$emit('wheel-event', { x });
+        // Classify this event from its own deltas. Reading wheelDirection here
+        // races the document-level input plugin listener, which runs later for
+        // the same event and made horizontal touchpad seeking stop working.
+        this.$bus.$emit('wheel-event', { x, y });
       }
     });
     /* eslint-disable */
@@ -1397,8 +1402,12 @@ const app = createApp({
         return [];
       }
     },
-    wheelEventHandler({ x }: { x: number }) {
-      if (this.duration && this.wheelDirection === 'horizontal' && !this.playlistDisplayState) {
+    wheelEventHandler({ x, y }: { x: number, y?: number }) {
+      const horizontal = Number.isFinite(y)
+        ? isHorizontalWheel({ deltaX: x, deltaY: y })
+        : this.wheelDirection === 'horizontal';
+      if (Number.isFinite(this.duration) && this.duration > 0
+        && horizontal && !this.playlistDisplayState) {
         const eventName = x < 0 ? 'seek-forward' : 'seek-backward';
         const absX = Math.abs(x);
 

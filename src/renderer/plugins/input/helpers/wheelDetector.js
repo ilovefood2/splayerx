@@ -106,11 +106,22 @@ class ElectronWheel extends WheelPhaseCalculator {
     super(interval);
 
     ipcRenderer.on('scroll-touch-begin', () => {
+      clearTimeout(this.wheelTimer);
       this._isTrackPad = !(this.scrollEnd = this._canInertialScroll = false);
       this.lastPhase = this.scrollingPhase;
     });
     ipcRenderer.on('scroll-touch-end', () => {
       this.scrollEnd = this._canInertialScroll = true;
+      // Some gestures end without any inertial wheel events. Without a
+      // fallback timer the detector remains in `scrolling` forever, leaving
+      // the next playback interaction in a stale touchpad state.
+      clearTimeout(this.wheelTimer);
+      this.wheelTimer = setTimeout(() => {
+        this.lastPhase = this.stoppedPhase;
+        this.scrollEnd = true;
+        this._isTrackPad = false;
+        this._canInertialScroll = false;
+      }, this.interval);
     });
   }
 

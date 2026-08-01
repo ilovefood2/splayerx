@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { getVolumeWheelAdjustment } from '@/helpers/volumeWheel';
+import { getVolumeWheelAdjustment, isHorizontalWheel } from '@/helpers/volumeWheel';
 
 describe('volumeWheel', () => {
+  it('classifies a gesture from the current wheel deltas', () => {
+    expect(isHorizontalWheel({ deltaX: -12, deltaY: 2 })).toBe(true);
+    expect(isHorizontalWheel({ deltaX: 2, deltaY: -12 })).toBe(false);
+    expect(isHorizontalWheel({ deltaX: 0, deltaY: 0 })).toBe(false);
+  });
+
   it('uses the current vertical touchpad delta without waiting for legacy wheel state', () => {
     expect(getVolumeWheelAdjustment(
       { ctrlKey: false, deltaX: 1, deltaY: 20 },
