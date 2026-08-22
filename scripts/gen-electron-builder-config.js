@@ -62,6 +62,9 @@ const mac = {
 const config = {
   appId: 'org.splayer.splayerx',
   productName: 'SPlayer',
+  electronLanguages: [
+    'ar', 'en', 'es', 'ja', 'ko', 'ru', 'zh_CN', 'zh_TW',
+  ],
   publish: [
     {
       provider: 'github',
@@ -77,7 +80,19 @@ const config = {
   },
   electronVersion,
   electronDist: 'node_modules/electron/dist',
-  files: ['dist/electron/**/*'],
+  files: [
+    'dist/electron/**/*',
+    '!dist/electron/**/*.map',
+    '!node_modules/**/*.map',
+    '!node_modules/**/*.d.ts',
+    '!node_modules/**/test/**/*',
+    '!node_modules/**/tests/**/*',
+    '!node_modules/**/__tests__/**/*',
+    '!node_modules/**/example/**/*',
+    '!node_modules/**/examples/**/*',
+    '!node_modules/**/benchmark/**/*',
+    '!node_modules/**/benchmarks/**/*',
+  ],
   extraResources: [
     {
       from: 'node_modules/regedit/vbs',
