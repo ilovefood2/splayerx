@@ -36,6 +36,7 @@
       class="masking"
     />
     <play-button
+      v-if="!isImage"
       v-show="!(isSpaceDownInProfessional || isEditable || isDragableInProfessional)"
       :mousedown-on-volume="mousedownOnVolume"
       :mousemove-position="mousemoveClientPosition"
@@ -48,6 +49,7 @@
       class="play-button"
     />
     <volume-indicator
+      v-if="!isImage"
       ref="volumeIndicator"
       v-show="!(isEditable || isDragableInProfessional)"
       :attached-shown="attachedShown"
@@ -67,6 +69,7 @@
       @update:volume-state="updateVolumeState"
     />
     <div
+      v-if="!isImage"
       v-show="!isEditable && !isProfessional"
       v-fade-in="showAllWidgets"
       :title="$t('msg.playback.castTo')"
@@ -120,7 +123,7 @@
     <transition name="fade">
       <the-time-codes
         ref="theTimeCodes"
-        v-if="!isProfessional"
+        v-if="!isProfessional && !isImage"
         v-model:progress-trigger-stopped="progressTriggerStopped"
         :show-all-widgets="showAllWidgets"
         :duration="duration"
@@ -135,6 +138,7 @@
     </transition>
     <the-progress-bar
       ref="progressbar"
+      v-if="!isImage"
       :show-all-widgets="showAllWidgets"
       :style="{ marginBottom: preFullScreen ? '10px' : '0' }"
     />
@@ -282,7 +286,7 @@ export default {
       wheelTime: ({ Input }) => Input.wheelTimestamp,
     }),
     ...mapGetters([
-      'originSrc', 'paused', 'casting', 'castPaused', 'ratio', 'duration', 'intrinsicWidth', 'intrinsicHeight', 'singleCycle', 'rate', 'muted', 'volume', 'playlistLoop',
+      'originSrc', 'paused', 'casting', 'castPaused', 'ratio', 'duration', 'intrinsicWidth', 'intrinsicHeight', 'singleCycle', 'rate', 'muted', 'volume', 'playlistLoop', 'isImage',
       'winWidth',
       'playingList', 'isFolderList',
       'isFullScreen', 'isFocused', 'isMinimized',

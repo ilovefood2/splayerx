@@ -129,4 +129,17 @@ exports.audios = Object.freeze([
   // 'xm',
 ]);
 
+exports.images = Object.freeze([
+  'apng',
+  'avif',
+  'bmp',
+  'gif',
+  'ico',
+  'jpeg',
+  'jpg',
+  'png',
+  'svg',
+  'webp',
+]);
+
 exports.subtitles = Object.freeze(['srt', 'ass', 'vtt', 'ssa']);

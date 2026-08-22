@@ -7,7 +7,9 @@ import storage from '@splayer/electron-json-storage';
 import * as platformInfo from './common/platform';
 import { checkPathExist, read, write } from '../renderer/libs/file';
 import { TOKEN_FILE_NAME } from '../renderer/constants';
-import { videos, audios, subtitles } from '../../config/fileAssociations';
+import {
+  videos, audios, images, subtitles,
+} from '../../config/fileAssociations';
 import Fetcher from './Fetcher';
 
 const app = electron.app || electron.remote.app;
@@ -48,14 +50,24 @@ export function isAudio(filepath: string) {
   return validAudioRegex.test(filepath);
 }
 
+export function getValidImageExtensions() {
+  return images as string[];
+}
+let validImageRegex: RegExp;
+export function isImage(filepath: string) {
+  if (!validImageRegex) validImageRegex = extsToRegex(getValidImageExtensions());
+  return validImageRegex.test(filepath);
+}
+
 export function getAllValidExtensions() {
   const exts = [] as string[];
-  return exts.concat(videos, audios, subtitles);
+  return exts.concat(videos, audios, images, subtitles);
 }
-export function isValidFile(file: string, type: ('video'|'audio'|'subtitle')[]): boolean {
-  type = type || [];
+export function isValidFile(file: string, type: ('video'|'audio'|'image'|'subtitle')[] = []): boolean {
+  if (!type.length) return isVideo(file) || isAudio(file) || isImage(file);
   if (type.includes('video') && !isVideo(file)) return false;
   if (type.includes('audio') && !isAudio(file)) return false;
+  if (type.includes('image') && !isImage(file)) return false;
   if (type.includes('subtitle') && !isSubtitle(file)) return false;
   return true;
 }
@@ -250,10 +262,12 @@ app.utils.getIP = getIP;
 app.utils.getClientUUID = getClientUUID;
 app.utils.getValidSubtitleExtensions = getValidSubtitleExtensions;
 app.utils.getValidVideoExtensions = getValidVideoExtensions;
+app.utils.getValidImageExtensions = getValidImageExtensions;
 app.utils.getAllValidExtensions = getAllValidExtensions;
 app.utils.isSubtitle = isSubtitle;
 app.utils.isVideo = isVideo;
 app.utils.isAudio = isAudio;
+app.utils.isImage = isImage;
 app.utils.isValidFile = isValidFile;
 app.utils.getSystemLocale = getSystemLocale;
 app.utils.crossThreadCache = crossThreadCache;

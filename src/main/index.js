@@ -17,7 +17,7 @@ import { applePayVerify } from './helpers/ApplePayVerify';
 import './helpers/electronPrototypes';
 import './helpers/rendererBridge';
 import {
-  isVideo, isSubtitle,
+  isVideo, isSubtitle, isImage,
   saveToken, getEnvironmentName,
   getIP, crossThreadCache, calcCurrentChannel, isAudio,
 } from '../shared/utils';
@@ -437,7 +437,7 @@ function getAllValidVideo(onlySubtitle, files) {
         if (isSubtitle((tempFilePath))) {
           const tempVideo = searchForLocalVideo(tempFilePath);
           videoFiles.push(...tempVideo);
-        } else if (isVideo(tempFilePath) || isAudio(tempFilePath)) {
+        } else if (isVideo(tempFilePath) || isAudio(tempFilePath) || isImage(tempFilePath)) {
           videoFiles.push(tempFilePath);
         }
       });
@@ -445,7 +445,7 @@ function getAllValidVideo(onlySubtitle, files) {
       files.forEach((tempFilePath) => {
         const baseName = path.basename(tempFilePath);
         if (baseName.startsWith('.') || fs.statSync(tempFilePath).isDirectory()) return;
-        if (isVideo(tempFilePath) || isAudio(tempFilePath)) {
+        if (isVideo(tempFilePath) || isAudio(tempFilePath) || isImage(tempFilePath)) {
           videoFiles.push(tempFilePath);
         }
       });
@@ -477,7 +477,7 @@ function collectOpenPath(file, videoFiles, subtitleFiles) {
   try {
     const isDirectory = fs.statSync(file).isDirectory();
     if (isSubtitle(file) || isDirectory) subtitleFiles.push(file);
-    else if (isVideo(file) || isAudio(file)) videoFiles.push(file);
+    else if (isVideo(file) || isAudio(file) || isImage(file)) videoFiles.push(file);
   } catch (ex) {
     // Ignore arguments that are not readable media paths.
   }

@@ -1,4 +1,4 @@
-import { isVideo, isAudio } from '../../shared/utils';
+import { isVideo, isAudio, isImage } from '../../shared/utils';
 
 
 /**
@@ -11,7 +11,7 @@ import { isVideo, isAudio } from '../../shared/utils';
 export function getOpenedFiles(argv) {
   let args = [...argv];
   args = args.slice(process.isPackaged ? 2 : 1);
-  const videos = args.filter(arg => isVideo(arg) || isAudio(arg));
+  const videos = args.filter(arg => isVideo(arg) || isAudio(arg) || isImage(arg));
   return videos;
 }
 

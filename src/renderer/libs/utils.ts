@@ -106,14 +106,14 @@ const SHORT_CURT_TYPE = 'image/jpeg';
 /**
  * @description canvas 生成观看视频的最后一帧图片
  * @author tanghaixiang
- * @param {HTMLVideoElement} video 需要截取的视频元素
+ * @param {HTMLVideoElement|HTMLImageElement} media 需要截取的媒体元素
  * @param {HTMLCanvasElement} canvas 截图操作的canvas元素
  * @param {number} videoWidth 视频宽
  * @param {number} videoHeight 视频高
  * @returns {ShortCut} 最后一帧图，有常规尺寸和小尺寸
  */
 export function generateShortCutImageBy(
-  video: HTMLVideoElement,
+  media: HTMLVideoElement | HTMLImageElement,
   canvas: HTMLCanvasElement,
   videoWidth: number,
   videoHeight: number,
@@ -122,13 +122,17 @@ export function generateShortCutImageBy(
     shortCut: '',
     smallShortCut: '',
   };
+  const mediaWidth = 'videoWidth' in media ? media.videoWidth : media.naturalWidth;
+  const mediaHeight = 'videoHeight' in media ? media.videoHeight : media.naturalHeight;
+  const width = videoWidth || mediaWidth;
+  const height = videoHeight || mediaHeight;
   const canvasCTX = canvas.getContext('2d');
-  if (canvasCTX) {
-    [canvas.width, canvas.height] = [(videoWidth / videoHeight)
+  if (canvasCTX && width > 0 && height > 0) {
+    [canvas.width, canvas.height] = [(width / height)
       * MAX_SHORT_CUT_SIZE, MAX_SHORT_CUT_SIZE];
     canvasCTX.drawImage(
-      video, 0, 0, videoWidth, videoHeight,
-      0, 0, (videoWidth / videoHeight) * MAX_SHORT_CUT_SIZE, MAX_SHORT_CUT_SIZE,
+      media, 0, 0, width, height,
+      0, 0, (width / height) * MAX_SHORT_CUT_SIZE, MAX_SHORT_CUT_SIZE,
     );
     const imagePath = canvas.toDataURL(SHORT_CURT_TYPE, SHORT_CURT_QUALITY);
     result.shortCut = result.smallShortCut = imagePath;

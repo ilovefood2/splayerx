@@ -3,6 +3,7 @@ import { ipcRenderer } from 'electron';
 import romanize from 'romanize';
 import isEqual from 'lodash/isEqual';
 import { mediaQuickHash } from '@/libs/utils';
+import { isImage } from '@/../shared/utils';
 import { Video as videoMutations } from '../mutationTypes';
 import {
   Video as videoActions,
@@ -76,6 +77,7 @@ const getters = {
   },
   // playback state
   loop: state => state.loop,
+  isImage: state => isImage(state.src),
   duration: state => state.duration,
   nextVideoPreviewTime: (state) => {
     const time = state.duration > 3000 ? 60 : state.duration * 0.02;

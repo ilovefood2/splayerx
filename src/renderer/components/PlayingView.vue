@@ -64,7 +64,7 @@ export default {
     };
   },
   computed: {
-    ...mapGetters(['originSrc', 'mediaHash', 'duration', 'winWidth', 'winHeight', 'isProfessional', 'primarySubtitleId', 'secondarySubtitleId', 'isFolderList']),
+    ...mapGetters(['originSrc', 'mediaHash', 'duration', 'winWidth', 'winHeight', 'isProfessional', 'primarySubtitleId', 'secondarySubtitleId', 'isFolderList', 'isImage']),
     allCues() {
       return Array.isArray(this.currentCues)
         ? this.currentCues.flatMap(({ cues }: { cues: [] }) => cues)
@@ -146,6 +146,10 @@ export default {
       const key = `${src}\u0000${this.mediaHash}`;
       if (key === this.initializedMediaKey) return;
       this.initializedMediaKey = key;
+      if (this.isImage) {
+        if (this.isFolderList) this.$store.dispatch('UpdatePlayingList');
+        return;
+      }
       getStreams(src);
       this.initializeManager();
       if (this.isFolderList) this.$store.dispatch('UpdatePlayingList');
@@ -168,6 +172,7 @@ export default {
           + `-${basename(this.originSrc)}-${type}x${type}`;
     },
     async loopCues() {
+      if (this.isImage) return;
       if (!this.time) this.time = videodata.time;
       // onUpdateTick Always get the latest subtitles
       // if (this.time !== videodata.time) {

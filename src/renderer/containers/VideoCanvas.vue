@@ -3,6 +3,7 @@
     class="video"
   >
     <base-video-player
+      v-if="!isImage"
       ref="videoCanvas"
       :key="originSrc"
       :needtimeupdate="true"
@@ -26,6 +27,17 @@
       @timeupdate="handleVideoTimeupdate"
       @audiotrack="onAudioTrack"
     />
+    <img
+      v-else
+      ref="imageCanvas"
+      :key="originSrc"
+      :src="convertedSrc"
+      :style="{objectFit: 'contain', width: '100%', height: '100%'}"
+      alt=""
+      class="image-element"
+      @load="onImageLoaded"
+      @error="handleImageError"
+    />
     <div
       :style="{
         backgroundColor: maskBackground
@@ -46,6 +58,7 @@ import { windowRectService } from '@/services/window/WindowRectService';
 import { playInfoStorageService } from '@/services/storage/PlayInfoStorageService';
 import { settingStorageService } from '@/services/storage/SettingStorageService';
 import { generateShortCutImageBy, ShortCut } from '@/libs/utils';
+import { log } from '@/libs/Log';
 import { Video as videoMutations } from '@/store/mutationTypes';
 import { Video as videoActions } from '@/store/actionTypes';
 import { videodata } from '@/store/video';
@@ -61,6 +74,7 @@ export default {
     return {
       videoExisted: false,
       videoElement: null,
+      imageElement: null,
       seekTime: [0],
       lastAudioTrackId: 0,
       lastCoverDetectingTime: 0,
@@ -83,7 +97,7 @@ export default {
     ...mapGetters([
       'videoId', 'nextVideoId', 'originSrc', 'convertedSrc', 'volume', 'muted', 'rate', 'paused', 'casting', 'castPaused', 'duration', 'ratio', 'currentAudioTrackId', 'enabledSecondarySub', 'subToTop',
       'winSize', 'winPos', 'winAngle', 'isFullScreen', 'winWidth', 'winHeight', 'chosenStyle', 'chosenSize', 'nextVideo', 'loop', 'playinglistRate', 'isFolderList', 'playingList', 'playingIndex', 'playListId', 'items',
-      'previousVideo', 'previousVideoId', 'incognitoMode', 'nsfwProcessDone', 'hwhevc', 'playlistLoop',
+      'previousVideo', 'previousVideoId', 'incognitoMode', 'nsfwProcessDone', 'hwhevc', 'playlistLoop', 'isImage',
     ]),
     ...mapGetters({
       videoWidth: 'intrinsicWidth',
@@ -121,11 +135,30 @@ export default {
       if (process.mas && oldVal) {
         this.$bus.$emit(`stop-accessing-${oldVal}`, oldVal);
       }
+      if (this.isImage) {
+        if (this.audioCtx) {
+          this.audioCtx.close();
+          this.audioCtx = null;
+        }
+        this.videoElement = null;
+        this.imageElement = null;
+      } else if (!this.audioCtx) {
+        this.audioCtx = new AudioContext();
+      }
       // this.$bus.$emit('show-speedlabel');
       this.videoConfigInitialize({
         audioTrackList: [],
       });
-      this.play();
+      if (this.isImage) {
+        this.videoConfigInitialize({
+          paused: true,
+          duration: NaN,
+          currentTime: 0,
+        });
+        videodata.paused = true;
+      } else {
+        this.play();
+      }
       this.updatePlayinglistRate({
         oldDir: path.dirname(oldVal), newDir: path.dirname(val), playingList: this.playingList,
       });
@@ -149,7 +182,7 @@ export default {
     this.updatePlayinglistRate({ oldDir: '', newDir: path.dirname(this.originSrc), playingList: this.playingList });
   },
   mounted() {
-    this.audioCtx = new AudioContext();
+    this.audioCtx = this.isImage ? null : new AudioContext();
     this.$bus.$on('back-to-landingview', () => {
       this.backToLandingView();
       return false;
@@ -158,7 +191,8 @@ export default {
       if (needToRestore) this.needToRestore = needToRestore;
       this.quit = true;
     });
-    this.videoElement = this.$refs.videoCanvas.videoElement();
+    this.videoElement = this.isImage ? null : this.$refs.videoCanvas.videoElement();
+    this.imageElement = this.isImage ? this.$refs.imageCanvas : null;
     this.$bus.$on('toggle-fullscreen', () => {
       if (!this.isFullScreen) {
         this.toFullScreen();
@@ -178,6 +212,7 @@ export default {
       this.toggleMute();
     });
     this.$bus.$on('toggle-playback', debounce(() => {
+      if (this.isImage) return;
       if (this.casting) {
         this.$electron.ipcRenderer.send(this.castPaused ? 'cast-play' : 'cast-pause');
         this.updateCastPaused(!this.castPaused);
@@ -250,7 +285,7 @@ export default {
   },
   beforeUnmount() {
     if (this.casting) this.$electron.ipcRenderer.send('cast-stop');
-    this.audioCtx.close();
+    if (this.audioCtx) this.audioCtx.close();
     if (process.mas) this.$bus.$emit(`stop-accessing-${this.originSrc}`, this.originSrc);
     window.removeEventListener('beforeunload', this.beforeUnloadHandler);
   },
@@ -270,9 +305,33 @@ export default {
       removeAllAudioTrack: videoActions.REMOVE_ALL_AUDIO_TRACK,
       updatePlayinglistRate: videoActions.UPDATE_PLAYINGLIST_RATE,
     }),
+    onImageLoaded(event: Event) {
+      const target = event.target as HTMLImageElement;
+      if (!target.naturalWidth || !target.naturalHeight) return;
+      this.imageElement = target;
+      this.videoExisted = true;
+      this.seekTime = [0];
+      this.videoConfigInitialize({
+        paused: true,
+        duration: NaN,
+        currentTime: 0,
+      });
+      videodata.paused = true;
+      this.updateVideoCurrentTime(0);
+      this.updateMetaInfo({
+        intrinsicWidth: target.naturalWidth,
+        intrinsicHeight: target.naturalHeight,
+        ratio: target.naturalWidth / target.naturalHeight,
+      });
+      this.changeWindowRotate(this.winAngle);
+      this.windowRectControl();
+      this.$emit('media-ready', this.originSrc);
+      this.enableVideoInfoStore = true;
+    },
     async onMetaLoaded(event: Event) { // eslint-disable-line complexity
       const target = event.target as HTMLVideoElement;
       this.videoElement = target;
+      if (!this.audioCtx) this.audioCtx = new AudioContext();
 
       const mediaInfo = this.videoId
         ? await playInfoStorageService.getMediaItem(this.videoId)
@@ -411,28 +470,35 @@ export default {
     },
     changeWindowRotate(val: number) {
       requestAnimationFrame(() => {
-        if (!this.$refs.videoCanvas) return;
+        const mediaContainer = this.mediaContainerElement();
+        if (!mediaContainer) return;
         const scale = windowRectService.calculateWindowScaleBy(this.isFullScreen, val, this.ratio);
-        this.$refs.videoCanvas.$el.style.setProperty('transform', `rotate(${val}deg) scale(${scale}, ${scale})`);
+        mediaContainer.style.setProperty('transform', `rotate(${val}deg) scale(${scale}, ${scale})`);
       });
     },
     toFullScreen() {
       this.winSizeBeforeFullScreen = this.winSize;
       this.winAngleBeforeFullScreen = this.winAngle;
       requestAnimationFrame(() => {
-        if (!this.$refs.videoCanvas) return;
+        const mediaContainer = this.mediaContainerElement();
+        if (!mediaContainer) return;
         const scale = windowRectService.calculateWindowScaleBy(true, this.winAngle, this.ratio);
-        this.$refs.videoCanvas.$el.style.setProperty('transform', `rotate(${this.winAngle}deg) scale(${scale}, ${scale})`);
+        mediaContainer.style.setProperty('transform', `rotate(${this.winAngle}deg) scale(${scale}, ${scale})`);
       });
       windowRectService.uploadWindowBy(true);
     },
     offFullScreen() {
       requestAnimationFrame(() => {
-        if (!this.$refs.videoCanvas) return;
+        const mediaContainer = this.mediaContainerElement();
+        if (!mediaContainer) return;
         const scale = windowRectService.calculateWindowScaleBy(false, this.winAngle, this.ratio);
-        this.$refs.videoCanvas.$el.style.setProperty('transform', `rotate(${this.winAngle}deg) scale(${scale}, ${scale})`);
+        mediaContainer.style.setProperty('transform', `rotate(${this.winAngle}deg) scale(${scale}, ${scale})`);
       });
       windowRectService.uploadWindowBy(false, 'playing-view', this.winAngle, this.winAngleBeforeFullScreen, this.winSizeBeforeFullScreen, this.winPos);
+    },
+    mediaContainerElement() {
+      const media = this.isImage ? this.$refs.imageCanvas : this.$refs.videoCanvas;
+      return media && (media.$el || media);
     },
     async updatePlaylist(playlistId: number) {
       if (!Number.isNaN(playlistId) && !this.isFolderList) {
@@ -444,11 +510,13 @@ export default {
       }
     },
     async generateScreenshot(): Promise<ShortCut> {
-      const { videoElement } = this;
+      const mediaElement = this.isImage ? this.imageElement : this.videoElement;
       const canvas = this.$refs.thumbnailCanvas;
       // todo: use metaloaded to get videoHeight and videoWidth
       const { videoHeight, videoWidth } = this;
-      const shortCut = generateShortCutImageBy(videoElement, canvas, videoWidth, videoHeight);
+      const shortCut = mediaElement
+        ? generateShortCutImageBy(mediaElement, canvas, videoWidth, videoHeight)
+        : { shortCut: '', smallShortCut: '' };
       return shortCut;
     },
     async saveScreenshot(videoId: number, screenshot: ShortCut) {
@@ -524,6 +592,9 @@ export default {
         this.$electron.remote.app.quit();
       }
     },
+    handleImageError() {
+      log.warn('image element onerror', this.originSrc);
+    },
     backToLandingView() {
       this.handleLeaveVideo(this.videoId)
         .finally(() => {
@@ -552,6 +623,13 @@ export default {
   height: 100%;
   position: absolute;
   inset: 0;
+}
+.image-element {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .canvas {
   visibility: hidden;

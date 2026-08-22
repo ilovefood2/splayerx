@@ -1,7 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const mediaBinaries = require('ffmpeg-ffprobe-static');
-const { videos, audios, subtitles } = require('../config/fileAssociations');
+const {
+  videos, audios, images, subtitles,
+} = require('../config/fileAssociations');
 
 function generateFileAssociations(platform) {
   const fileAssociations = [];
@@ -23,6 +25,7 @@ function generateFileAssociations(platform) {
   [
     { name: 'Video', exts: videos },
     { name: 'Audio', exts: audios },
+    { name: 'Image', exts: images },
     { name: 'Subtitle', exts: subtitles },
   ].forEach(({ name, exts }) => {
     const others = generateItem(name, [], 'others');

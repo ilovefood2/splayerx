@@ -12,6 +12,7 @@ import {
   isSubtitle,
   isVideo,
   isAudio,
+  isImage,
   isValidFile,
 } from '@/../shared/utils';
 import {
@@ -94,7 +95,7 @@ export default {
       const videoFiles = entries
         .filter(entry => !entry.isDirectory()
           && !entry.name.startsWith('.')
-          && isVideo(entry.name)) // TODO: audio
+          && (isVideo(entry.name) || isImage(entry.name))) // TODO: audio
         .map(entry => entry.name);
       videoFiles.sort(sortVideoFile);
       for (let i = 0; i < videoFiles.length; i += 1) {
@@ -257,7 +258,8 @@ export default {
 
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];
-        if (!path.basename(file).startsWith('.') && (isVideo(file) || isAudio(file))) {
+        if (!path.basename(file).startsWith('.')
+          && (isVideo(file) || isAudio(file) || isImage(file))) {
           videoFiles.push(file);
         }
       }
