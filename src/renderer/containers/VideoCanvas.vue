@@ -65,6 +65,8 @@ import { videodata } from '@/store/video';
 import BaseVideoPlayer from '@/components/PlayingView/BaseVideoPlayer.vue';
 import { MediaItem } from '../interfaces/IDB';
 
+const IMAGE_AUTOPLAY_DURATION = 3000;
+
 export default {
   name: 'VideoCanvas',
   components: {
@@ -88,6 +90,7 @@ export default {
       winSizeBeforeFullScreen: [], // winSize before full screen
       switchingLock: false,
       folderAutoplayFallbackFired: false,
+      imageAutoplayTimer: 0,
       audioCtx: null,
       gainNode: null,
       enableVideoInfoStore: false, // tag can save video data when quit
@@ -130,6 +133,7 @@ export default {
       await this.saveScreenshot(oldVal, screenshot);
     },
     originSrc(val: string, oldVal: string) {
+      this.clearImageAutoplayTimer();
       this.enableVideoInfoStore = false;
       this.folderAutoplayFallbackFired = false;
       if (process.mas && oldVal) {
@@ -284,6 +288,7 @@ export default {
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
   },
   beforeUnmount() {
+    this.clearImageAutoplayTimer();
     if (this.casting) this.$electron.ipcRenderer.send('cast-stop');
     if (this.audioCtx) this.audioCtx.close();
     if (process.mas) this.$bus.$emit(`stop-accessing-${this.originSrc}`, this.originSrc);
@@ -309,6 +314,7 @@ export default {
       const target = event.target as HTMLImageElement;
       if (!target.naturalWidth || !target.naturalHeight) return;
       this.imageElement = target;
+      this.switchingLock = false;
       this.videoExisted = true;
       this.seekTime = [0];
       this.videoConfigInitialize({
@@ -327,6 +333,25 @@ export default {
       this.windowRectControl();
       this.$emit('media-ready', this.originSrc);
       this.enableVideoInfoStore = true;
+      this.scheduleImageAutoplay();
+    },
+    clearImageAutoplayTimer() {
+      if (this.imageAutoplayTimer) {
+        clearTimeout(this.imageAutoplayTimer);
+        this.imageAutoplayTimer = 0;
+      }
+    },
+    scheduleImageAutoplay() {
+      this.clearImageAutoplayTimer();
+      if (!this.isImage || !Array.isArray(this.playingList) || this.playingList.length <= 1) return;
+
+      const source = this.originSrc;
+      this.imageAutoplayTimer = setTimeout(() => {
+        this.imageAutoplayTimer = 0;
+        if (this.isImage && this.originSrc === source && !this.switchingLock) {
+          this.$bus.$emit('next-video');
+        }
+      }, IMAGE_AUTOPLAY_DURATION);
     },
     async onMetaLoaded(event: Event) { // eslint-disable-line complexity
       const target = event.target as HTMLVideoElement;

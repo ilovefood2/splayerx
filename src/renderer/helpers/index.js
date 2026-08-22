@@ -27,22 +27,41 @@ import { addBubble } from './notificationControl';
 
 const clock = FakeTimers.createClock();
 
-async function expandInputPaths(inputPaths, assumeDirectories = false) {
-  const pathGroups = await Promise.all(inputPaths.map(async (inputPath) => {
-    if (path.basename(inputPath).startsWith('.')) return [];
+async function expandInputPath(inputPath, assumeDirectory, recurse) {
+  if (path.basename(inputPath).startsWith('.')) return [];
 
-    let isDirectory = assumeDirectories;
-    if (!assumeDirectories) {
-      const stats = await fsPromises.stat(inputPath);
-      isDirectory = stats.isDirectory();
+  let isDirectory = assumeDirectory;
+  if (!assumeDirectory) {
+    try {
+      isDirectory = (await fsPromises.stat(inputPath)).isDirectory();
+    } catch (error) {
+      return []; // unreadable path — skip rather than throw
     }
-    if (!isDirectory) return [inputPath];
+  }
+  if (!isDirectory) return [inputPath];
 
-    const entries = await fsPromises.readdir(inputPath, { withFileTypes: true });
-    return entries
-      .filter(entry => !entry.isDirectory() && !entry.name.startsWith('.'))
-      .map(entry => path.join(inputPath, entry.name));
+  let entries;
+  try {
+    entries = await fsPromises.readdir(inputPath, { withFileTypes: true });
+  } catch (error) {
+    // assumeDirectory was wrong (a file slipped in) or the directory is
+    // unreadable; drop it instead of rejecting the whole open.
+    return [];
+  }
+  const groups = await Promise.all(entries.map((entry) => {
+    if (entry.name.startsWith('.')) return [];
+    const childPath = path.join(inputPath, entry.name);
+    // Reuse the dirent type so recursive folder scans do not stat every child.
+    if (entry.isDirectory()) return recurse ? expandInputPath(childPath, true, recurse) : [];
+    return [childPath];
   }));
+  return groups.flat();
+}
+
+async function expandInputPaths(inputPaths, { assumeDirectories = false, recurse = false } = {}) {
+  const pathGroups = await Promise.all(
+    inputPaths.map(inputPath => expandInputPath(inputPath, assumeDirectories, recurse)),
+  );
   return pathGroups.flat();
 }
 
@@ -299,7 +318,9 @@ export default {
       let containsSubFiles = false;
       const subtitleFiles = [];
       const videoFiles = [];
-      const files = await expandInputPaths(folders, true);
+      const files = await expandInputPaths(
+        folders, { assumeDirectories: true, recurse: true },
+      );
 
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];

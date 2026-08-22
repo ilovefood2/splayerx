@@ -43,3 +43,48 @@ describe('VideoCanvas window cleanup', () => {
     expect(context.asyncTasksDone).to.equal(true);
   });
 });
+
+describe('VideoCanvas image folder autoplay', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('advances to the next mixed-media item after about three seconds', () => {
+    vi.useFakeTimers();
+    const emit = vi.fn();
+    const context = {
+      isImage: true,
+      originSrc: '/library/01-cover.jpg',
+      playingList: ['/library/01-cover.jpg', '/library/02-video.mp4'],
+      imageAutoplayTimer: 0,
+      switchingLock: false,
+      clearImageAutoplayTimer: VideoCanvas.methods.clearImageAutoplayTimer,
+      $bus: { $emit: emit },
+    };
+
+    VideoCanvas.methods.scheduleImageAutoplay.call(context);
+    vi.advanceTimersByTime(2999);
+    expect(emit).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(emit).toHaveBeenCalledWith('next-video');
+  });
+
+  it('does not autoplay a standalone image', () => {
+    vi.useFakeTimers();
+    const emit = vi.fn();
+    const context = {
+      isImage: true,
+      originSrc: '/library/cover.jpg',
+      playingList: ['/library/cover.jpg'],
+      imageAutoplayTimer: 0,
+      switchingLock: false,
+      clearImageAutoplayTimer: VideoCanvas.methods.clearImageAutoplayTimer,
+      $bus: { $emit: emit },
+    };
+
+    VideoCanvas.methods.scheduleImageAutoplay.call(context);
+    vi.advanceTimersByTime(3000);
+
+    expect(emit).not.toHaveBeenCalled();
+  });

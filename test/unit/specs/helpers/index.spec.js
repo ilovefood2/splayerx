@@ -57,6 +57,47 @@ describe('index.js', () => {
     });
   });
 
+  describe('openFolder', () => {
+    it('recursively collects nested images and videos in playback order', async () => {
+      const sandbox = sinon.createSandbox();
+      const directory = path.join(path.sep, 'library');
+      const nestedDirectory = path.join(directory, 'chapter');
+      const entries = {
+        [directory]: [
+          { name: '01-cover.jpg', isDirectory: () => false },
+          { name: 'chapter', isDirectory: () => true },
+        ],
+        [nestedDirectory]: [
+          { name: '02-clip.mp4', isDirectory: () => false },
+          { name: '03-page.png', isDirectory: () => false },
+        ],
+      };
+      const readdir = sandbox.stub(fs.promises, 'readdir').callsFake(currentDirectory => (
+        Promise.resolve(entries[currentDirectory] || [])
+      ));
+      const createPlayList = sandbox.stub().resolves();
+
+      try {
+        await helpers.methods.openFolder.call({
+          createPlayList,
+          $bus: { $emit: sinon.spy() },
+        }, directory);
+
+        sinon.assert.calledWithExactly(
+          createPlayList,
+          path.join(directory, '01-cover.jpg'),
+          path.join(nestedDirectory, '02-clip.mp4'),
+          path.join(nestedDirectory, '03-page.png'),
+        );
+        sinon.assert.calledWithExactly(
+          readdir, nestedDirectory, { withFileTypes: true },
+        );
+      } finally {
+        sandbox.restore();
+      }
+    });
+  });
+
   describe('playFile', () => {
     it('reuses a known media hash instead of reading the file again', async () => {
       const dispatch = sinon.stub().resolves();

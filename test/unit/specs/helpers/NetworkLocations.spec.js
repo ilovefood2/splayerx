@@ -24,7 +24,9 @@ describe('network location opening', () => {
       { name: '.metadata.mp4', isDirectory: () => false },
       { name: 'Extras', isDirectory: () => true },
     ];
-    const readdir = sandbox.stub(fs.promises, 'readdir').resolves(entries);
+    const readdir = sandbox.stub(fs.promises, 'readdir').callsFake((currentDirectory) => (
+      currentDirectory === directory ? Promise.resolve(entries) : Promise.resolve([])
+    ));
     const createPlayList = sandbox.stub().resolves();
     const emit = sinon.spy();
 
@@ -33,7 +35,10 @@ describe('network location opening', () => {
       $bus: { $emit: emit },
     }, directory);
 
-    sinon.assert.calledOnceWithExactly(readdir, directory, { withFileTypes: true });
+    sinon.assert.calledWithExactly(readdir, directory, { withFileTypes: true });
+    sinon.assert.calledWithExactly(
+      readdir, path.join(directory, 'Extras'), { withFileTypes: true },
+    );
     sinon.assert.calledOnceWithExactly(
       createPlayList,
       path.join(directory, 'Episode 2.mkv'),
