@@ -109,6 +109,14 @@ export default {
     }),
   },
   watch: {
+    playingList(newList: string[]) {
+      if (!this.isImage || !this.imageElement) return;
+      if (newList.length <= 1) {
+        this.clearImageAutoplayTimer();
+      } else if (!this.imageAutoplayTimer) {
+        this.scheduleImageAutoplay();
+      }
+    },
     winAngle(val: number) {
       this.changeWindowRotate(val);
     },

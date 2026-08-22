@@ -88,3 +88,25 @@ describe('VideoCanvas image folder autoplay', () => {
 
     expect(emit).not.toHaveBeenCalled();
   });
+
+  it('starts the first image timer when its playlist arrives after loading', () => {
+    vi.useFakeTimers();
+    const emit = vi.fn();
+    const context = {
+      isImage: true,
+      originSrc: '/library/01-cover.jpg',
+      playingList: ['/library/01-cover.jpg', '/library/02-video.mp4'],
+      imageElement: {},
+      imageAutoplayTimer: 0,
+      switchingLock: false,
+      clearImageAutoplayTimer: VideoCanvas.methods.clearImageAutoplayTimer,
+      scheduleImageAutoplay: VideoCanvas.methods.scheduleImageAutoplay,
+      $bus: { $emit: emit },
+    };
+
+    VideoCanvas.watch.playingList.call(context, context.playingList);
+    vi.advanceTimersByTime(3000);
+
+    expect(emit).toHaveBeenCalledWith('next-video');
+  });
+});
