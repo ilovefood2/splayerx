@@ -110,6 +110,7 @@ export default {
     },
   },
   created() {
+    this.showPlayIcon = this.paused;
     document.addEventListener('mouseup', this.globalMouseup);
   },
   unmounted() {

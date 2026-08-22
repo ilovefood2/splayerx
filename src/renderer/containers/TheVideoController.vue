@@ -36,6 +36,7 @@
       class="masking"
     />
     <play-button
+      v-if="!isImage"
       v-show="!(isSpaceDownInProfessional || isEditable || isDragableInProfessional)"
       :mousedown-on-volume="mousedownOnVolume"
       :mousemove-position="mousemoveClientPosition"
@@ -47,6 +48,23 @@
       @update:playbutton-state="updatePlayButtonState"
       class="play-button"
     />
+    <button
+      v-else
+      type="button"
+      :aria-label="$t(controllerPaused ? 'msg.playback.play' : 'msg.playback.pause')"
+      :class="{
+        'controls-visible': showAllWidgets,
+        'is-paused': controllerPaused,
+      }"
+      @click.stop="togglePlay"
+      @dblclick.stop=""
+      class="image-play-toggle no-drag"
+    >
+      <Icon
+        :type="controllerPaused ? 'play' : 'pause'"
+        class="icon"
+      />
+    </button>
     <volume-indicator
       v-if="!isImage"
       ref="volumeIndicator"
@@ -1045,6 +1063,43 @@ export default {
   right: 0;
   bottom: 0;
   z-index: 99;
+}
+.image-play-toggle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 101;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(54px, 13vmin, 140px);
+  height: clamp(54px, 13vmin, 140px);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.38);
+  cursor: pointer;
+  opacity: 0.12;
+  transform: translate(-50%, -50%);
+  transition: opacity 120ms linear, background-color 120ms linear;
+
+  &.controls-visible,
+  &.is-paused,
+  &:hover,
+  &:focus-visible {
+    opacity: 0.95;
+  }
+
+  &:hover,
+  &:focus-visible {
+    background: rgba(0, 0, 0, 0.56);
+  }
+
+  .icon {
+    width: 52%;
+    height: 52%;
+  }
 }
 .masking {
   position: absolute;

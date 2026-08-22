@@ -125,11 +125,16 @@ describe('Component - TheVideoController Unit Test', () => {
   });
 
   it('keeps the central play button available for image slides', async () => {
+    const emit = sandbox.spy(wrapper.vm.$bus, '$emit');
     store.state.Video.src = '/library/cover.jpg';
     store.state.Video.paused = true;
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.findComponent(PlayButton).exists()).to.equal(true);
-    expect(wrapper.findComponent(PlayButton).props('paused')).to.equal(true);
+    const imageButton = wrapper.find('.image-play-toggle');
+    expect(imageButton.exists()).to.equal(true);
+    expect(wrapper.findComponent(PlayButton).exists()).to.equal(false);
+
+    await imageButton.trigger('click');
+    sinon.assert.calledWithExactly(emit, 'toggle-playback');
   });
 });
