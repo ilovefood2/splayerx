@@ -107,7 +107,15 @@ const mutations = {
   },
   getLocalPreference(state) {
     const data = syncStorage.getSync('preferences');
-    Object.assign(state, data);
+    // Loop modes are playback-session state, not persistent preferences. Older
+    // preference snapshots may contain them because setPreference persisted the
+    // entire store, so ignore those values and always start playback unchecked.
+    const persistentPreferences = { ...data };
+    delete persistentPreferences.singleCycle;
+    delete persistentPreferences.playlistLoop;
+    Object.assign(state, persistentPreferences);
+    state.singleCycle = false;
+    state.playlistLoop = false;
     // Migrate both retired local-provider choices to SPlayer's managed runtime.
     if (state.aiTranslateProvider === 'apple' || state.aiTranslateProvider === 'ollama') {
       state.aiTranslateProvider = 'local';
