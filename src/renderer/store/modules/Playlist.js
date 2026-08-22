@@ -143,6 +143,9 @@ const actions = {
   },
   UpdatePlayingList({ dispatch, commit, state }) {
     if (state.isFolderList && state.playList.length) {
+      // A multi-item folder queue may span nested folders. It is already the
+      // authoritative sequence, so do not replace it with a narrower rescan.
+      if (state.playList.length > 1) return;
       const source = state.playList[0];
       /*
         Currently not judging whether app is mas version

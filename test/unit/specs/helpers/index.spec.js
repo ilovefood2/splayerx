@@ -33,16 +33,25 @@ describe('index.js', () => {
       sandbox.restore();
     });
 
-    it('uses one bulk directory read and filters playable files', async () => {
-      const entries = [
-        { name: 'Episode 10.mkv', isDirectory: () => false },
-        { name: 'Episode 2.mp4', isDirectory: () => false },
-        { name: 'notes.txt', isDirectory: () => false },
-        { name: '.hidden.mp4', isDirectory: () => false },
-        { name: 'bonus.mp4', isDirectory: () => true },
-      ];
-      const readdir = sandbox.stub(fs.promises, 'readdir').resolves(entries);
+    it('recursively includes playable files from nested folders', async () => {
       const directory = path.join(path.sep, 'network', 'shows');
+      const nestedDirectory = path.join(directory, 'bonus');
+      const entries = {
+        [directory]: [
+          { name: 'Episode 10.mkv', isDirectory: () => false },
+          { name: 'Episode 2.mp4', isDirectory: () => false },
+          { name: 'notes.txt', isDirectory: () => false },
+          { name: '.hidden.mp4', isDirectory: () => false },
+          { name: 'bonus', isDirectory: () => true },
+        ],
+        [nestedDirectory]: [
+          { name: 'Episode 3.jpg', isDirectory: () => false },
+          { name: 'Episode 4.mp4', isDirectory: () => false },
+        ],
+      };
+      const readdir = sandbox.stub(fs.promises, 'readdir').callsFake(currentDirectory => (
+        Promise.resolve(entries[currentDirectory] || [])
+      ));
 
       const result = await helpers.methods.findSimilarVideoByVidPath(
         path.join(directory, 'Episode 2.mp4'),
@@ -50,10 +59,12 @@ describe('index.js', () => {
 
       expect(result).to.deep.equal([
         path.join(directory, 'Episode 2.mp4'),
+        path.join(nestedDirectory, 'Episode 3.jpg'),
+        path.join(nestedDirectory, 'Episode 4.mp4'),
         path.join(directory, 'Episode 10.mkv'),
       ]);
-      sinon.assert.calledOnce(readdir);
-      expect(readdir.firstCall.args[1]).to.deep.equal({ withFileTypes: true });
+      sinon.assert.calledWithExactly(readdir, directory, { withFileTypes: true });
+      sinon.assert.calledWithExactly(readdir, nestedDirectory, { withFileTypes: true });
     });
   });
 

@@ -108,18 +108,12 @@ export default {
 
       const dirPath = path.dirname(vidPath);
 
-      // Dirents let the filesystem return names and types in one directory request.
-      // Avoiding an lstat for every sibling is especially important on SMB/NFS shares.
-      const entries = await fsPromises.readdir(dirPath, { withFileTypes: true });
-      const videoFiles = entries
-        .filter(entry => !entry.isDirectory()
-          && !entry.name.startsWith('.')
-          && (isVideo(entry.name) || isImage(entry.name))) // TODO: audio
-        .map(entry => entry.name);
+      // Continue a folder queue through nested folders without an lstat for
+      // each child. This is what lets an image/video sequence flow from one
+      // subfolder into the next.
+      const videoFiles = (await expandInputPath(dirPath, true, true))
+        .filter(file => isVideo(file) || isImage(file)); // TODO: audio
       videoFiles.sort(sortVideoFile);
-      for (let i = 0; i < videoFiles.length; i += 1) {
-        videoFiles[i] = path.join(dirPath, videoFiles[i]);
-      }
 
       return videoFiles;
     },
