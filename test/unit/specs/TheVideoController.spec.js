@@ -123,4 +123,13 @@ describe('Component - TheVideoController Unit Test', () => {
 
     expect(wrapper.findComponent(PlayButton).props('paused')).to.equal(true);
   });
+
+  it('keeps the central play button available for image slides', async () => {
+    store.state.Video.src = '/library/cover.jpg';
+    store.state.Video.paused = true;
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.findComponent(PlayButton).exists()).to.equal(true);
+    expect(wrapper.findComponent(PlayButton).props('paused')).to.equal(true);
+  });
 });

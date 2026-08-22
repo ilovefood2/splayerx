@@ -57,7 +57,11 @@ describe('VideoCanvas image folder autoplay', () => {
       originSrc: '/library/01-cover.jpg',
       playingList: ['/library/01-cover.jpg', '/library/02-video.mp4'],
       imageAutoplayTimer: 0,
+      imageAutoplayDeadline: 0,
+      imageAutoplayRemaining: 3000,
+      imageAutoplayPausedByUser: false,
       switchingLock: false,
+      canAutoplayImage: VideoCanvas.methods.canAutoplayImage,
       clearImageAutoplayTimer: VideoCanvas.methods.clearImageAutoplayTimer,
       $bus: { $emit: emit },
     };
@@ -78,7 +82,11 @@ describe('VideoCanvas image folder autoplay', () => {
       originSrc: '/library/cover.jpg',
       playingList: ['/library/cover.jpg'],
       imageAutoplayTimer: 0,
+      imageAutoplayDeadline: 0,
+      imageAutoplayRemaining: 3000,
+      imageAutoplayPausedByUser: false,
       switchingLock: false,
+      canAutoplayImage: VideoCanvas.methods.canAutoplayImage,
       clearImageAutoplayTimer: VideoCanvas.methods.clearImageAutoplayTimer,
       $bus: { $emit: emit },
     };
@@ -98,9 +106,15 @@ describe('VideoCanvas image folder autoplay', () => {
       playingList: ['/library/01-cover.jpg', '/library/02-video.mp4'],
       imageElement: {},
       imageAutoplayTimer: 0,
+      imageAutoplayDeadline: 0,
+      imageAutoplayRemaining: 3000,
+      imageAutoplayPausedByUser: false,
       switchingLock: false,
+      canAutoplayImage: VideoCanvas.methods.canAutoplayImage,
       clearImageAutoplayTimer: VideoCanvas.methods.clearImageAutoplayTimer,
       scheduleImageAutoplay: VideoCanvas.methods.scheduleImageAutoplay,
+      startImageAutoplay: VideoCanvas.methods.startImageAutoplay,
+      play: vi.fn(),
       $bus: { $emit: emit },
     };
 
@@ -108,5 +122,46 @@ describe('VideoCanvas image folder autoplay', () => {
     vi.advanceTimersByTime(3000);
 
     expect(emit).toHaveBeenCalledWith('next-video');
+  });
+
+  it('pauses the image transition and resumes from the remaining time', () => {
+    vi.useFakeTimers();
+    const emit = vi.fn();
+    const play = vi.fn();
+    const pause = vi.fn();
+    const context = {
+      isImage: true,
+      originSrc: '/library/01-cover.jpg',
+      playingList: ['/library/01-cover.jpg', '/library/02-video.mp4'],
+      imageAutoplayTimer: 0,
+      imageAutoplayDeadline: 0,
+      imageAutoplayRemaining: 3000,
+      imageAutoplayPausedByUser: false,
+      switchingLock: false,
+      canAutoplayImage: VideoCanvas.methods.canAutoplayImage,
+      clearImageAutoplayTimer: VideoCanvas.methods.clearImageAutoplayTimer,
+      scheduleImageAutoplay: VideoCanvas.methods.scheduleImageAutoplay,
+      startImageAutoplay: VideoCanvas.methods.startImageAutoplay,
+      pauseImageAutoplay: VideoCanvas.methods.pauseImageAutoplay,
+      resumeImageAutoplay: VideoCanvas.methods.resumeImageAutoplay,
+      play,
+      pause,
+      $bus: { $emit: emit },
+    };
+
+    VideoCanvas.methods.startImageAutoplay.call(context);
+    vi.advanceTimersByTime(1000);
+    VideoCanvas.methods.pauseImageAutoplay.call(context);
+    expect(pause).toHaveBeenCalledOnce();
+
+    vi.advanceTimersByTime(3000);
+    expect(emit).not.toHaveBeenCalled();
+
+    VideoCanvas.methods.resumeImageAutoplay.call(context);
+    vi.advanceTimersByTime(1999);
+    expect(emit).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(emit).toHaveBeenCalledWith('next-video');
+    expect(play).toHaveBeenCalledTimes(2);
   });
 });

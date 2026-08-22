@@ -91,6 +91,9 @@ export default {
       switchingLock: false,
       folderAutoplayFallbackFired: false,
       imageAutoplayTimer: 0,
+      imageAutoplayDeadline: 0,
+      imageAutoplayRemaining: IMAGE_AUTOPLAY_DURATION,
+      imageAutoplayPausedByUser: false,
       audioCtx: null,
       gainNode: null,
       enableVideoInfoStore: false, // tag can save video data when quit
@@ -113,8 +116,10 @@ export default {
       if (!this.isImage || !this.imageElement) return;
       if (newList.length <= 1) {
         this.clearImageAutoplayTimer();
-      } else if (!this.imageAutoplayTimer) {
-        this.scheduleImageAutoplay();
+        this.pause();
+        videodata.paused = true;
+      } else if (!this.imageAutoplayPausedByUser && !this.imageAutoplayTimer) {
+        this.startImageAutoplay();
       }
     },
     winAngle(val: number) {
@@ -142,6 +147,7 @@ export default {
     },
     originSrc(val: string, oldVal: string) {
       this.clearImageAutoplayTimer();
+      this.imageAutoplayPausedByUser = false;
       this.enableVideoInfoStore = false;
       this.folderAutoplayFallbackFired = false;
       if (process.mas && oldVal) {
@@ -224,7 +230,11 @@ export default {
       this.toggleMute();
     });
     this.$bus.$on('toggle-playback', debounce(() => {
-      if (this.isImage) return;
+      if (this.isImage) {
+        if (this.paused) this.resumeImageAutoplay();
+        else this.pauseImageAutoplay();
+        return;
+      }
       if (this.casting) {
         this.$electron.ipcRenderer.send(this.castPaused ? 'cast-play' : 'cast-pause');
         this.updateCastPaused(!this.castPaused);
@@ -323,14 +333,16 @@ export default {
       if (!target.naturalWidth || !target.naturalHeight) return;
       this.imageElement = target;
       this.switchingLock = false;
+      this.imageAutoplayPausedByUser = false;
       this.videoExisted = true;
       this.seekTime = [0];
+      const shouldAutoplay = this.canAutoplayImage();
       this.videoConfigInitialize({
-        paused: true,
+        paused: !shouldAutoplay,
         duration: NaN,
         currentTime: 0,
       });
-      videodata.paused = true;
+      videodata.paused = !shouldAutoplay;
       this.updateVideoCurrentTime(0);
       this.updateMetaInfo({
         intrinsicWidth: target.naturalWidth,
@@ -341,25 +353,57 @@ export default {
       this.windowRectControl();
       this.$emit('media-ready', this.originSrc);
       this.enableVideoInfoStore = true;
-      this.scheduleImageAutoplay();
+      if (shouldAutoplay) this.scheduleImageAutoplay();
     },
-    clearImageAutoplayTimer() {
+    canAutoplayImage() {
+      return this.isImage && Array.isArray(this.playingList) && this.playingList.length > 1;
+    },
+    clearImageAutoplayTimer(preserveRemaining = false) {
       if (this.imageAutoplayTimer) {
+        if (preserveRemaining && this.imageAutoplayDeadline) {
+          this.imageAutoplayRemaining = Math.max(
+            0, this.imageAutoplayDeadline - Date.now(),
+          );
+        }
         clearTimeout(this.imageAutoplayTimer);
         this.imageAutoplayTimer = 0;
       }
+      this.imageAutoplayDeadline = 0;
+      if (!preserveRemaining) this.imageAutoplayRemaining = IMAGE_AUTOPLAY_DURATION;
+    },
+    startImageAutoplay() {
+      if (!this.canAutoplayImage() || this.imageAutoplayPausedByUser) return;
+      this.play();
+      videodata.paused = false;
+      this.scheduleImageAutoplay();
+    },
+    pauseImageAutoplay() {
+      this.imageAutoplayPausedByUser = true;
+      this.clearImageAutoplayTimer(true);
+      this.pause();
+      videodata.paused = true;
+    },
+    resumeImageAutoplay() {
+      if (!this.canAutoplayImage()) return;
+      this.imageAutoplayPausedByUser = false;
+      this.startImageAutoplay();
     },
     scheduleImageAutoplay() {
-      this.clearImageAutoplayTimer();
-      if (!this.isImage || !Array.isArray(this.playingList) || this.playingList.length <= 1) return;
+      if (!this.canAutoplayImage() || this.imageAutoplayPausedByUser) return;
 
+      const delay = Math.max(1, this.imageAutoplayRemaining || IMAGE_AUTOPLAY_DURATION);
+      this.clearImageAutoplayTimer();
+      this.imageAutoplayRemaining = delay;
       const source = this.originSrc;
+      this.imageAutoplayDeadline = Date.now() + delay;
       this.imageAutoplayTimer = setTimeout(() => {
         this.imageAutoplayTimer = 0;
+        this.imageAutoplayDeadline = 0;
+        this.imageAutoplayRemaining = IMAGE_AUTOPLAY_DURATION;
         if (this.isImage && this.originSrc === source && !this.switchingLock) {
           this.$bus.$emit('next-video');
         }
-      }, IMAGE_AUTOPLAY_DURATION);
+      }, delay);
     },
     async onMetaLoaded(event: Event) { // eslint-disable-line complexity
       const target = event.target as HTMLVideoElement;

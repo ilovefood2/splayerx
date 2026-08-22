@@ -36,7 +36,6 @@
       class="masking"
     />
     <play-button
-      v-if="!isImage"
       v-show="!(isSpaceDownInProfessional || isEditable || isDragableInProfessional)"
       :mousedown-on-volume="mousedownOnVolume"
       :mousemove-position="mousemoveClientPosition"
