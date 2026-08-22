@@ -53,6 +53,18 @@ describe('Component - BaseVideoPlayer', () => {
     wrapper.unmount();
   });
 
+  it('forwards a media element error to the parent player', () => {
+    const emit = sinon.spy();
+    const error = { code: 4, message: 'unsupported media' };
+
+    BaseVideoPlayer.methods.handleError.call({
+      $refs: { video: { error } },
+      $emit: emit,
+    });
+
+    sinon.assert.calledWithExactly(emit, 'error', error);
+  });
+
   describe('Props', () => {
     let sandbox;
     let wrapper;

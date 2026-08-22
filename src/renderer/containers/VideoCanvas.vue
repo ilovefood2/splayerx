@@ -24,6 +24,7 @@
       @loadedmetadata="onMetaLoaded"
       @playing="switchingLock = false"
       @ended="$bus.$emit('next-video')"
+      @error="handleMediaPlaybackError"
       @timeupdate="handleVideoTimeupdate"
       @audiotrack="onAudioTrack"
     />
@@ -94,6 +95,8 @@ export default {
       imageAutoplayDeadline: 0,
       imageAutoplayRemaining: IMAGE_AUTOPLAY_DURATION,
       imageAutoplayPausedByUser: false,
+      failedMediaSrc: '',
+      mediaErrorAdvanced: false,
       audioCtx: null,
       gainNode: null,
       enableVideoInfoStore: false, // tag can save video data when quit
@@ -113,6 +116,7 @@ export default {
   },
   watch: {
     playingList(newList: string[]) {
+      this.advancePastFailedMediaIfPossible(newList);
       if (!this.isImage || !this.imageElement) return;
       if (newList.length <= 1) {
         this.clearImageAutoplayTimer();
@@ -148,6 +152,8 @@ export default {
     originSrc(val: string, oldVal: string) {
       this.clearImageAutoplayTimer();
       this.imageAutoplayPausedByUser = false;
+      this.failedMediaSrc = '';
+      this.mediaErrorAdvanced = false;
       this.enableVideoInfoStore = false;
       this.folderAutoplayFallbackFired = false;
       if (process.mas && oldVal) {
@@ -671,6 +677,21 @@ export default {
     },
     handleImageError() {
       log.warn('image element onerror', this.originSrc);
+      this.handleMediaPlaybackError();
+    },
+    handleMediaPlaybackError() {
+      if (this.failedMediaSrc !== this.originSrc) {
+        this.failedMediaSrc = this.originSrc;
+        this.mediaErrorAdvanced = false;
+      }
+      this.advancePastFailedMediaIfPossible();
+    },
+    advancePastFailedMediaIfPossible(list = this.playingList) {
+      if (!this.failedMediaSrc || this.failedMediaSrc !== this.originSrc
+        || this.mediaErrorAdvanced || !Array.isArray(list) || list.length <= 1) return;
+      this.mediaErrorAdvanced = true;
+      this.switchingLock = false;
+      this.$bus.$emit('next-video');
     },
     backToLandingView() {
       this.handleLeaveVideo(this.videoId)

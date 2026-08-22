@@ -114,6 +114,8 @@ describe('VideoCanvas image folder autoplay', () => {
       clearImageAutoplayTimer: VideoCanvas.methods.clearImageAutoplayTimer,
       scheduleImageAutoplay: VideoCanvas.methods.scheduleImageAutoplay,
       startImageAutoplay: VideoCanvas.methods.startImageAutoplay,
+      advancePastFailedMediaIfPossible:
+        VideoCanvas.methods.advancePastFailedMediaIfPossible,
       play: vi.fn(),
       $bus: { $emit: emit },
     };
@@ -163,5 +165,54 @@ describe('VideoCanvas image folder autoplay', () => {
     vi.advanceTimersByTime(1);
     expect(emit).toHaveBeenCalledWith('next-video');
     expect(play).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('VideoCanvas failed media navigation', () => {
+  it('skips an unplayable item and continues the recursive queue', () => {
+    const emit = vi.fn();
+    const context = {
+      originSrc: '/library/chapter/broken.mp4',
+      playingList: [
+        '/library/cover.jpg',
+        '/library/chapter/broken.mp4',
+        '/library/next/photo.jpg',
+      ],
+      failedMediaSrc: '',
+      mediaErrorAdvanced: false,
+      switchingLock: true,
+      advancePastFailedMediaIfPossible:
+        VideoCanvas.methods.advancePastFailedMediaIfPossible,
+      $bus: { $emit: emit },
+    };
+
+    VideoCanvas.methods.handleMediaPlaybackError.call(context);
+
+    expect(context.switchingLock).to.equal(false);
+    expect(emit).toHaveBeenCalledWith('next-video');
+  });
+
+  it('continues once a delayed playlist arrives after the error', () => {
+    const emit = vi.fn();
+    const context = {
+      originSrc: '/library/broken.mp4',
+      playingList: [],
+      failedMediaSrc: '',
+      mediaErrorAdvanced: false,
+      switchingLock: true,
+      isImage: false,
+      imageElement: null,
+      advancePastFailedMediaIfPossible:
+        VideoCanvas.methods.advancePastFailedMediaIfPossible,
+      $bus: { $emit: emit },
+    };
+
+    VideoCanvas.methods.handleMediaPlaybackError.call(context);
+    expect(emit).not.toHaveBeenCalled();
+
+    context.playingList = ['/library/broken.mp4', '/library/sub/next.png'];
+    VideoCanvas.watch.playingList.call(context, context.playingList);
+
+    expect(emit).toHaveBeenCalledWith('next-video');
   });
 });
