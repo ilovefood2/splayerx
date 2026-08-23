@@ -9,7 +9,6 @@
 
 import dgram from 'dgram';
 import net from 'net';
-import { spawn, ChildProcess } from 'child_process';
 
 const MDNS_ADDRESS = '224.0.0.251';
 const MDNS_PORT = 5353;
@@ -265,25 +264,24 @@ export function isCastReachable(host: string, port = 8009, timeout = 700): Promi
 }
 
 /**
- * Devices seen now, plus any remembered device that still answers on :8009.
+ * Devices seen now, plus any device remembered during this app run that still
+ * answers on :8009.
  *
- * `known` survives across runs, so a TV that has gone quiet stays castable
- * instead of vanishing from the menu.
+ * This deliberately stays within the Electron process. Invoking macOS's
+ * long-running `dns-sd` tool and killing it after a short timeout can leave
+ * Electron's libuv signal watcher spinning on newer macOS releases.
  */
 export async function discoverWithKnown(
   known: CastDeviceInfo[] = [],
   timeout?: number,
 ): Promise<CastDeviceInfo[]> {
-  const [live, cached] = await Promise.all([
-    discoverCastDevices(timeout),
-    devicesFromSystemCache(),
-  ]);
+  const live = await discoverCastDevices(timeout);
   const byId = new Map<string, CastDeviceInfo>();
   live.forEach(device => byId.set(device.id, device));
 
-  // Anything the OS or a previous run knows about, if it still answers.
-  const candidates = cached.concat(known);
-  const extras = candidates.filter(device => !byId.has(device.id) && !!(device.ip || device.host));
+  // A device discovered earlier in this run can stay castable after it goes
+  // quiet on mDNS, as long as its Cast port is still reachable.
+  const extras = known.filter(device => !byId.has(device.id) && !!(device.ip || device.host));
   const reachable = await Promise.all(
     extras.map(device => isCastReachable((device.ip || device.host) as string, device.port)),
   );
@@ -291,58 +289,4 @@ export async function discoverWithKnown(
     if (reachable[i]) byId.set(device.id, device);
   });
   return Array.from(byId.values());
-}
-
-/**
- * Ask macOS what it already knows about Chromecasts.
- *
- * Some TVs with Chromecast built-in answer no mDNS query and send no
- * announcement once idle, yet keep :8009 open and cast fine — they are simply
- * invisible to a cold browse. mDNSResponder still has them from when they were
- * awake, which is why Chrome and `dns-sd` list them and we do not. Reading its
- * cache is the only way to match that without waiting for the TV to speak.
- *
- * Best effort: any failure just yields nothing, and live discovery still runs.
- */
-function dnssd(args: string[], ms: number): Promise<string> {
-  return new Promise((resolve) => {
-    let out = '';
-    let child: ChildProcess;
-    try {
-      child = spawn('/usr/bin/dns-sd', args);
-    } catch (e) {
-      resolve('');
-      return;
-    }
-    if (child.stdout) child.stdout.on('data', (d: Buffer) => { out += d.toString(); });
-    child.on('error', () => resolve(''));
-    // dns-sd never exits on its own: it browses until killed.
-    setTimeout(() => {
-      try { child.kill(); } catch (e) { /* already gone */ }
-      resolve(out);
-    }, ms);
-  });
-}
-
-export async function devicesFromSystemCache(): Promise<CastDeviceInfo[]> {
-  if (process.platform !== 'darwin') return [];
-  const browsed = await dnssd(['-B', '_googlecast._tcp'], 1500);
-  const instances = Array.from(new Set(
-    (browsed.match(/_googlecast\._tcp\.\s+(\S+)/g) || [])
-      .map(line => line.split(/\s+/).pop() as string)
-      .filter(Boolean),
-  ));
-  const devices = await Promise.all(instances.map(async (instance) => {
-    const detail = await dnssd(['-L', instance, '_googlecast._tcp', 'local'], 1200);
-    const reached = /can be reached at\s+(\S+?):(\d+)/.exec(detail);
-    if (!reached) return undefined;
-    const friendly = /fn=([^\s]+(?:\\ [^\s]+)*)/.exec(detail);
-    return {
-      id: `${instance}._googlecast._tcp.local`,
-      name: friendly ? friendly[1].replace(/\\ /g, ' ') : instance,
-      host: reached[1].replace(/\.$/, ''),
-      port: parseInt(reached[2], 10),
-    } as CastDeviceInfo;
-  }));
-  return devices.filter(Boolean) as CastDeviceInfo[];
 }

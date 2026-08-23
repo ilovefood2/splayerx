@@ -87,8 +87,6 @@ export class CastService extends EventEmitter {
 
   private refreshing?: Promise<CastDeviceInfo[]>;
 
-  private refreshTimer?: NodeJS.Timeout;
-
   private statusTimer?: NodeJS.Timeout;
 
   private statusBusy = false;
@@ -114,12 +112,13 @@ export class CastService extends EventEmitter {
   }
 
   /**
-   * Devices to offer the user, without making them wait.
+   * Devices to offer the user, without making them wait after the first scan.
    *
    * A scan has to sit out the whole mDNS window -- seconds -- so blocking on one
    * per click means the picker takes seconds to appear every single time. Answer
-   * from what we already know and refresh behind the scenes; only the very first
-   * call, before anything is known, has to wait.
+   * from what we already know and refresh behind the scenes. Discovery begins
+   * only when the user opens the picker; an idle player must not keep a network
+   * scanner or subprocess lifecycle alive.
    */
   public async listDevices(timeout?: number): Promise<CastDeviceInfo[]> {
     if (this.knownDevices.length) {
@@ -127,23 +126,6 @@ export class CastService extends EventEmitter {
       return this.knownDevices;
     }
     return this.refresh(timeout);
-  }
-
-  /**
-   * Keep the device list warm so the picker opens instantly. Started once the
-   * app is up; a scan is cheap and mostly idle waiting.
-   */
-  public startBackgroundDiscovery(intervalMs = 30000): void {
-    if (this.refreshTimer) return;
-    this.refresh();
-    this.refreshTimer = setInterval(() => this.refresh(), intervalMs);
-  }
-
-  public stopBackgroundDiscovery(): void {
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer);
-      this.refreshTimer = undefined;
-    }
   }
 
   private serve(): Promise<number> {

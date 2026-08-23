@@ -2031,7 +2031,6 @@ function createMainWindow(openDialog, playlistId, requestedFiles) {
 
 app.on('before-quit', () => {
   // Do not leave the TV playing and the HTTP server bound after we exit.
-  castService.stopBackgroundDiscovery();
   castService.stop();
   losslessStreamingInstance.dispose();
   if (downloadWindow) downloadWindow.webContents.send('quit');
@@ -2124,11 +2123,10 @@ app.on('ready', () => {
 });
 
 app.on('window-all-closed', () => {
-  if (
-    (routeName === 'welcome-privacy' || routeName === 'language-setting')
-    || process.platform !== 'darwin') {
-    app.quit();
-  }
+  // SPlayer has no useful headless mode. On macOS, Electron otherwise keeps
+  // the main process alive after the last window closes, including any native
+  // event loops it owns. Exit consistently on every platform instead.
+  app.quit();
 });
 
 const oauthRegex = [
@@ -2402,9 +2400,6 @@ app.on('cast-request', () => {
     mainWindow.webContents.send('cast-request');
   }
 });
-
-// Warm the list in the background so the picker opens instantly.
-app.on('ready', () => castService.startBackgroundDiscovery());
 
 ipcMain.handle('cast-list-devices', async () => castService.listDevices());
 
