@@ -78,6 +78,11 @@ export function isSakuraModel(model: string): boolean {
   return /sakura-galtransl|galtransl/i.test(model || '');
 }
 
+/** The Qwen2.5-based v3 line expects Sakura's native plain-text prompt. */
+export function isSakuraV3Model(model: string): boolean {
+  return /sakura-galtransl-v3(?:-|\.|_)/i.test(model || '');
+}
+
 function towerLanguageName(language: string): string {
   if (/^simplified chinese$/i.test(language)) return 'Chinese (Simplified)';
   if (/^traditional chinese$/i.test(language)) return 'Chinese (Traditional)';
@@ -242,12 +247,18 @@ async function translateTowerLines(
   return translated;
 }
 
-/** The upstream Sakura GalTransl prompt, tightened to keep cue alignment machine-readable. */
-function buildSakuraSystemPrompt(): string {
+function buildSakuraBaseSystemPrompt(): string {
   return [
     '你是一个视觉小说翻译模型，可以通顺地使用给定的术语表以指定的风格将日文翻译成简体中文，',
     '并联系上下文正确使用人称代词，注意不要混淆使役态和被动态的主语和宾语，',
     '不要擅自添加原文中没有的特殊符号，也不要擅自增加或减少换行。',
+  ].join('');
+}
+
+/** The Qwen3-based v4 model reliably supports llama.cpp's JSON schema grammar. */
+function buildSakuraStructuredSystemPrompt(): string {
+  return [
+    buildSakuraBaseSystemPrompt(),
     '利用整批字幕理解上下文并逐条翻译。translations数组的数量和顺序必须与输入完全一致，',
     '只输出JSON对象，不要重复原文、历史译文、编号、Markdown或解释。',
   ].join('');
@@ -281,7 +292,7 @@ function sakuraResponseFormat(expectedLength: number) {
  * grammar guarantees that every input cue has exactly one output slot; this
  * prevents prior translations or prose from shifting text onto another cue.
  */
-async function translateSakuraLines(
+async function translateStructuredSakuraLines(
   texts: string[],
   config: AITranslatorConfig,
   options: TranslateOptions,
@@ -294,7 +305,7 @@ async function translateSakuraLines(
     max_tokens: 2048,
     response_format: sakuraResponseFormat(texts.length),
     messages: [
-      { role: 'system', content: buildSakuraSystemPrompt() },
+      { role: 'system', content: buildSakuraStructuredSystemPrompt() },
       { role: 'user', content: buildUserPayload(texts) },
     ],
   }, config, options);
@@ -309,6 +320,85 @@ async function translateSakuraLines(
     ready.forEach((text, index) => options.onTranslation!(index, text));
   }
   return ready;
+}
+
+function buildSakuraV3Prompt(texts: string[]): string {
+  // A cue can contain its own display newline. Flatten that newline before
+  // joining cues so every output line still maps to exactly one timestamp.
+  const lines = texts.map(text => text.replace(/\s*\r?\n\s*/g, ' ').trim());
+  return [
+    '根据以下术语表（可以为空）：',
+    '',
+    `将下面的日文文本根据对应关系和备注翻译成简体中文：${lines.join('\n')}`,
+  ].join('\n');
+}
+
+function parseLineAlignedTranslations(content: string, expectedLength: number): string[] | undefined {
+  const lines = content.trim().split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  return lines.length === expectedLength ? lines : undefined;
+}
+
+async function translateSakuraV3SingleLines(
+  texts: string[],
+  config: AITranslatorConfig,
+  options: TranslateOptions,
+): Promise<string[]> {
+  const endpoint = resolveEndpoint(config.baseUrl);
+  const translated = new Array<string>(texts.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < texts.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const content = await requestCompletion(endpoint, {
+        model: config.model,
+        temperature: 0.3,
+        top_p: 0.8,
+        max_tokens: 512,
+        messages: [
+          { role: 'system', content: buildSakuraBaseSystemPrompt() },
+          { role: 'user', content: buildSakuraV3Prompt([texts[index]]) },
+        ],
+      }, config, options);
+      const text = content.trim();
+      if (!text || /\r?\n/.test(text)) {
+        throw new AITranslationError('Sakura GalTransl v3 returned an unaligned single-cue translation');
+      }
+      translated[index] = text;
+      if (options.onTranslation) options.onTranslation(index, text);
+    }
+  };
+  await Promise.all(new Array(Math.min(2, texts.length)).fill(undefined).map(() => worker()));
+  return translated;
+}
+
+/**
+ * Sakura v3.8 was trained for plain multi-line translation and can loop until
+ * max_tokens when forced through a JSON grammar. Use its native prompt, then
+ * fall back to independent cues if it ever changes the line count.
+ */
+async function translateSakuraV3Lines(
+  texts: string[],
+  config: AITranslatorConfig,
+  options: TranslateOptions,
+): Promise<string[]> {
+  const endpoint = resolveEndpoint(config.baseUrl);
+  const content = await requestCompletion(endpoint, {
+    model: config.model,
+    temperature: 0.3,
+    top_p: 0.8,
+    max_tokens: 1024,
+    messages: [
+      { role: 'system', content: buildSakuraBaseSystemPrompt() },
+      { role: 'user', content: buildSakuraV3Prompt(texts) },
+    ],
+  }, config, options);
+  const translated = parseLineAlignedTranslations(content, texts.length);
+  if (!translated) return translateSakuraV3SingleLines(texts, config, options);
+  if (options.onTranslation) {
+    translated.forEach((text, index) => options.onTranslation!(index, text));
+  }
+  return translated;
 }
 
 /**
@@ -329,7 +419,8 @@ export async function translateLines(
 ): Promise<string[]> {
   if (!texts.length) return [];
   if (isTowerModel(config.model)) return translateTowerLines(texts, config, options);
-  if (isSakuraModel(config.model)) return translateSakuraLines(texts, config, options);
+  if (isSakuraV3Model(config.model)) return translateSakuraV3Lines(texts, config, options);
+  if (isSakuraModel(config.model)) return translateStructuredSakuraLines(texts, config, options);
   const responses = usesResponsesAPI(config);
   const endpoint = resolveEndpoint(config.baseUrl, responses);
   const body = responses

@@ -38,6 +38,8 @@ export interface TranscribeEnvironment {
   vadModelPath?: string;
   /** Where the model would be downloaded to, if it needs to be. */
   modelDir?: string;
+  /** Whether the full-accuracy model is present rather than a usable fallback. */
+  preferredModelReady?: boolean;
   /** Which pieces are missing, so the UI can name them exactly. */
   missing: TranscribeTool[];
 }
@@ -76,8 +78,8 @@ function findBinary(names: string[], extraDirs: string[] = []): string | undefin
 
 /** Any ggml model the user has put where we look, preferring the best one. */
 const MODEL_NAMES = [
-  'ggml-large-v3-turbo.bin',
   'ggml-large-v3.bin',
+  'ggml-large-v3-turbo.bin',
   'ggml-large.bin',
   'ggml-medium.bin',
   'ggml-large-v3-turbo-q8_0.bin',
@@ -103,11 +105,11 @@ const MODEL_REPO = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
 const VAD_REPO = 'https://huggingface.co/ggml-org/whisper-vad/resolve/main';
 
 /**
- * The model auto-downloaded on first use: quantized large-v3-turbo. Best
- * accuracy-for-size of the turbo line (~550 MB vs ~1.6 GB unquantized), so a
- * fresh Mac becomes usable after one moderate download rather than a huge one.
+ * The model auto-downloaded on first use: full large-v3. Turbo remains a usable
+ * fallback, but this path is for generating subtitles and accuracy matters more
+ * than the extra download and decode time.
  */
-export const DEFAULT_MODEL_NAME = 'ggml-large-v3-turbo-q5_0.bin';
+export const DEFAULT_MODEL_NAME = 'ggml-large-v3.bin';
 export const VAD_MODEL_NAME = 'ggml-silero-v5.1.2.bin';
 
 export interface DownloadProgress {
@@ -244,7 +246,8 @@ export function checkTranscribeEnvironment(
   const ffmpegPath = findBinary(['ffmpeg'], binExtra);
   // ffprobe ships with ffmpeg; we need it to know how long the video is.
   const ffprobePath = findBinary(['ffprobe'], binExtra);
-  const modelPath = findFile(modelDirs, MODEL_NAMES);
+  const preferredModelPath = findFile(modelDirs, [DEFAULT_MODEL_NAME]);
+  const modelPath = preferredModelPath || findFile(modelDirs, MODEL_NAMES);
   const vadModelPath = findFile(modelDirs, VAD_MODEL_NAMES);
 
   const missing: TranscribeTool[] = [];
@@ -260,6 +263,7 @@ export function checkTranscribeEnvironment(
     modelPath,
     vadModelPath,
     modelDir: modelDirs[0],
+    preferredModelReady: !!preferredModelPath,
     missing,
   };
 }
@@ -426,6 +430,7 @@ export interface TranscribeOptions {
 }
 
 const DEFAULT_CHUNK_SECONDS = 120;
+const DEFAULT_CHUNK_OVERLAP_SECONDS = 1;
 const DEFAULT_THREADS = 8;
 
 function chunkProgressReporter(
@@ -484,15 +489,26 @@ async function mediaDuration(
  * across the whole 60s. VAD removes non-speech audio before whisper ever sees
  * it, which is the only reliable cure.
  *
- * 0.6 rather than the 0.5 default: on that same minute 0.5 still let one
- * fabricated line through, 0.6 produced nothing at all, and 0.6 still
- * transcribes real speech correctly.
+ * Use whisper.cpp's 0.5 default here. The former 0.6 value rejected quiet
+ * Japanese dialogue and short interjections. Padding and the hallucination
+ * backstop below retain protection against music-only regions.
  */
-const VAD_THRESHOLD = '0.6';
+const VAD_THRESHOLD = '0.5';
 
 function vadArgs(env: TranscribeEnvironment): string[] {
   if (!env.vadModelPath) return [];
-  return ['--vad', '--vad-model', env.vadModelPath, '--vad-threshold', VAD_THRESHOLD];
+  return [
+    '--vad',
+    '--vad-model', env.vadModelPath,
+    '--vad-threshold', VAD_THRESHOLD,
+    // Japanese dialogue frequently contains very short acknowledgements.
+    '--vad-min-speech-duration-ms', '100',
+    // Keep small pauses inside a sentence instead of fragmenting its context.
+    '--vad-min-silence-duration-ms', '300',
+    // Avoid clipping quiet consonants at either side of a detected speech span.
+    '--vad-speech-pad-ms', '200',
+    '--vad-samples-overlap', '0.25',
+  ];
 }
 
 /**
@@ -537,6 +553,35 @@ export function chunkPlanOf(
     plan.push({ start, length: Math.min(chunkSeconds, duration - start) });
   }
   return plan;
+}
+
+/** Add audio on both sides of a core chunk so speech crossing the cut is intact. */
+export function extractionChunkOf(
+  chunk: { start: number, length: number },
+  duration: number,
+  overlap = DEFAULT_CHUNK_OVERLAP_SECONDS,
+): { start: number, length: number } {
+  if (!(duration > 0) || !(chunk.length > 0) || !(overlap > 0)) return { ...chunk };
+  const start = Math.max(0, chunk.start - overlap);
+  const end = Math.min(duration, chunk.start + chunk.length + overlap);
+  return { start, length: end - start };
+}
+
+/**
+ * Each overlapped extraction can see the same utterance. Assign a cue to the
+ * core chunk containing its midpoint so it is emitted exactly once.
+ */
+export function cuesOwnedByChunk(
+  cues: TimedText[],
+  chunk: { start: number, length: number },
+  isLast: boolean,
+): TimedText[] {
+  if (!(chunk.length > 0)) return cues;
+  const end = chunk.start + chunk.length;
+  return cues.filter((cue) => {
+    const midpoint = cue.start + (cue.end - cue.start) / 2;
+    return midpoint >= chunk.start && (isLast ? midpoint <= end : midpoint < end);
+  });
 }
 
 /** One chunk: extract its audio, transcribe it, shift cues onto the real timeline. */
@@ -684,20 +729,22 @@ export async function transcribeVideo(
     // chunks in parallel would not finish the early ones any sooner — and the
     // early ones are the cues the viewer needs first.
     // eslint-disable-next-line no-await-in-loop
+    const extraction = extractionChunkOf(plan[i], duration);
     const chunk = await transcribeChunk(
-      videoPath, env, plan[i].start, plan[i].length, language, options,
+      videoPath, env, extraction.start, extraction.length, language, options,
       chunkProgressReporter(reportProgress, i, plan.length),
     );
+    const ownedCues = cuesOwnedByChunk(chunk.cues, plan[i], i === plan.length - 1);
     reportCompletedChunk(reportProgress, i + 1, plan.length);
     // Let the first chunk settle the language, then reuse it: faster, and it
     // stops one quiet chunk being detected as a different language.
     if (!language && chunk.language) language = chunk.language;
-    all.push(...chunk.cues);
+    all.push(...ownedCues);
     if (options.onCues) {
       // Keep chunk delivery ordered. In particular, callers may need to create
       // a subtitle track before the next chunk can be appended to it.
       // eslint-disable-next-line no-await-in-loop
-      await options.onCues(chunk.cues, { language, done: i + 1, total: plan.length });
+      await options.onCues(ownedCues, { language, done: i + 1, total: plan.length });
     }
   }
   return { language, cues: all };

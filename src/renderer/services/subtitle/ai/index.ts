@@ -3,6 +3,7 @@ export {
   translateLines,
   isTowerModel,
   isSakuraModel,
+  isSakuraV3Model,
   DEFAULT_BASE_URL,
   DEFAULT_MODEL,
 } from './translator';
@@ -23,7 +24,10 @@ export {
   parseWhisperProgress,
   parseFfmpegProgress,
   chunkPlanOf,
+  extractionChunkOf,
+  cuesOwnedByChunk,
   whisperArgs,
+  DEFAULT_MODEL_NAME,
   durationOf,
   transcribeVideo,
 } from './transcribe';

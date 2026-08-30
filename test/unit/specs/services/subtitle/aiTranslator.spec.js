@@ -1,17 +1,17 @@
 import {
-  existsSync, mkdtempSync, rmdirSync, unlinkSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, rmdirSync, unlinkSync, writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { AITranslatedGenerator } from '@/services/subtitle/loaders/aiTranslated';
 import {
-  translateLines, AITranslationError, isTowerModel, isSakuraModel,
+  translateLines, AITranslationError, isTowerModel, isSakuraModel, isSakuraV3Model,
   RealtimeSubtitleTranslator, TranslationCache,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
   contentRangeTotal, sha256File, inspectManagedModel, managedModelById,
   MANAGED_MODELS, DEFAULT_MANAGED_MODEL_ID, MANAGED_MODEL_NAME, MANAGED_MODEL_ALIAS,
   parseWhisperCues, parseWhisperProgress, parseFfmpegProgress, checkTranscribeEnvironment,
-  chunkPlanOf, whisperArgs,
+  chunkPlanOf, extractionChunkOf, cuesOwnedByChunk, whisperArgs, DEFAULT_MODEL_NAME,
 } from '@/services/subtitle/ai';
 
 const config = {
@@ -186,6 +186,54 @@ describe('services/subtitle/ai - translateLines', () => {
     }
     expect(error).to.be.an.instanceof(AITranslationError);
     expect(error.message).to.contain('complete aligned translation array');
+  });
+
+  it('uses Sakura v3 native multi-line output without a JSON schema', async () => {
+    const requests = [];
+    global.fetch = mockFetch((url, init) => {
+      const body = JSON.parse(init.body);
+      requests.push(body);
+      return { body: { choices: [{ message: { content: '喂，你有在听吗？\n有。' } }] } };
+    });
+    const updates = [];
+    const out = await translateLines(['ねえ、聞いてる？', 'はい。'], {
+      ...config,
+      model: 'splayer-sakura-galtransl-v3-8-14b',
+      sourceLanguage: 'Japanese',
+    }, {
+      onTranslation: (index, text) => updates.push({ index, text }),
+    });
+    expect(out).to.deep.equal(['喂，你有在听吗？', '有。']);
+    expect(updates).to.deep.equal([
+      { index: 0, text: '喂，你有在听吗？' },
+      { index: 1, text: '有。' },
+    ]);
+    expect(requests).to.have.length(1);
+    expect(requests[0].response_format).to.equal(undefined);
+    expect(requests[0].messages[1].content).to.contain('ねえ、聞いてる？\nはい。');
+    expect(isSakuraV3Model('splayer-sakura-galtransl-v3-8-14b')).to.equal(true);
+    expect(isSakuraV3Model('splayer-sakura-galtransl-v4-4b')).to.equal(false);
+  });
+
+  it('falls back to per-cue Sakura v3 requests when batch line count changes', async () => {
+    let calls = 0;
+    global.fetch = mockFetch((url, init) => {
+      calls += 1;
+      const body = JSON.parse(init.body);
+      const prompt = body.messages[1].content;
+      if (calls === 1) {
+        return { body: { choices: [{ message: { content: '合并成了一行' } }] } };
+      }
+      const source = prompt.slice(prompt.lastIndexOf('：') + 1);
+      return { body: { choices: [{ message: { content: `译:${source}` } }] } };
+    });
+    const out = await translateLines(['一行目', '二行目'], {
+      ...config,
+      model: 'splayer-sakura-galtransl-v3-8-14b',
+      sourceLanguage: 'Japanese',
+    });
+    expect(out).to.deep.equal(['译:一行目', '译:二行目']);
+    expect(calls).to.equal(3);
   });
 
   it('reports each Tower line as soon as it finishes instead of waiting for the batch', async () => {
@@ -399,6 +447,10 @@ describe('services/subtitle/ai - whisper transcription', () => {
     expect(args).to.include('--print-progress');
     expect(args).to.include('--vad');
     expect(args).to.include('/models/vad.bin');
+    expect(args[args.indexOf('--vad-threshold') + 1]).to.equal('0.5');
+    expect(args[args.indexOf('--vad-min-speech-duration-ms') + 1]).to.equal('100');
+    expect(args[args.indexOf('--vad-min-silence-duration-ms') + 1]).to.equal('300');
+    expect(args[args.indexOf('--vad-speech-pad-ms') + 1]).to.equal('200');
   });
 
   it('parses the latest native progress update even across buffered output', () => {
@@ -500,6 +552,22 @@ describe('services/subtitle/ai - whisper transcription', () => {
     expect(last.start + last.length).to.equal(193 * 60);
   });
 
+  it('overlaps extracted audio while assigning each cue to one core chunk', () => {
+    const core = chunkPlanOf(360, 120);
+    expect(extractionChunkOf(core[0], 360)).to.deep.equal({ start: 0, length: 121 });
+    expect(extractionChunkOf(core[1], 360)).to.deep.equal({ start: 119, length: 122 });
+    expect(extractionChunkOf(core[2], 360)).to.deep.equal({ start: 239, length: 121 });
+
+    const crossing = [
+      { start: 118.8, end: 120.4, text: 'crosses the cut' },
+      { start: 120.2, end: 121, text: 'next chunk' },
+    ];
+    expect(cuesOwnedByChunk(crossing, core[0], false).map(cue => cue.text))
+      .to.deep.equal(['crosses the cut']);
+    expect(cuesOwnedByChunk(crossing, core[1], false).map(cue => cue.text))
+      .to.deep.equal(['next chunk']);
+  });
+
   it('falls back to one pass when the duration is unknown', () => {
     // length 0 means "to the end of the file"; ffmpeg must not be given -t 0.
     expect(chunkPlanOf(0, 120)).to.deep.equal([{ start: 0, length: 0 }]);
@@ -511,6 +579,31 @@ describe('services/subtitle/ai - whisper transcription', () => {
     const env = checkTranscribeEnvironment('/nonexistent/userdata', '/nonexistent/home');
     expect(env.missing).to.include('model');
     expect(env.ok).to.equal(false);
+  });
+
+  it('prefers full large-v3 but keeps turbo as a usable fallback', () => {
+    const userData = mkdtempSync(join(tmpdir(), 'splayer-whisper-model-test-'));
+    const modelDir = join(userData, 'whisper');
+    const turbo = join(modelDir, 'ggml-large-v3-turbo.bin');
+    const large = join(modelDir, DEFAULT_MODEL_NAME);
+    mkdirSync(modelDir);
+    writeFileSync(turbo, 'turbo');
+
+    try {
+      const fallback = checkTranscribeEnvironment(userData);
+      expect(fallback.modelPath).to.equal(turbo);
+      expect(fallback.preferredModelReady).to.equal(false);
+
+      writeFileSync(large, 'large-v3');
+      const preferred = checkTranscribeEnvironment(userData);
+      expect(preferred.modelPath).to.equal(large);
+      expect(preferred.preferredModelReady).to.equal(true);
+    } finally {
+      if (existsSync(large)) unlinkSync(large);
+      unlinkSync(turbo);
+      rmdirSync(modelDir);
+      rmdirSync(userData);
+    }
   });
 });
 

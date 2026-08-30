@@ -554,7 +554,10 @@ async function ensureTranscribeModel(
   mediaHash: string,
 ): Promise<TranscribeEnvironment | undefined> {
   const onlyModelMissing = env.missing.length === 1 && env.missing[0] === 'model';
-  if (env.ok || !onlyModelMissing || !env.modelDir) return env;
+  const needsPreferredModel = env.preferredModelReady === false;
+  if ((!needsPreferredModel && env.ok)
+    || (!env.ok && !onlyModelMissing)
+    || !env.modelDir) return env;
   if (transcribingMediaHash === mediaHash) return undefined; // already downloading
   transcribingMediaHash = mediaHash;
   transcribeAbort = new AbortController();
@@ -571,6 +574,13 @@ async function ensureTranscribeModel(
   } catch (error) {
     endAIProgress();
     transcribingMediaHash = '';
+    // If turbo is already installed, stay usable offline rather than failing
+    // the entire transcription because the high-accuracy upgrade could not be
+    // downloaded.
+    if (env.ok) {
+      log.warn('SubtitleManager', `AI transcribe: large-v3 download failed, using fallback — ${error}`);
+      return env;
+    }
     addBubble(AI_TRANSLATE_NO_WHISPER, { missing: 'model (download failed)' });
     log.warn('SubtitleManager', `AI transcribe: model download failed — ${error}`);
     return undefined;

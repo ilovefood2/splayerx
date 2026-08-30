@@ -128,9 +128,13 @@ Unit tests: `test/unit/specs/services/subtitle/aiTranslator.spec.ts`.
 
 ## Scope / limitations
 
-- This translates an **existing** subtitle track. If a video has *no* subtitle
-  at all, there is nothing to translate — generating subtitles from audio needs
-  speech recognition (ASR), which is a separate capability (the app already has
-  a server-based speech-to-text flow under *AI Translate*).
+- When no text subtitle exists, speech recognition now prefers full Whisper
+  `large-v3` for accuracy, while an installed turbo model remains an offline
+  fallback. Japanese VAD retains short/quiet utterances, and adjacent two-minute
+  audio chunks overlap so dialogue crossing a cut is not clipped or duplicated.
+- The realtime path normally translates an **existing** subtitle track. When no
+  text track exists, an explicit *AI Translate* command runs the bundled local
+  Whisper ASR first; automatic translation never starts that expensive audio
+  transcription in the background.
 - Quality and latency depend on the chosen model. Small/fast models
   (`gpt-4o-mini` and equivalents) are recommended for realtime use.
