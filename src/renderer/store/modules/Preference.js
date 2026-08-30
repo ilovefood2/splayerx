@@ -64,7 +64,10 @@ const getters = {
   aiTranslateApiKey: state => state.aiTranslateApiKey,
   aiTranslateModel: state => state.aiTranslateModel,
   aiTranslateManagedModel: state => (
-    ['qwen3-14b', 'qwen3-32b', 'tower-plus-9b', 'sakura-galtransl-v4-4b']
+    [
+      'qwen3-14b', 'qwen3-32b', 'tower-plus-9b',
+      'sakura-galtransl-v3-8-14b', 'sakura-galtransl-v4-4b',
+    ]
       .includes(state.aiTranslateManagedModel)
       ? state.aiTranslateManagedModel : 'tower-plus-9b'
   ),

@@ -81,7 +81,8 @@ describe('Component - Preferences/Translate', () => {
     await flush();
     const choices = wrapper.findAll('option').map(option => option.attributes('value'));
     expect(choices).to.include.members([
-      'qwen3-14b', 'qwen3-32b', 'tower-plus-9b', 'sakura-galtransl-v4-4b',
+      'qwen3-14b', 'qwen3-32b', 'tower-plus-9b',
+      'sakura-galtransl-v3-8-14b', 'sakura-galtransl-v4-4b',
     ]);
     expect(choices).to.not.include('qwen3-4b');
 
@@ -102,6 +103,17 @@ describe('Component - Preferences/Translate', () => {
     expect(wrapper.vm.aiTranscribeLanguage).to.equal('ja');
     expect(wrapper.vm.managedModelHasFixedLanguagePair).to.equal(true);
     expect(wrapper.vm.selectedManagedModel.downloadSize).to.equal('2.82 GB');
+  });
+
+  it('offers the Sakura 14B high-quality profile with the same fixed language pair', async () => {
+    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'local' });
+    wrapper.vm.aiTranslateManagedModel = 'sakura-galtransl-v3-8-14b';
+    await flush();
+    expect(wrapper.vm.defaultModel).to.equal('splayer-sakura-galtransl-v3-8-14b');
+    expect(wrapper.vm.aiTranslateTargetLanguage).to.equal('zh-CN');
+    expect(wrapper.vm.aiTranscribeLanguage).to.equal('ja');
+    expect(wrapper.vm.managedModelHasFixedLanguagePair).to.equal(true);
+    expect(wrapper.vm.selectedManagedModel.downloadSize).to.equal('8.99 GB');
   });
 
   it('reports the api key path without probing', async () => {

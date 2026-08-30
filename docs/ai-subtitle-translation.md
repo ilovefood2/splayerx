@@ -55,11 +55,13 @@ With Ollama we ask `/api/tags` and pick a model ourselves:
   tokens) versus ~5s on the *larger* 30.5B `qwen3-coder`. For realtime subtitles
   latency dominates, so reasoning models are ranked down and parameter count is
   only a mild tiebreak.
-- **Sakura GalTransl v4 4B** is available for Japanese-to-Simplified-Chinese
-  subtitles. Selecting it fixes the spoken language to Japanese and the target
-  to Simplified Chinese. It translates eight cues together for dialogue context,
-  uses a strict one-result-per-cue schema, and inherits the source track's delay.
-  Its upstream CC BY-NC-SA 4.0 licence permits personal, non-commercial use only.
+- **Sakura GalTransl v3.8 14B Q4** is the high-quality
+  Japanese-to-Simplified-Chinese option; **Sakura GalTransl v4 4B** remains the
+  lower-memory, faster option. Selecting either fixes the spoken language to
+  Japanese and the target to Simplified Chinese. Both translate eight cues
+  together for dialogue context, use a strict one-result-per-cue schema, and
+  inherit the source track's delay. Their upstream CC BY-NC-SA 4.0 licence
+  permits personal, non-commercial use only.
 - Setting *Model* explicitly always overrides the automatic pick.
 
 A local model is much slower than a hosted one, so when running locally the

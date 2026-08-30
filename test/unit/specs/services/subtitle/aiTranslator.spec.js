@@ -224,9 +224,10 @@ describe('services/subtitle/ai - translateLines', () => {
 });
 
 describe('services/subtitle/ai - managed translation model', () => {
-  it('offers four verified downloads and defaults to Tower+ 9B Q8', () => {
+  it('offers five verified downloads and defaults to Tower+ 9B Q8', () => {
     expect(MANAGED_MODELS.map(model => model.id)).to.deep.equal([
-      'qwen3-14b', 'qwen3-32b', 'tower-plus-9b', 'sakura-galtransl-v4-4b',
+      'qwen3-14b', 'qwen3-32b', 'tower-plus-9b',
+      'sakura-galtransl-v3-8-14b', 'sakura-galtransl-v4-4b',
     ]);
     expect(DEFAULT_MANAGED_MODEL_ID).to.equal('tower-plus-9b');
     expect(MANAGED_MODEL_NAME).to.equal('Tower-Plus-9B.Q8_0.gguf');
@@ -238,6 +239,12 @@ describe('services/subtitle/ai - managed translation model', () => {
     expect(managedModelById('sakura-galtransl-v4-4b')).to.include({
       fileName: 'Galtransl-v4-4B-2601-Q5_K_S.gguf',
       downloadSize: '2.82 GB',
+      sourceLanguageCode: 'ja',
+      targetLanguageCode: 'zh-CN',
+    });
+    expect(managedModelById('sakura-galtransl-v3-8-14b')).to.include({
+      fileName: 'Sakura-Galtransl-14B-v3.8-Q4_K_M.gguf',
+      downloadSize: '8.99 GB',
       sourceLanguageCode: 'ja',
       targetLanguageCode: 'zh-CN',
     });
@@ -253,6 +260,7 @@ describe('services/subtitle/ai - managed translation model', () => {
     expect(managedModelById('tower-plus-9b').downloadSize).to.equal('9.83 GB');
     expect(managedModelById('tower-plus-9b').personalUseOnly).to.equal(true);
     expect(managedModelById('sakura-galtransl-v4-4b').personalUseOnly).to.equal(true);
+    expect(managedModelById('sakura-galtransl-v3-8-14b').personalUseOnly).to.equal(true);
     expect(managedModelById('qwen3-4b').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
     expect(managedModelById('tower-plus-72b').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
     expect(managedModelById('madlad400-10b-mt').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
