@@ -1,4 +1,6 @@
-import SubtitleManager, { findAITextReference } from '@/store/modules/SubtitleManager';
+import SubtitleManager, {
+  buildTranslatorOptions, findAITextReference,
+} from '@/store/modules/SubtitleManager';
 import { SubtitleManager as subtitleActions } from '@/store/actionTypes';
 import { SubtitleManager as subtitleMutations } from '@/store/mutationTypes';
 import { Type } from '@/interfaces/ISubtitle';
@@ -6,6 +8,26 @@ import { LanguageCode } from '@/libs/language';
 import { ipcRenderer } from 'electron';
 
 describe('store/modules/SubtitleManager', () => {
+  it('hides source text while a local provider translation is pending', () => {
+    const options = buildTranslatorOptions({
+      ok: true,
+      kind: 'local',
+      reason: 'local-ready',
+      endpoint: {
+        baseUrl: 'http://127.0.0.1:43123/v1',
+        apiKey: '',
+        model: 'splayer-sakura-galtransl-v4-4b',
+      },
+      tuning: { requestTimeout: 120000, lookaheadSeconds: 90 },
+    });
+
+    expect(options).to.deep.equal({
+      requestTimeout: 120000,
+      lookaheadSeconds: 90,
+      hideUntranslated: true,
+    });
+  });
+
   it('enables and synchronizes the Preferences checkbox for an explicit AI translation', async () => {
     const send = vi.spyOn(ipcRenderer, 'send');
     const dispatches = [];

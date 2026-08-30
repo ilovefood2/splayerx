@@ -30,7 +30,6 @@ import {
 import {
   registerAITranslation, makeAITranslationKey, clearAllAITranslations,
   appendAITranslationCues, getAITranslator, resolveAIProvider, configFor,
-  isLocalhostUrl,
   checkTranscribeEnvironment, transcribeVideo, downloadModel,
   ensureManagedModelServer, stopManagedModelServer,
   managedModelById,
@@ -212,16 +211,12 @@ function tuningOptions(tuning: AIProviderTuning, hideUntranslated: boolean) {
  *
  * Provider-dependent timing for the realtime translator.
  */
-function buildTranslatorOptions(
+export function buildTranslatorOptions(
   resolution: AIProviderResolution,
 ) {
-  const endpointIsLocal = !!resolution.endpoint
-    && isLocalhostUrl(resolution.endpoint.baseUrl);
-  // A local model can fall behind dense dialogue or pause briefly under memory
-  // pressure. Keep the source subtitle visible until its translation lands so
-  // playback never turns into a long subtitle-free section.
-  const hideUntranslated = resolution.kind !== 'local' && !endpointIsLocal;
-  return tuningOptions(resolution.tuning, hideUntranslated);
+  // An AI subtitle is a target-language track. Never show its source text while
+  // a translation is pending, regardless of whether the provider is local.
+  return tuningOptions(resolution.tuning, true);
 }
 
 function managedPaths(): ManagedModelPaths {
@@ -459,6 +454,7 @@ let transcribingMediaHash = '';
  */
 const AI_PROGRESS_ID = 'ai-subtitle-progress';
 let aiProgressTimer: number | undefined;
+let aiProgressVisible = false;
 
 /** i18n lives on the store here, the same way notificationControl reaches it. */
 function progressText(key: string, values: object): string {
@@ -478,11 +474,23 @@ function showAIProgress(content: string): void {
     clearInterval(aiProgressTimer);
     aiProgressTimer = undefined;
   }
+  aiProgressVisible = true;
   store.dispatch('addMessages', { id: AI_PROGRESS_ID, content });
 }
 
 function updateAIProgress(content: string): void {
+  if (!aiProgressVisible) {
+    aiProgressVisible = true;
+    store.dispatch('addMessages', { id: AI_PROGRESS_ID, content });
+    return;
+  }
   store.dispatch('changeMessageState', { id: AI_PROGRESS_ID, property: 'content', value: content });
+}
+
+function hideAIProgress(): void {
+  if (!aiProgressVisible) return;
+  aiProgressVisible = false;
+  store.dispatch('removeMessages', AI_PROGRESS_ID);
 }
 
 function endAIProgress(): void {
@@ -490,6 +498,7 @@ function endAIProgress(): void {
     clearInterval(aiProgressTimer);
     aiProgressTimer = undefined;
   }
+  aiProgressVisible = false;
   store.dispatch('removeMessages', AI_PROGRESS_ID);
 }
 
@@ -502,8 +511,8 @@ window.addEventListener('beforeunload', () => {
 });
 
 /**
- * Keep the status line current until the first translated line is ready, which
- * is the moment the wait visibly ends.
+ * Keep polling translation readiness while the track is being built. The
+ * status line is visible only when the current playhead cue still needs work.
  */
 function trackAIProgress(key: string, describe: (translated: number, total: number) => string) {
   if (aiProgressTimer !== undefined) clearInterval(aiProgressTimer);
@@ -517,11 +526,19 @@ function trackAIProgress(key: string, describe: (translated: number, total: numb
       return;
     }
     const { translated, total } = translator.progress;
-    if (translated > 0) {
-      endAIProgress();
+    const waitingAtPlayhead = translator.hasUntranslatedCueAt(videodata.time);
+    if (translated === 0 || waitingAtPlayhead) {
+      updateAIProgress(describe(translated, total));
       return;
     }
-    updateAIProgress(describe(translated, total));
+    // Keep polling while streamed ASR or off-screen cues remain. Hide the
+    // bubble when the current frame is ready, then bring it back automatically
+    // if the viewer reaches another cue that is still translating.
+    if (transcribingMediaHash || translated < total) {
+      hideAIProgress();
+      return;
+    }
+    endAIProgress();
   }, 500);
 }
 /** Aborts the in-flight transcription, killing its ffmpeg/whisper children. */
@@ -1315,7 +1332,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       makeAITranslationKey(referenceHash, targetCode),
       cues,
       { ...plan.config, sourceIsASR: true },
-      plan.options,
+      { ...(plan.options || {}), priorityTime: videodata.time },
     );
     await dispatch(a.addSubtitle, {
       generator: new AITranslatedGenerator(referenceHash, targetCode),

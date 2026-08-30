@@ -78,16 +78,20 @@ load alone can take ~30s).
   already exists in the target language. If not — and there is another track to
   translate from — it creates an **AI-translated** track and selects it
   (`SubtitleManager/ensureAITranslation`).
-- Translation happens **ahead of the playhead**: cues starting within the next
-  ~20 seconds are translated in the background, so a cue is usually ready by the
-  time it appears. Until a cue is translated, its **original text** is shown, so
-  subtitles never blank out.
+- Translation happens **ahead of the playhead**. Streamed ASR batches promote
+  the cues nearest the latest playback position instead of letting historical
+  cues occupy the local model indefinitely. The selected batch is still sent in
+  chronological order so dialogue context remains coherent.
+- An AI target-language track never substitutes its untranslated source text.
+  Pending Japanese ASR is hidden and the preparation status remains visible at
+  the playhead until its Chinese translation is ready.
 - Results are cached (in-memory LRU) and identical lines are de-duplicated, so
   re-watching a segment costs nothing and repeated lines are translated once.
 - Failures never interrupt playback: on network/auth errors — or a reply that
-  cannot be aligned to the input — the original text keeps showing and the
+  cannot be aligned to the input — the target cue remains pending and the
   translator backs off exponentially before retrying (auth errors stop retrying
-  entirely). An untranslated line is never cached as if it were a translation.
+  entirely). An untranslated line is never cached or exposed as if it were a
+  Chinese translation.
 - AI tracks live only for the current session: they are not written to the
   subtitle database, the selection is not persisted, and the registry is cleared
   when the player switches media. The track is re-offered on each open instead.
@@ -144,6 +148,8 @@ Unit tests: `test/unit/specs/services/subtitle/aiTranslator.spec.ts`.
   120-second transcription. Every ASR cue is queued for Chinese translation as
   soon as its chunk completes, even when that cue has already moved behind the
   playhead; translation no longer depends on the playback window catching it.
+  The latest playhead position reprioritizes the next Sakura batch, so seeking or
+  a slow first chunk does not leave the visible sentence behind older backlog.
   A transient local-model timeout or alignment failure requeues that ASR batch
   and retries after backoff instead of permanently stranding its Japanese cues.
 - The realtime path normally translates an **existing** subtitle track. When no

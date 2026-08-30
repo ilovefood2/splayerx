@@ -845,6 +845,39 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
     expect(calls).to.deep.equal([['first-chunk'], ['second-chunk']]);
   });
 
+  it('promotes ASR cues nearest the latest playhead after an active batch', async () => {
+    const calls = [];
+    let releaseFirst;
+    const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+    const translate = (texts) => {
+      calls.push(texts.slice());
+      const translated = texts.map(text => `Z:${text}`);
+      return calls.length === 1 ? firstGate.then(() => translated) : Promise.resolve(translated);
+    };
+    const many = [];
+    for (let i = 0; i < 10; i += 1) {
+      many.push({ start: i * 10, end: i * 10 + 1, text: `line${i}` });
+    }
+    const rt = new RealtimeSubtitleTranslator(
+      many,
+      { ...config, model: 'splayer-sakura-galtransl-v3-8-14b', sourceIsASR: true },
+      {
+        translate,
+        priorityTime: 0,
+        batchSize: 2,
+        maxConcurrentBatches: 1,
+      },
+    );
+    expect(calls[0]).to.deep.equal(['line0', 'line1']);
+
+    // The only slot is busy. Remember this new playhead so the next batch does
+    // not continue chronologically from line2 while the viewer waits at 75s.
+    rt.getCuesAt(75);
+    releaseFirst();
+    await delay(5);
+    expect(calls[1]).to.deep.equal(['line7', 'line8']);
+  });
+
   it('requeues a failed ASR prefetch batch and succeeds without playback polling', async () => {
     let calls = 0;
     const translate = (texts) => {
@@ -892,6 +925,36 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
     const translate = () => new Promise(() => {}); // never resolves
     const rt = new RealtimeSubtitleTranslator(cues, config, { translate });
     expect(rt.getCuesAt(0)[0].text).to.equal('one');
+  });
+
+  it('omits untranslated source cues from getAllCues when hiding', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const translate = texts => gate.then(() => texts.map(text => `Z:${text}`));
+    const rt = new RealtimeSubtitleTranslator(cues, config, {
+      translate, hideUntranslated: true, lookaheadSeconds: 10,
+    });
+    rt.getCuesAt(0);
+    expect(rt.getAllCues()).to.deep.equal([]);
+
+    release();
+    await delay(5);
+    expect(rt.getAllCues().map(cue => cue.text)).to.deep.equal(['Z:one', 'Z:two']);
+  });
+
+  it('reports whether the cue at the playhead is still untranslated', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const translate = texts => gate.then(() => texts.map(text => `Z:${text}`));
+    const rt = new RealtimeSubtitleTranslator(cues, config, { translate, lookaheadSeconds: 10 });
+    rt.getCuesAt(0);
+    expect(rt.hasUntranslatedCueAt(0)).to.equal(true);
+    expect(rt.hasUntranslatedCueAt(50)).to.equal(false);
+
+    release();
+    await delay(5);
+    expect(rt.hasUntranslatedCueAt(0)).to.equal(false);
+    expect(rt.hasUntranslatedCueAt(100)).to.equal(true);
   });
 
   it('reports translation progress for the status line', async () => {

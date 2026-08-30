@@ -15,6 +15,8 @@ export interface TimedText {
 }
 
 export interface RealtimeTranslatorOptions {
+  /** Initial playback position used to prioritize streamed ASR cues. */
+  priorityTime?: number;
   /** Seconds of subtitle ahead of the playhead to pre-translate. */
   lookaheadSeconds?: number;
   /** Seconds behind the playhead to keep translating (for small seeks back). */
@@ -127,6 +129,9 @@ export class RealtimeSubtitleTranslator {
 
   private prefetchRetryTimer?: number;
 
+  /** Latest known playback position; ASR prefetch chooses the nearest cues first. */
+  private priorityTime?: number;
+
   public constructor(
     cues: TimedText[],
     config: AITranslatorConfig,
@@ -147,6 +152,8 @@ export class RealtimeSubtitleTranslator {
     this.requestTimeout = options.requestTimeout;
     this.onAuthFailure = options.onAuthFailure;
     this.hideUntranslated = options.hideUntranslated === true;
+    this.priorityTime = options.priorityTime !== undefined && Number.isFinite(options.priorityTime)
+      ? options.priorityTime : undefined;
     this.lookahead = options.lookaheadSeconds === undefined ? 20 : options.lookaheadSeconds;
     this.behind = options.behindSeconds === undefined ? 3 : options.behindSeconds;
     // Sakura's authors recommend 7–10 lines per request. Eight gives the model
@@ -248,7 +255,22 @@ export class RealtimeSubtitleTranslator {
 
   /** All cues with their best currently-known text (translated where available). */
   public getAllCues(): TimedText[] {
-    return this.cues.map((cue, i) => ({ start: cue.start, end: cue.end, text: this.textFor(i) }));
+    if (!this.hideUntranslated) {
+      return this.cues.map((cue, i) => ({ start: cue.start, end: cue.end, text: this.textFor(i) }));
+    }
+    const result: TimedText[] = [];
+    this.cues.forEach((cue, i) => {
+      const text = this.translationFor(i);
+      if (text !== undefined) result.push({ start: cue.start, end: cue.end, text });
+    });
+    return result;
+  }
+
+  /** Whether a cue visible now is still waiting for its translation. */
+  public hasUntranslatedCueAt(time: number): boolean {
+    return this.cues.some((cue, i) => (
+      cue.start <= time && cue.end >= time && this.translationFor(i) === undefined
+    ));
   }
 
   /**
@@ -257,6 +279,7 @@ export class RealtimeSubtitleTranslator {
    * swallowed so playback is never interrupted (see `error` for diagnostics).
    */
   public getCuesAt(time: number): TimedText[] {
+    if (Number.isFinite(time)) this.priorityTime = time;
     if (!this.disposed) this.scheduleWindow(time);
     const result: TimedText[] = [];
     for (let i = 0; i < this.cues.length; i += 1) {
@@ -329,6 +352,14 @@ export class RealtimeSubtitleTranslator {
     }
   }
 
+  private distanceFromPriority(index: number): number {
+    if (this.priorityTime === undefined) return 0;
+    const cue = this.cues[index];
+    if (this.priorityTime < cue.start) return cue.start - this.priorityTime;
+    if (this.priorityTime > cue.end) return this.priorityTime - cue.end;
+    return 0;
+  }
+
   private drainPrefetch(): void {
     if (this.disposed) return;
     if (this.disabledUntil === Number.MAX_SAFE_INTEGER) return;
@@ -337,10 +368,19 @@ export class RealtimeSubtitleTranslator {
       return;
     }
     while (this.activeBatches < this.maxConcurrent && this.prefetchIndices.size) {
-      const indices = Array.from(this.prefetchIndices)
+      const candidates = Array.from(this.prefetchIndices)
         .filter(index => this.translated[index] === undefined && !this.pending[index])
-        .sort((a, b) => this.cues[a].start - this.cues[b].start || a - b)
-        .slice(0, this.batchSize);
+        .sort((a, b) => {
+          if (this.priorityTime !== undefined) {
+            const byDistance = this.distanceFromPriority(a) - this.distanceFromPriority(b);
+            if (byDistance) return byDistance;
+          }
+          return this.cues[a].start - this.cues[b].start || a - b;
+        });
+      // Choose the cues nearest the latest playhead, then restore chronological
+      // order inside the model batch so its dialogue context remains coherent.
+      const indices = candidates.slice(0, this.batchSize)
+        .sort((a, b) => this.cues[a].start - this.cues[b].start || a - b);
       if (!indices.length) return;
       indices.forEach(index => this.prefetchIndices.delete(index));
       this.runBatch(indices);
