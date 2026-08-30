@@ -125,6 +125,8 @@ export class RealtimeSubtitleTranslator {
   /** ASR cues should translate as soon as they arrive, even if playback moved on. */
   private readonly prefetchIndices = new Set<number>();
 
+  private prefetchRetryTimer?: number;
+
   public constructor(
     cues: TimedText[],
     config: AITranslatorConfig,
@@ -196,6 +198,11 @@ export class RealtimeSubtitleTranslator {
 
   public get error(): Error | undefined {
     return this.lastError;
+  }
+
+  /** Only auth/permission failures permanently stop translation. */
+  public get terminalError(): Error | undefined {
+    return this.disabledUntil === Number.MAX_SAFE_INTEGER ? this.lastError : undefined;
   }
 
   /** The provider currently in use. Changes if an auth failover happened. */
@@ -323,7 +330,12 @@ export class RealtimeSubtitleTranslator {
   }
 
   private drainPrefetch(): void {
-    if (this.disposed || this.isCoolingDown(Date.now())) return;
+    if (this.disposed) return;
+    if (this.disabledUntil === Number.MAX_SAFE_INTEGER) return;
+    if (this.isCoolingDown(Date.now())) {
+      this.schedulePrefetchRetry();
+      return;
+    }
     while (this.activeBatches < this.maxConcurrent && this.prefetchIndices.size) {
       const indices = Array.from(this.prefetchIndices)
         .filter(index => this.translated[index] === undefined && !this.pending[index])
@@ -333,6 +345,15 @@ export class RealtimeSubtitleTranslator {
       indices.forEach(index => this.prefetchIndices.delete(index));
       this.runBatch(indices);
     }
+  }
+
+  private schedulePrefetchRetry(): void {
+    if (this.disposed || !this.prefetchIndices.size || this.prefetchRetryTimer !== undefined) return;
+    const wait = Math.max(0, this.disabledUntil - Date.now());
+    this.prefetchRetryTimer = window.setTimeout(() => {
+      this.prefetchRetryTimer = undefined;
+      this.drainPrefetch();
+    }, wait);
   }
 
   private runBatch(indices: number[]): void {
@@ -404,6 +425,10 @@ export class RealtimeSubtitleTranslator {
         if (isAuthError(e)) {
           this.disabledUntil = Number.MAX_SAFE_INTEGER;
           this.tryAuthFailover();
+        } else if (this.config.sourceIsASR && !this.disposed) {
+          // Prefetch owns cues that may already be behind the playhead. Put a
+          // failed batch back or scheduleWindow may never see it again.
+          indices.forEach(index => this.prefetchIndices.add(index));
         }
       })
       .finally(() => {
@@ -434,6 +459,7 @@ export class RealtimeSubtitleTranslator {
         this.consecutiveFailures = 0;
         this.lastError = undefined;
         this.disabledUntil = 0;
+        this.drainPrefetch();
       })
       .catch(() => {
         // Keep the original auth error and stay disabled.
@@ -443,5 +469,9 @@ export class RealtimeSubtitleTranslator {
   public dispose(): void {
     this.disposed = true;
     this.disabledUntil = Number.MAX_SAFE_INTEGER;
+    if (this.prefetchRetryTimer !== undefined) {
+      clearTimeout(this.prefetchRetryTimer);
+      this.prefetchRetryTimer = undefined;
+    }
   }
 }

@@ -510,8 +510,8 @@ function trackAIProgress(key: string, describe: (translated: number, total: numb
   aiProgressTimer = window.setInterval(() => {
     const translator = getAITranslator(key);
     if (!translator) return;
-    if (translator.error) {
-      log.warn('SubtitleManager', `AI translation failed: ${translator.error.message}`);
+    if (translator.terminalError) {
+      log.warn('SubtitleManager', `AI translation failed: ${translator.terminalError.message}`);
       endAIProgress();
       addBubble(AI_TRANSLATE_NO_PROVIDER);
       return;

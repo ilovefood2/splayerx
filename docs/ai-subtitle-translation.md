@@ -144,6 +144,8 @@ Unit tests: `test/unit/specs/services/subtitle/aiTranslator.spec.ts`.
   120-second transcription. Every ASR cue is queued for Chinese translation as
   soon as its chunk completes, even when that cue has already moved behind the
   playhead; translation no longer depends on the playback window catching it.
+  A transient local-model timeout or alignment failure requeues that ASR batch
+  and retries after backoff instead of permanently stranding its Japanese cues.
 - The realtime path normally translates an **existing** subtitle track. When no
   text track exists, an explicit *AI Translate* command runs the bundled local
   Whisper ASR first; automatic translation never starts that expensive audio

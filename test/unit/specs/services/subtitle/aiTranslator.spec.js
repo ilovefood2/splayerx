@@ -845,6 +845,24 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
     expect(calls).to.deep.equal([['first-chunk'], ['second-chunk']]);
   });
 
+  it('requeues a failed ASR prefetch batch and succeeds without playback polling', async () => {
+    let calls = 0;
+    const translate = (texts) => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(new AITranslationError('temporary parse failure'));
+      return Promise.resolve(texts.map(text => `Z:${text}`));
+    };
+    const rt = new RealtimeSubtitleTranslator([
+      { start: 0, end: 1, text: 'retry-me' },
+    ], { ...config, model: 'splayer-sakura-galtransl-v3-8-14b', sourceIsASR: true }, {
+      translate, maxConcurrentBatches: 1,
+    });
+    await delay(20);
+    expect(calls).to.equal(2);
+    expect(rt.getAllCues()[0].text).to.equal('Z:retry-me');
+    expect(rt.terminalError).to.equal(undefined);
+  });
+
   it('sorts streamed ASR cues chronologically and supplies neighboring context', async () => {
     const calls = [];
     const translate = (texts, cfg, opts) => {
