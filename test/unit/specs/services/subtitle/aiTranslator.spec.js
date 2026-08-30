@@ -4,7 +4,7 @@ import {
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
-  translateLines, AITranslationError, isTowerModel,
+  translateLines, AITranslationError, isTowerModel, isSakuraModel,
   RealtimeSubtitleTranslator, TranslationCache,
   resolveAIProvider, isLocalhostUrl, LOCAL_TUNING,
   contentRangeTotal, sha256File, inspectManagedModel, managedModelById,
@@ -132,6 +132,33 @@ describe('services/subtitle/ai - translateLines', () => {
     expect(isTowerModel('splayer-qwen3-32b')).to.equal(false);
   });
 
+  it('uses Sakura GalTransl prompts with translated dialogue history', async () => {
+    const requests = [];
+    global.fetch = mockFetch((url, init) => {
+      const body = JSON.parse(init.body);
+      requests.push({ url, body });
+      const prompt = body.messages[1].content;
+      const source = prompt.slice(prompt.lastIndexOf('\n') + 1);
+      return { body: { choices: [{ message: { content: `译:${source}` } }] } };
+    });
+    const out = await translateLines(['気をつけて', '行きましょう'], {
+      ...config,
+      model: 'splayer-sakura-galtransl-v4-4b',
+      sourceLanguage: 'Japanese',
+    });
+    expect(out).to.deep.equal(['译:気をつけて', '译:行きましょう']);
+    expect(requests).to.have.length(2);
+    expect(requests.every(request => request.url.endsWith('/chat/completions'))).to.equal(true);
+    expect(requests.every(request => request.body.messages.length === 2)).to.equal(true);
+    expect(requests[0].body.messages[0].content).to.contain('视觉小说翻译模型');
+    expect(requests[0].body.messages[1].content).to.contain('将下面的文本从日文翻译成简体中文');
+    expect(requests[1].body.messages[1].content).to.contain('历史翻译：译:気をつけて');
+    expect(requests.every(request => request.body.temperature === 0.3)).to.equal(true);
+    expect(requests.every(request => request.body.top_p === 0.8)).to.equal(true);
+    expect(isSakuraModel('splayer-sakura-galtransl-v4-4b')).to.equal(true);
+    expect(isSakuraModel('splayer-qwen3-32b')).to.equal(false);
+  });
+
   it('reports each Tower line as soon as it finishes instead of waiting for the batch', async () => {
     let releaseSlow;
     const slowGate = new Promise((resolve) => { releaseSlow = resolve; });
@@ -168,9 +195,9 @@ describe('services/subtitle/ai - translateLines', () => {
 });
 
 describe('services/subtitle/ai - managed translation model', () => {
-  it('offers three verified downloads and defaults to Tower+ 9B Q8', () => {
+  it('offers four verified downloads and defaults to Tower+ 9B Q8', () => {
     expect(MANAGED_MODELS.map(model => model.id)).to.deep.equal([
-      'qwen3-14b', 'qwen3-32b', 'tower-plus-9b',
+      'qwen3-14b', 'qwen3-32b', 'tower-plus-9b', 'sakura-galtransl-v4-4b',
     ]);
     expect(DEFAULT_MANAGED_MODEL_ID).to.equal('tower-plus-9b');
     expect(MANAGED_MODEL_NAME).to.equal('Tower-Plus-9B.Q8_0.gguf');
@@ -179,6 +206,12 @@ describe('services/subtitle/ai - managed translation model', () => {
       .to.equal('715482435090af7e4cc84d3caf9503793779d95db7ee4b41293171ff7ca136de');
     expect(managedModelById('tower-plus-9b').url)
       .to.contain('mradermacher/Tower-Plus-9B-GGUF');
+    expect(managedModelById('sakura-galtransl-v4-4b')).to.include({
+      fileName: 'Galtransl-v4-4B-2601-Q5_K_S.gguf',
+      downloadSize: '2.82 GB',
+      sourceLanguageCode: 'ja',
+      targetLanguageCode: 'zh-CN',
+    });
     MANAGED_MODELS.forEach((model) => {
       expect(model.sha256).to.match(/^[a-f0-9]{64}$/);
       expect(model.url).to.contain(model.fileName);
@@ -190,6 +223,7 @@ describe('services/subtitle/ai - managed translation model', () => {
     expect(managedModelById('qwen3-32b').alias).to.equal('splayer-qwen3-32b');
     expect(managedModelById('tower-plus-9b').downloadSize).to.equal('9.83 GB');
     expect(managedModelById('tower-plus-9b').personalUseOnly).to.equal(true);
+    expect(managedModelById('sakura-galtransl-v4-4b').personalUseOnly).to.equal(true);
     expect(managedModelById('qwen3-4b').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
     expect(managedModelById('tower-plus-72b').id).to.equal(DEFAULT_MANAGED_MODEL_ID);
     expect(managedModelById('madlad400-10b-mt').id).to.equal(DEFAULT_MANAGED_MODEL_ID);

@@ -2,6 +2,7 @@ export {
   AITranslationError,
   translateLines,
   isTowerModel,
+  isSakuraModel,
   DEFAULT_BASE_URL,
   DEFAULT_MODEL,
 } from './translator';

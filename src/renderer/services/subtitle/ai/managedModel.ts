@@ -19,6 +19,9 @@ export interface ManagedModelDefinition {
   url: string;
   downloadSize: string;
   personalUseOnly?: boolean;
+  /** Some specialist models only support one source/target language pair. */
+  sourceLanguageCode?: string;
+  targetLanguageCode?: string;
 }
 
 export const MANAGED_MODELS: ManagedModelDefinition[] = [
@@ -52,6 +55,21 @@ export const MANAGED_MODELS: ManagedModelDefinition[] = [
     ].join(''),
     downloadSize: '9.83 GB',
     personalUseOnly: true,
+  },
+  {
+    id: 'sakura-galtransl-v4-4b',
+    name: 'Sakura GalTransl v4 4B (Japanese → Simplified Chinese)',
+    fileName: 'Galtransl-v4-4B-2601-Q5_K_S.gguf',
+    alias: 'splayer-sakura-galtransl-v4-4b',
+    sha256: '2458cd336abc86d91f37df1a4375d59b96d32012fe6382c8265e640e84cea204',
+    url: [
+      'https://huggingface.co/SakuraLLM/GalTransl-v4-4B-2601/resolve/main/',
+      'Galtransl-v4-4B-2601-Q5_K_S.gguf?download=true',
+    ].join(''),
+    downloadSize: '2.82 GB',
+    personalUseOnly: true,
+    sourceLanguageCode: 'ja',
+    targetLanguageCode: 'zh-CN',
   },
 ];
 

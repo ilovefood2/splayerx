@@ -234,7 +234,7 @@
             <td>
               <select
                 v-model="aiTranscribeLanguage"
-                :disabled="!aiTranslateEnabled"
+                :disabled="!aiTranslateEnabled || managedModelHasFixedLanguagePair"
                 class="aiTranslate__input"
               >
                 <option value="">
@@ -257,7 +257,7 @@
             <td>
               <select
                 v-model="aiTranslateTargetLanguage"
-                :disabled="!aiTranslateEnabled"
+                :disabled="!aiTranslateEnabled || managedModelHasFixedLanguagePair"
                 class="aiTranslate__input"
               >
                 <option value="">
@@ -406,6 +406,11 @@ export default {
     selectedManagedModel() {
       return managedModelById(this.aiTranslateManagedModel);
     },
+    managedModelHasFixedLanguagePair() {
+      return this.usesManagedModel
+        && !!this.selectedManagedModel.sourceLanguageCode
+        && !!this.selectedManagedModel.targetLanguageCode;
+    },
     defaultModel() {
       if (this.usesManagedModel) return this.selectedManagedModel.alias;
       return DEFAULT_MODEL;
@@ -491,8 +496,13 @@ export default {
         return this.$store.getters.aiTranslateManagedModel;
       },
       set(val) {
-        this.persistAI({ aiTranslateManagedModel: val });
-        this.detectProvider();
+        const model = managedModelById(val);
+        const preferences = { aiTranslateManagedModel: val };
+        if (model.sourceLanguageCode && model.targetLanguageCode) {
+          preferences.aiTranscribeLanguage = model.sourceLanguageCode;
+          preferences.aiTranslateTargetLanguage = model.targetLanguageCode;
+        }
+        this.persistAI(preferences).then(() => this.detectProvider());
       },
     },
     aiTranslateTargetLanguage: {

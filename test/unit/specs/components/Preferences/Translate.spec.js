@@ -80,7 +80,9 @@ describe('Component - Preferences/Translate', () => {
     const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'local' });
     await flush();
     const choices = wrapper.findAll('option').map(option => option.attributes('value'));
-    expect(choices).to.include.members(['qwen3-14b', 'qwen3-32b', 'tower-plus-9b']);
+    expect(choices).to.include.members([
+      'qwen3-14b', 'qwen3-32b', 'tower-plus-9b', 'sakura-galtransl-v4-4b',
+    ]);
     expect(choices).to.not.include('qwen3-4b');
 
     wrapper.vm.aiTranslateManagedModel = 'tower-plus-9b';
@@ -89,6 +91,17 @@ describe('Component - Preferences/Translate', () => {
     expect(wrapper.vm.providerStatus).to.contain('Tower+ 9B Q8');
     expect(wrapper.vm.selectedManagedModel.downloadSize).to.equal('9.83 GB');
     expect(wrapper.text()).to.contain('Tower+ 9B Q8 — 9.83 GB · personal use');
+  });
+
+  it('pins Sakura GalTransl to its Japanese-to-Simplified-Chinese language pair', async () => {
+    const wrapper = mountWith({ aiTranslateEnabled: true, aiTranslateProvider: 'local' });
+    wrapper.vm.aiTranslateManagedModel = 'sakura-galtransl-v4-4b';
+    await flush();
+    expect(wrapper.vm.defaultModel).to.equal('splayer-sakura-galtransl-v4-4b');
+    expect(wrapper.vm.aiTranslateTargetLanguage).to.equal('zh-CN');
+    expect(wrapper.vm.aiTranscribeLanguage).to.equal('ja');
+    expect(wrapper.vm.managedModelHasFixedLanguagePair).to.equal(true);
+    expect(wrapper.vm.selectedManagedModel.downloadSize).to.equal('2.82 GB');
   });
 
   it('reports the api key path without probing', async () => {
