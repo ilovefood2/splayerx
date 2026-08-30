@@ -57,7 +57,8 @@ With Ollama we ask `/api/tags` and pick a model ourselves:
   only a mild tiebreak.
 - **Sakura GalTransl v4 4B** is available for Japanese-to-Simplified-Chinese
   subtitles. Selecting it fixes the spoken language to Japanese and the target
-  to Simplified Chinese, and uses its dedicated dialogue-translation prompt.
+  to Simplified Chinese. It translates eight cues together for dialogue context,
+  uses a strict one-result-per-cue schema, and inherits the source track's delay.
   Its upstream CC BY-NC-SA 4.0 licence permits personal, non-commercial use only.
 - Setting *Model* explicitly always overrides the automatic pick.
 

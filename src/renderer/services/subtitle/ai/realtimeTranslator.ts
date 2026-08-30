@@ -1,5 +1,5 @@
 import {
-  AITranslatorConfig, translateLines, AITranslationError, isTowerModel,
+  AITranslatorConfig, translateLines, AITranslationError, isSakuraModel, isTowerModel,
 } from './translator';
 import { TranslationCache } from './cache';
 
@@ -144,7 +144,10 @@ export class RealtimeSubtitleTranslator {
     this.hideUntranslated = options.hideUntranslated === true;
     this.lookahead = options.lookaheadSeconds === undefined ? 20 : options.lookaheadSeconds;
     this.behind = options.behindSeconds === undefined ? 3 : options.behindSeconds;
-    this.batchSize = options.batchSize === undefined ? 16 : options.batchSize;
+    // Sakura's authors recommend 7–10 lines per request. Eight gives the model
+    // enough dialogue context without making a cue wait behind a long batch.
+    const defaultBatchSize = isSakuraModel(config.model) ? 8 : 16;
+    this.batchSize = options.batchSize === undefined ? defaultBatchSize : options.batchSize;
     const defaultConcurrent = isTowerModel(config.model) ? 1 : 2;
     this.maxConcurrent = options.maxConcurrentBatches === undefined
       // translateLines already runs two Tower requests in parallel inside one
@@ -189,14 +192,20 @@ export class RealtimeSubtitleTranslator {
     return this.config.model;
   }
 
-  private cacheKey(text: string): string {
-    return TranslationCache.keyFor(this.namespace, text);
+  private cacheKeyFor(index: number): string {
+    const cue = this.cues[index];
+    // Short Japanese reactions such as 「はい」 can translate differently in
+    // different dialogue contexts. Keep Sakura's cache cue-specific instead of
+    // letting an earlier occurrence overwrite every later identical source.
+    const source = isSakuraModel(this.config.model)
+      ? `${cue.start}|${cue.end}|${cue.text}` : cue.text;
+    return TranslationCache.keyFor(this.namespace, source);
   }
 
   /** The translation, or undefined while it is still pending. */
   private translationFor(index: number): string | undefined {
     if (this.translated[index] !== undefined) return this.translated[index];
-    const cached = this.cache.get(this.cacheKey(this.cues[index].text));
+    const cached = this.cache.get(this.cacheKeyFor(index));
     if (cached !== undefined) {
       this.translated[index] = cached;
       return cached;
@@ -258,7 +267,7 @@ export class RealtimeSubtitleTranslator {
     for (let i = 0; i < this.cues.length; i += 1) {
       const settled = this.translated[i] !== undefined || this.pending[i];
       if (!settled && this.isInWindow(i, time)) {
-        const cached = this.cache.get(this.cacheKey(this.cues[i].text));
+        const cached = this.cache.get(this.cacheKeyFor(i));
         if (cached !== undefined) {
           this.translated[i] = cached;
         } else {
@@ -283,11 +292,17 @@ export class RealtimeSubtitleTranslator {
     indices.forEach((i) => { this.pending[i] = true; });
     this.activeBatches += 1;
 
-    // Deduplicate identical source lines within the batch to save tokens.
+    // Deduplicate identical source lines within the batch to save tokens. Sakura
+    // is context-sensitive, so repeated short lines must keep distinct slots.
+    const preserveDuplicates = isSakuraModel(this.config.model);
     const uniqueTexts: string[] = [];
     const uniqueIndexOf = new Map<string, number>();
     const slotForIndex = indices.map((i) => {
       const { text } = this.cues[i];
+      if (preserveDuplicates) {
+        uniqueTexts.push(text);
+        return uniqueTexts.length - 1;
+      }
       if (!uniqueIndexOf.has(text)) {
         uniqueIndexOf.set(text, uniqueTexts.length);
         uniqueTexts.push(text);
@@ -301,7 +316,7 @@ export class RealtimeSubtitleTranslator {
       indices.forEach((cueIndex, k) => {
         if (slotForIndex[k] !== slot) return;
         this.translated[cueIndex] = value;
-        this.cache.set(this.cacheKey(this.cues[cueIndex].text), value);
+        this.cache.set(this.cacheKeyFor(cueIndex), value);
       });
     };
     const options = {

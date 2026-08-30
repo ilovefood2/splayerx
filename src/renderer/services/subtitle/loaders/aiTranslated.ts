@@ -24,12 +24,15 @@ export class AITranslatedGenerator implements IEntityGenerator {
 
   private readonly language: LanguageCode;
 
-  public constructor(referenceHash: string, targetLanguage: LanguageCode) {
+  private readonly delay: number;
+
+  public constructor(referenceHash: string, targetLanguage: LanguageCode, delay = 0) {
     this.origin = {
       type: Type.AITranslated,
       source: { referenceHash, targetLanguage },
     };
     this.language = targetLanguage;
+    this.delay = Number.isFinite(delay) ? delay : 0;
   }
 
   public async getDisplaySource() { return cloneDeep(this.origin); }
@@ -38,7 +41,7 @@ export class AITranslatedGenerator implements IEntityGenerator {
 
   public async getLanguage() { return this.language; }
 
-  public async getDelay() { return 0; }
+  public async getDelay() { return this.delay; }
 
   private readonly format = Format.AITranslated;
 

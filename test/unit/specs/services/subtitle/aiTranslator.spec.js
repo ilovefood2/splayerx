@@ -3,6 +3,7 @@ import {
 } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { AITranslatedGenerator } from '@/services/subtitle/loaders/aiTranslated';
 import {
   translateLines, AITranslationError, isTowerModel, isSakuraModel,
   RealtimeSubtitleTranslator, TranslationCache,
@@ -132,31 +133,59 @@ describe('services/subtitle/ai - translateLines', () => {
     expect(isTowerModel('splayer-qwen3-32b')).to.equal(false);
   });
 
-  it('uses Sakura GalTransl prompts with translated dialogue history', async () => {
+  it('uses one context-aware Sakura batch with a strict cue-alignment schema', async () => {
     const requests = [];
     global.fetch = mockFetch((url, init) => {
       const body = JSON.parse(init.body);
       requests.push({ url, body });
-      const prompt = body.messages[1].content;
-      const source = prompt.slice(prompt.lastIndexOf('\n') + 1);
-      return { body: { choices: [{ message: { content: `译:${source}` } }] } };
+      const { lines } = JSON.parse(body.messages[1].content);
+      return { body: { choices: [{ message: { content: JSON.stringify({
+        translations: lines.map(line => `译:${line}`),
+      }) } }] } };
     });
+    const updates = [];
     const out = await translateLines(['気をつけて', '行きましょう'], {
       ...config,
       model: 'splayer-sakura-galtransl-v4-4b',
       sourceLanguage: 'Japanese',
+    }, {
+      onTranslation: (index, text) => updates.push({ index, text }),
     });
     expect(out).to.deep.equal(['译:気をつけて', '译:行きましょう']);
-    expect(requests).to.have.length(2);
+    expect(updates).to.deep.equal([
+      { index: 0, text: '译:気をつけて' },
+      { index: 1, text: '译:行きましょう' },
+    ]);
+    expect(requests).to.have.length(1);
     expect(requests.every(request => request.url.endsWith('/chat/completions'))).to.equal(true);
     expect(requests.every(request => request.body.messages.length === 2)).to.equal(true);
     expect(requests[0].body.messages[0].content).to.contain('视觉小说翻译模型');
-    expect(requests[0].body.messages[1].content).to.contain('将下面的文本从日文翻译成简体中文');
-    expect(requests[1].body.messages[1].content).to.contain('历史翻译：译:気をつけて');
-    expect(requests.every(request => request.body.temperature === 0.3)).to.equal(true);
-    expect(requests.every(request => request.body.top_p === 0.8)).to.equal(true);
+    expect(requests[0].body.messages[0].content).to.contain('利用整批字幕理解上下文');
+    expect(requests[0].body.messages[0].content).to.not.contain('历史翻译');
+    expect(requests[0].body.response_format.json_schema.schema.properties.translations)
+      .to.include({ minItems: 2, maxItems: 2 });
+    expect(requests.every(request => request.body.temperature === 0.1)).to.equal(true);
+    expect(requests.every(request => request.body.top_p === 0.3)).to.equal(true);
     expect(isSakuraModel('splayer-sakura-galtransl-v4-4b')).to.equal(true);
     expect(isSakuraModel('splayer-qwen3-32b')).to.equal(false);
+  });
+
+  it('rejects an empty Sakura cue instead of caching a blank subtitle', async () => {
+    global.fetch = mockFetch(() => ({ body: { choices: [{ message: { content: JSON.stringify({
+      translations: ['译文', ''],
+    }) } }] } }));
+    let error;
+    try {
+      await translateLines(['一行目', '二行目'], {
+        ...config,
+        model: 'splayer-sakura-galtransl-v4-4b',
+        sourceLanguage: 'Japanese',
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).to.be.an.instanceof(AITranslationError);
+    expect(error.message).to.contain('complete aligned translation array');
   });
 
   it('reports each Tower line as soon as it finishes instead of waiting for the batch', async () => {
@@ -490,6 +519,18 @@ describe('services/subtitle/ai - TranslationCache', () => {
   });
 });
 
+describe('services/subtitle/ai - translated track timing', () => {
+  it('inherits the source subtitle delay', async () => {
+    const generator = new AITranslatedGenerator('source-hash', 'zh-CN', 1.7);
+    expect(await generator.getDelay()).to.equal(1.7);
+  });
+
+  it('falls back to zero for an invalid source delay', async () => {
+    const generator = new AITranslatedGenerator('source-hash', 'zh-CN', Number.NaN);
+    expect(await generator.getDelay()).to.equal(0);
+  });
+});
+
 describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
   const cues = [
     { start: 0, end: 2, text: 'one' },
@@ -600,6 +641,23 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
     );
     rt.getCuesAt(0);
     expect(calls).to.equal(1);
+  });
+
+  it('uses Sakura recommended eight-cue realtime batches', () => {
+    const batchSizes = [];
+    const translate = (texts) => {
+      batchSizes.push(texts.length);
+      return new Promise(() => {});
+    };
+    const many = [];
+    for (let i = 0; i < 20; i += 1) many.push({ start: i, end: i + 1, text: `line${i}` });
+    const rt = new RealtimeSubtitleTranslator(
+      many,
+      { ...config, model: 'splayer-sakura-galtransl-v4-4b' },
+      { translate, lookaheadSeconds: 30, maxConcurrentBatches: 1 },
+    );
+    rt.getCuesAt(0);
+    expect(batchSizes).to.deep.equal([8]);
   });
 
   it('still falls back to the source text when not hiding', async () => {
@@ -750,5 +808,26 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
     await delay(5);
     expect(received).to.deep.equal(['same']);
     expect(rt.getCuesAt(1)[0].text).to.equal('Q:same');
+  });
+
+  it('keeps repeated Sakura cues distinct for context-sensitive translations', async () => {
+    let received = [];
+    const translate = (texts) => {
+      received = texts;
+      return Promise.resolve(texts.map((text, index) => `Q${index}:${text}`));
+    };
+    const repeated = [
+      { start: 0, end: 1, text: 'はい' },
+      { start: 1, end: 2, text: 'はい' },
+    ];
+    const rt = new RealtimeSubtitleTranslator(
+      repeated,
+      { ...config, model: 'splayer-sakura-galtransl-v4-4b' },
+      { translate, maxConcurrentBatches: 1 },
+    );
+    rt.getCuesAt(0);
+    await delay(5);
+    expect(received).to.deep.equal(['はい', 'はい']);
+    expect(rt.getAllCues().map(cue => cue.text)).to.deep.equal(['Q0:はい', 'Q1:はい']);
   });
 });

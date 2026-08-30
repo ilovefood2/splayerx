@@ -242,30 +242,44 @@ async function translateTowerLines(
   return translated;
 }
 
-const SAKURA_HISTORY_LIMIT = 8;
-
-/** The upstream Sakura GalTransl system prompt, with a subtitle-safe output rule. */
+/** The upstream Sakura GalTransl prompt, tightened to keep cue alignment machine-readable. */
 function buildSakuraSystemPrompt(): string {
   return [
     '你是一个视觉小说翻译模型，可以通顺地使用给定的术语表以指定的风格将日文翻译成简体中文，',
     '并联系上下文正确使用人称代词，注意不要混淆使役态和被动态的主语和宾语，',
     '不要擅自添加原文中没有的特殊符号，也不要擅自增加或减少换行。',
-    '只输出译文，不要解释。',
+    '利用整批字幕理解上下文并逐条翻译。translations数组的数量和顺序必须与输入完全一致，',
+    '只输出JSON对象，不要重复原文、历史译文、编号、Markdown或解释。',
   ].join('');
 }
 
-function buildSakuraPrompt(text: string, history: string[]): string {
-  const sections: string[] = [];
-  if (history.length) sections.push(`历史翻译：${history.join('\n')}`);
-  sections.push('参考以下术语表（可为空，格式为src->dst #备注）：');
-  sections.push('根据以上术语表的对应关系和备注，结合历史剧情和上下文，将下面的文本从日文翻译成简体中文：\n' + text);
-  return sections.join('\n\n');
+function sakuraResponseFormat(expectedLength: number) {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'subtitle_translations',
+      strict: true,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          translations: {
+            type: 'array',
+            minItems: expectedLength,
+            maxItems: expectedLength,
+            items: { type: 'string', minLength: 1 },
+          },
+        },
+        required: ['translations'],
+      },
+    },
+  };
 }
 
 /**
- * Sakura emits natural translation text rather than this app's JSON batch
- * envelope. Translate one cue at a time and pass a bounded translated history
- * to retain the model's intended dialogue context.
+ * Translate Sakura cues as one context-aware batch. llama.cpp's JSON schema
+ * grammar guarantees that every input cue has exactly one output slot; this
+ * prevents prior translations or prose from shifting text onto another cue.
  */
 async function translateSakuraLines(
   texts: string[],
@@ -273,27 +287,28 @@ async function translateSakuraLines(
   options: TranslateOptions,
 ): Promise<string[]> {
   const endpoint = resolveEndpoint(config.baseUrl);
-  const translated: string[] = [];
-  const history: string[] = [];
-  for (let index = 0; index < texts.length; index += 1) {
-    const content = await requestCompletion(endpoint, {
-      model: config.model,
-      temperature: 0.3,
-      top_p: 0.8,
-      max_tokens: 512,
-      messages: [
-        { role: 'system', content: buildSakuraSystemPrompt() },
-        { role: 'user', content: buildSakuraPrompt(texts[index], history) },
-      ],
-    }, config, options);
-    const text = content.trim();
-    if (!text) throw new AITranslationError('Sakura GalTransl returned an empty translation');
-    translated.push(text);
-    history.push(text);
-    if (history.length > SAKURA_HISTORY_LIMIT) history.shift();
-    if (options.onTranslation) options.onTranslation(index, text);
+  const content = await requestCompletion(endpoint, {
+    model: config.model,
+    temperature: 0.1,
+    top_p: 0.3,
+    max_tokens: 2048,
+    response_format: sakuraResponseFormat(texts.length),
+    messages: [
+      { role: 'system', content: buildSakuraSystemPrompt() },
+      { role: 'user', content: buildUserPayload(texts) },
+    ],
+  }, config, options);
+  const translations = parseTranslations(content, texts.length);
+  const ready = translations && translations.map(text => text.trim());
+  if (!ready || ready.some(text => !text)) {
+    throw new AITranslationError(
+      `Sakura GalTransl returned ${texts.length} input cue(s) without a complete aligned translation array`,
+    );
   }
-  return translated;
+  if (options.onTranslation) {
+    ready.forEach((text, index) => options.onTranslation!(index, text));
+  }
+  return ready;
 }
 
 /**

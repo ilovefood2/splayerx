@@ -1084,8 +1084,13 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       plan.config,
       plan.options,
     );
+    const referenceEntity = state.allSubtitles[reference.id];
+    const sourceDelay = referenceEntity && Number.isFinite(referenceEntity.delay)
+      ? referenceEntity.delay : 0;
     await dispatch(a.addSubtitle, {
-      generator: new AITranslatedGenerator(reference.hash, targetCode),
+      // The translated track reuses the source cue timestamps, so it must also
+      // inherit the source track's display delay or the two tracks drift apart.
+      generator: new AITranslatedGenerator(reference.hash, targetCode, sourceDelay),
       mediaHash: state.mediaHash,
     });
     const added = (getters.list as ISubtitleControlListItem[]).find(sub => sub.hash === targetHash);
