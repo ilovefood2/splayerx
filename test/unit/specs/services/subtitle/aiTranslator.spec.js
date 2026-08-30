@@ -189,18 +189,19 @@ describe('services/subtitle/ai - translateLines', () => {
     expect(error.message).to.contain('complete aligned translation array');
   });
 
-  it('uses Sakura v3 native multi-line output without a JSON schema', async () => {
+  it('uses a marker-aligned Sakura v3 batch without a JSON schema', async () => {
     const requests = [];
     global.fetch = mockFetch((url, init) => {
       const body = JSON.parse(init.body);
       requests.push(body);
-      return { body: { choices: [{ message: { content: '喂，你有在听吗？\n有。' } }] } };
+      return { body: { choices: [{ message: { content: '[SPLAYER_0] 喂，你有在听吗？\n[SPLAYER_1] 有。' } }] } };
     });
     const updates = [];
     const out = await translateLines(['ねえ、聞いてる？', 'はい。'], {
       ...config,
       model: 'splayer-sakura-galtransl-v3-8-14b',
       sourceLanguage: 'Japanese',
+      sourceIsASR: true,
     }, {
       onTranslation: (index, text) => updates.push({ index, text }),
     });
@@ -211,22 +212,26 @@ describe('services/subtitle/ai - translateLines', () => {
     ]);
     expect(requests).to.have.length(1);
     expect(requests[0].response_format).to.equal(undefined);
-    expect(requests[0].messages[1].content).to.contain('ねえ、聞いてる？\nはい。');
+    expect(requests[0].messages[0].content).to.contain('输入来自日语语音识别');
+    expect(requests[0].messages[1].content).to.contain('[SPLAYER_0] ねえ、聞いてる？');
+    expect(requests[0].messages[1].content).to.contain('[SPLAYER_1] はい。');
     expect(isSakuraV3Model('splayer-sakura-galtransl-v3-8-14b')).to.equal(true);
     expect(isSakuraV3Model('splayer-sakura-galtransl-v4-4b')).to.equal(false);
   });
 
-  it('falls back to per-cue Sakura v3 requests when batch line count changes', async () => {
+  it('recursively splits an unaligned Sakura v3 batch while retaining context', async () => {
     let calls = 0;
+    const prompts = [];
     global.fetch = mockFetch((url, init) => {
       calls += 1;
       const body = JSON.parse(init.body);
       const prompt = body.messages[1].content;
+      prompts.push(prompt);
       if (calls === 1) {
         return { body: { choices: [{ message: { content: '合并成了一行' } }] } };
       }
-      const source = prompt.slice(prompt.lastIndexOf('：') + 1);
-      return { body: { choices: [{ message: { content: `译:${source}` } }] } };
+      const source = prompt.match(/\[SPLAYER_0\]\s*([^\n]+)/)[1];
+      return { body: { choices: [{ message: { content: `[SPLAYER_0] 译:${source}` } }] } };
     });
     const out = await translateLines(['一行目', '二行目'], {
       ...config,
@@ -235,6 +240,27 @@ describe('services/subtitle/ai - translateLines', () => {
     });
     expect(out).to.deep.equal(['译:一行目', '译:二行目']);
     expect(calls).to.equal(3);
+    expect(prompts[1]).to.contain('后文（日文，仅供理解，不要输出）');
+    expect(prompts[1]).to.contain('二行目');
+    expect(prompts[2]).to.contain('前文（日文，仅供理解，不要输出）');
+    expect(prompts[2]).to.contain('一行目');
+  });
+
+  it('rejects a translation response truncated at the token limit', async () => {
+    global.fetch = mockFetch(() => ({ body: {
+      choices: [{ finish_reason: 'length', message: { content: '[SPLAYER_0] 截断' } }],
+    } }));
+    let error;
+    try {
+      await translateLines(['長い入力'], {
+        ...config,
+        model: 'splayer-sakura-galtransl-v3-8-14b',
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).to.be.an.instanceof(AITranslationError);
+    expect(error.message).to.contain('truncated');
   });
 
   it('reports each Tower line as soon as it finishes instead of waiting for the batch', async () => {
@@ -777,6 +803,31 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
     );
     rt.getCuesAt(0);
     expect(batchSizes).to.deep.equal([8]);
+  });
+
+  it('sorts streamed ASR cues chronologically and supplies neighboring context', async () => {
+    const calls = [];
+    const translate = (texts, cfg, opts) => {
+      calls.push({ texts, before: opts.contextBefore, after: opts.contextAfter });
+      return Promise.resolve(texts.map(text => `Z:${text}`));
+    };
+    const rt = new RealtimeSubtitleTranslator([
+      { start: 240, end: 242, text: 'later-one' },
+      { start: 242, end: 244, text: 'later-two' },
+    ], { ...config, model: 'splayer-sakura-galtransl-v3-8-14b' }, {
+      translate, lookaheadSeconds: 60, maxConcurrentBatches: 1,
+    });
+    rt.appendCues([
+      { start: 233, end: 235, text: 'earlier-context' },
+      { start: 238, end: 240, text: 'earlier-target' },
+      { start: 244, end: 246, text: 'later-context' },
+    ]);
+    rt.getCuesAt(239);
+    await delay(5);
+    expect(calls[0].texts).to.deep.equal([
+      'earlier-target', 'later-one', 'later-two', 'later-context',
+    ]);
+    expect(calls[0].before).to.deep.equal(['earlier-context']);
   });
 
   it('still falls back to the source text when not hiding', async () => {

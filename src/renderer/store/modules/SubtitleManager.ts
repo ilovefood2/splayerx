@@ -1314,7 +1314,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     registerAITranslation(
       makeAITranslationKey(referenceHash, targetCode),
       cues,
-      plan.config,
+      { ...plan.config, sourceIsASR: true },
       plan.options,
     );
     await dispatch(a.addSubtitle, {

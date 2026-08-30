@@ -62,6 +62,12 @@ With Ollama we ask `/api/tags` and pick a model ourselves:
   together for dialogue context, use a strict one-result-per-cue schema, and
   inherit the source track's delay. Their upstream CC BY-NC-SA 4.0 licence
   permits personal, non-commercial use only.
+- Streaming ASR cues are ordered by timestamp before translation. Sakura sees
+  the preceding and following source cues as read-only context, and v3.8 uses
+  stable cue markers so an alignment retry can split a batch without dropping
+  neighboring dialogue context. Whisper-derived text is explicitly identified
+  as ASR input so obvious homophone and punctuation errors are not translated
+  blindly.
 - Setting *Model* explicitly always overrides the automatic pick.
 
 A local model is much slower than a hosted one, so when running locally the

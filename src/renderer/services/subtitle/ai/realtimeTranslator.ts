@@ -148,7 +148,9 @@ export class RealtimeSubtitleTranslator {
     // enough dialogue context without making a cue wait behind a long batch.
     const defaultBatchSize = isSakuraModel(config.model) ? 8 : 16;
     this.batchSize = options.batchSize === undefined ? defaultBatchSize : options.batchSize;
-    const defaultConcurrent = isTowerModel(config.model) ? 1 : 2;
+    // Keep Sakura batches sequential so adjacent windows cannot independently
+    // settle names, pronouns and register in conflicting ways.
+    const defaultConcurrent = isTowerModel(config.model) || isSakuraModel(config.model) ? 1 : 2;
     this.maxConcurrent = options.maxConcurrentBatches === undefined
       // translateLines already runs two Tower requests in parallel inside one
       // batch. Starting two batches would silently double that load and make
@@ -275,7 +277,30 @@ export class RealtimeSubtitleTranslator {
         }
       }
     }
-    return indices;
+    // Streaming ASR can append the playhead chunk first and backfill older cues
+    // later. Stable storage indices are intentional, but language-model context
+    // must always be chronological.
+    return indices.sort((a, b) => {
+      const byStart = this.cues[a].start - this.cues[b].start;
+      if (byStart) return byStart;
+      const byEnd = this.cues[a].end - this.cues[b].end;
+      return byEnd || a - b;
+    });
+  }
+
+  private contextFor(indices: number[]): { before: string[], after: string[] } {
+    const ordered = this.cues.map((cue, index) => ({ cue, index }))
+      .sort((a, b) => a.cue.start - b.cue.start || a.cue.end - b.cue.end || a.index - b.index);
+    const target = new Set(indices);
+    const positions = ordered.map((item, position) => (target.has(item.index) ? position : -1))
+      .filter(position => position >= 0);
+    if (!positions.length) return { before: [], after: [] };
+    const first = Math.min(...positions);
+    const last = Math.max(...positions);
+    return {
+      before: ordered.slice(Math.max(0, first - 2), first).map(item => item.cue.text),
+      after: ordered.slice(last + 1, last + 3).map(item => item.cue.text),
+    };
   }
 
   private scheduleWindow(time: number): void {
@@ -311,6 +336,7 @@ export class RealtimeSubtitleTranslator {
     });
 
     const startedAt = this.generation;
+    const context = this.contextFor(indices);
     const commitResult = (slot: number, value: string) => {
       if (startedAt !== this.generation || typeof value !== 'string') return;
       indices.forEach((cueIndex, k) => {
@@ -321,6 +347,8 @@ export class RealtimeSubtitleTranslator {
     };
     const options = {
       timeout: this.requestTimeout,
+      contextBefore: context.before,
+      contextAfter: context.after,
       // Tower yields one HTTP response per subtitle line. Commit those replies
       // immediately instead of leaving a visible gap until all 16 finish.
       onTranslation: commitResult,
