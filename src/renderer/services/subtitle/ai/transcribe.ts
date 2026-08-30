@@ -435,7 +435,7 @@ export interface TranscribeOptions {
 // size makes the first captions land before normal-speed playback outruns them,
 // while avoiding the merged timestamps seen with longer external-VAD chunks.
 export const DEFAULT_CHUNK_SECONDS = 30;
-const DEFAULT_CHUNK_OVERLAP_SECONDS = 1;
+const DEFAULT_CHUNK_OVERLAP_SECONDS = 3;
 const DEFAULT_THREADS = 8;
 
 function chunkProgressReporter(
@@ -594,7 +594,8 @@ export function extractionChunkOf(
 
 /**
  * Each overlapped extraction can see the same utterance. Assign a cue to the
- * core chunk containing its midpoint so it is emitted exactly once.
+ * core chunk where it starts so small timestamp shifts between two independent
+ * Whisper runs cannot move the same utterance across the ownership boundary.
  */
 export function cuesOwnedByChunk(
   cues: TimedText[],
@@ -603,10 +604,9 @@ export function cuesOwnedByChunk(
 ): TimedText[] {
   if (!(chunk.length > 0)) return cues;
   const end = chunk.start + chunk.length;
-  return cues.filter((cue) => {
-    const midpoint = cue.start + (cue.end - cue.start) / 2;
-    return midpoint >= chunk.start && (isLast ? midpoint <= end : midpoint < end);
-  });
+  return cues.filter(cue => (
+    cue.start >= chunk.start && (isLast ? cue.start <= end : cue.start < end)
+  ));
 }
 
 /** One chunk: extract its audio, transcribe it, shift cues onto the real timeline. */

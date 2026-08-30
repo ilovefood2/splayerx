@@ -600,19 +600,24 @@ describe('services/subtitle/ai - whisper transcription', () => {
       .to.deep.equal([0, 120, 240, 360, 480]);
   });
 
-  it('overlaps extracted audio while assigning each cue to one core chunk', () => {
+  it('uses three-second overlap and owns boundary cues by their start time', () => {
     const core = chunkPlanOf(360, 120);
-    expect(extractionChunkOf(core[0], 360)).to.deep.equal({ start: 0, length: 121 });
-    expect(extractionChunkOf(core[1], 360)).to.deep.equal({ start: 119, length: 122 });
-    expect(extractionChunkOf(core[2], 360)).to.deep.equal({ start: 239, length: 121 });
+    expect(extractionChunkOf(core[0], 360)).to.deep.equal({ start: 0, length: 123 });
+    expect(extractionChunkOf(core[1], 360)).to.deep.equal({ start: 117, length: 126 });
+    expect(extractionChunkOf(core[2], 360)).to.deep.equal({ start: 237, length: 123 });
 
-    const crossing = [
-      { start: 118.8, end: 120.4, text: 'crosses the cut' },
+    const previousRecognition = [
+      { start: 118.06, end: 121, text: 'crosses the cut' },
+    ];
+    const nextRecognition = [
+      // An independent Whisper run shifted this cue's midpoint across 120s,
+      // but its start still identifies the same owning core chunk.
+      { start: 119, end: 121, text: 'crosses the cut' },
       { start: 120.2, end: 121, text: 'next chunk' },
     ];
-    expect(cuesOwnedByChunk(crossing, core[0], false).map(cue => cue.text))
+    expect(cuesOwnedByChunk(previousRecognition, core[0], false).map(cue => cue.text))
       .to.deep.equal(['crosses the cut']);
-    expect(cuesOwnedByChunk(crossing, core[1], false).map(cue => cue.text))
+    expect(cuesOwnedByChunk(nextRecognition, core[1], false).map(cue => cue.text))
       .to.deep.equal(['next chunk']);
   });
 

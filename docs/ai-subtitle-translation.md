@@ -142,8 +142,9 @@ Unit tests: `test/unit/specs/services/subtitle/aiTranslator.spec.ts`.
   `large-v3` for accuracy, while an installed turbo model remains an offline
   fallback. Japanese uses Whisper's native segmentation because external VAD can
   merge separated dialogue into one long, mistimed cue. The chunk under the
-  playhead is recognized first, and adjacent chunks overlap so dialogue crossing
-  a cut is not clipped or duplicated.
+  playhead is recognized first. Adjacent chunks include three seconds of audio
+  on both sides, while each cue belongs to the core chunk where it starts, so
+  small timestamp shifts between independent Whisper runs do not duplicate it.
 - Whisper runs in native 30-second chunks so playback cannot outrun the first
   120-second transcription. Every ASR cue is queued for Chinese translation as
   soon as its chunk completes, even when that cue has already moved behind the
