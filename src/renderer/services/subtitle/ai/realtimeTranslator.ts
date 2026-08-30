@@ -122,6 +122,9 @@ export class RealtimeSubtitleTranslator {
 
   private authFailoverStarted = false;
 
+  /** ASR cues should translate as soon as they arrive, even if playback moved on. */
+  private readonly prefetchIndices = new Set<number>();
+
   public constructor(
     cues: TimedText[],
     config: AITranslatorConfig,
@@ -156,6 +159,10 @@ export class RealtimeSubtitleTranslator {
       // batch. Starting two batches would silently double that load and make
       // every queued line slower on a local llama-server.
       ? defaultConcurrent : options.maxConcurrentBatches;
+    if (config.sourceIsASR) {
+      this.cues.forEach((cue, index) => this.prefetchIndices.add(index));
+      this.drainPrefetch();
+    }
   }
 
   private static namespaceFor(config: AITranslatorConfig): string {
@@ -181,7 +188,9 @@ export class RealtimeSubtitleTranslator {
       this.cues.push(cue);
       this.translated.push(undefined);
       this.pending.push(false);
+      if (this.config.sourceIsASR) this.prefetchIndices.add(this.cues.length - 1);
     });
+    if (this.config.sourceIsASR) this.drainPrefetch();
     return incoming.length;
   }
 
@@ -313,6 +322,19 @@ export class RealtimeSubtitleTranslator {
     }
   }
 
+  private drainPrefetch(): void {
+    if (this.disposed || this.isCoolingDown(Date.now())) return;
+    while (this.activeBatches < this.maxConcurrent && this.prefetchIndices.size) {
+      const indices = Array.from(this.prefetchIndices)
+        .filter(index => this.translated[index] === undefined && !this.pending[index])
+        .sort((a, b) => this.cues[a].start - this.cues[b].start || a - b)
+        .slice(0, this.batchSize);
+      if (!indices.length) return;
+      indices.forEach(index => this.prefetchIndices.delete(index));
+      this.runBatch(indices);
+    }
+  }
+
   private runBatch(indices: number[]): void {
     indices.forEach((i) => { this.pending[i] = true; });
     this.activeBatches += 1;
@@ -387,6 +409,7 @@ export class RealtimeSubtitleTranslator {
       .finally(() => {
         indices.forEach((i) => { this.pending[i] = false; });
         this.activeBatches -= 1;
+        this.drainPrefetch();
       });
   }
 

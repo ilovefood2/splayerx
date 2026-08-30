@@ -12,7 +12,7 @@ import {
   MANAGED_MODELS, DEFAULT_MANAGED_MODEL_ID, MANAGED_MODEL_NAME, MANAGED_MODEL_ALIAS,
   parseWhisperCues, parseWhisperProgress, parseFfmpegProgress, checkTranscribeEnvironment,
   chunkPlanOf, prioritizedChunkPlanOf, extractionChunkOf, cuesOwnedByChunk,
-  whisperArgs, DEFAULT_MODEL_NAME,
+  whisperArgs, DEFAULT_MODEL_NAME, DEFAULT_CHUNK_SECONDS,
 } from '@/services/subtitle/ai';
 
 const config = {
@@ -463,6 +463,10 @@ describe('services/subtitle/ai - whisper transcription', () => {
     ],
   };
 
+  it('uses low-latency native 30-second Whisper chunks', () => {
+    expect(DEFAULT_CHUNK_SECONDS).to.equal(30);
+  });
+
   it('uses native Whisper segmentation for Japanese instead of merging VAD islands', () => {
     const args = whisperArgs({
       ok: true,
@@ -803,6 +807,42 @@ describe('services/subtitle/ai - RealtimeSubtitleTranslator', () => {
     );
     rt.getCuesAt(0);
     expect(batchSizes).to.deep.equal([8]);
+  });
+
+  it('prefetches ASR cues immediately without waiting for the playback window', async () => {
+    const calls = [];
+    const translate = texts => {
+      calls.push(texts);
+      return Promise.resolve(texts.map(text => `Z:${text}`));
+    };
+    const rt = new RealtimeSubtitleTranslator([
+      { start: 0, end: 1, text: 'already-behind' },
+      { start: 1, end: 2, text: 'also-behind' },
+    ], { ...config, model: 'splayer-sakura-galtransl-v3-8-14b', sourceIsASR: true }, {
+      translate, maxConcurrentBatches: 1,
+    });
+    await delay(5);
+    expect(calls).to.deep.equal([['already-behind', 'also-behind']]);
+    expect(rt.getAllCues().map(cue => cue.text)).to.deep.equal([
+      'Z:already-behind', 'Z:also-behind',
+    ]);
+  });
+
+  it('continues prefetching newly appended ASR chunks', async () => {
+    const calls = [];
+    const translate = texts => {
+      calls.push(texts.slice());
+      return Promise.resolve(texts.map(text => `Z:${text}`));
+    };
+    const rt = new RealtimeSubtitleTranslator([
+      { start: 30, end: 31, text: 'first-chunk' },
+    ], { ...config, model: 'splayer-sakura-galtransl-v3-8-14b', sourceIsASR: true }, {
+      translate, maxConcurrentBatches: 1,
+    });
+    await delay(5);
+    rt.appendCues([{ start: 60, end: 61, text: 'second-chunk' }]);
+    await delay(5);
+    expect(calls).to.deep.equal([['first-chunk'], ['second-chunk']]);
   });
 
   it('sorts streamed ASR cues chronologically and supplies neighboring context', async () => {

@@ -431,7 +431,10 @@ export interface TranscribeOptions {
   signal?: AbortSignal;
 }
 
-const DEFAULT_CHUNK_SECONDS = 120;
+// Whisper is natively trained on 30-second windows. Keeping ASR chunks at that
+// size makes the first captions land before normal-speed playback outruns them,
+// while avoiding the merged timestamps seen with longer external-VAD chunks.
+export const DEFAULT_CHUNK_SECONDS = 30;
 const DEFAULT_CHUNK_OVERLAP_SECONDS = 1;
 const DEFAULT_THREADS = 8;
 

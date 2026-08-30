@@ -29,6 +29,7 @@ export {
   cuesOwnedByChunk,
   whisperArgs,
   DEFAULT_MODEL_NAME,
+  DEFAULT_CHUNK_SECONDS,
   durationOf,
   transcribeVideo,
 } from './transcribe';
