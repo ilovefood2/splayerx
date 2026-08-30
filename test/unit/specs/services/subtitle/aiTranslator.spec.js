@@ -11,7 +11,8 @@ import {
   contentRangeTotal, sha256File, inspectManagedModel, managedModelById,
   MANAGED_MODELS, DEFAULT_MANAGED_MODEL_ID, MANAGED_MODEL_NAME, MANAGED_MODEL_ALIAS,
   parseWhisperCues, parseWhisperProgress, parseFfmpegProgress, checkTranscribeEnvironment,
-  chunkPlanOf, extractionChunkOf, cuesOwnedByChunk, whisperArgs, DEFAULT_MODEL_NAME,
+  chunkPlanOf, prioritizedChunkPlanOf, extractionChunkOf, cuesOwnedByChunk,
+  whisperArgs, DEFAULT_MODEL_NAME,
 } from '@/services/subtitle/ai';
 
 const config = {
@@ -436,15 +437,25 @@ describe('services/subtitle/ai - whisper transcription', () => {
     ],
   };
 
-  it('uses the stable CPU backend while media playback owns the GPU', () => {
+  it('uses native Whisper segmentation for Japanese instead of merging VAD islands', () => {
+    const args = whisperArgs({
+      ok: true,
+      modelPath: '/models/whisper.bin',
+      vadModelPath: '/models/vad.bin',
+      missing: [],
+    }, '/tmp/audio.wav', '/tmp/subtitles', 'ja', 4);
+    expect(args).to.include('--no-gpu');
+    expect(args).to.include('--print-progress');
+    expect(args).to.not.include('--vad');
+  });
+
+  it('retains tuned VAD for non-Japanese recognition', () => {
     const args = whisperArgs({
       ok: true,
       modelPath: '/models/whisper.bin',
       vadModelPath: '/models/vad.bin',
       missing: [],
     }, '/tmp/audio.wav', '/tmp/subtitles', 'en', 4);
-    expect(args).to.include('--no-gpu');
-    expect(args).to.include('--print-progress');
     expect(args).to.include('--vad');
     expect(args).to.include('/models/vad.bin');
     expect(args[args.indexOf('--vad-threshold') + 1]).to.equal('0.5');
@@ -550,6 +561,13 @@ describe('services/subtitle/ai - whisper transcription', () => {
     // and the last one stops exactly at the end, never past it
     const last = plan[plan.length - 1];
     expect(last.start + last.length).to.equal(193 * 60);
+  });
+
+  it('transcribes the playhead chunk first and then backfills earlier audio', () => {
+    expect(prioritizedChunkPlanOf(600, 120, 305).map(chunk => chunk.start))
+      .to.deep.equal([240, 360, 480, 0, 120]);
+    expect(prioritizedChunkPlanOf(600, 120, 0).map(chunk => chunk.start))
+      .to.deep.equal([0, 120, 240, 360, 480]);
   });
 
   it('overlaps extracted audio while assigning each cue to one core chunk', () => {

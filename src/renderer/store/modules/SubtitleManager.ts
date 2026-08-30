@@ -47,6 +47,7 @@ import {
   storeSelectedSubtitles, updateSubtitleList,
 } from '@/services/storage/subtitle';
 import { LanguageCode, codeToLanguageName, normalizeCode } from '@/libs/language';
+import { videodata } from '@/store/video';
 import { ISubtitleStream } from '@/plugins/mediaTasks';
 import { IEmbeddedOrigin } from '@/services/subtitle/utils/loaders';
 import { sagiSubtitleToSRT } from '@/services/subtitle/utils/transcoders';
@@ -1216,6 +1217,9 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         // The player already opened the source, so reuse its duration instead
         // of probing a network share or URL a second time before progress starts.
         duration: getters.duration,
+        // If playback has already started or the viewer sought ahead, generate
+        // subtitles around the playhead first instead of spending minutes at 0s.
+        priorityTime: videodata.time,
         language: whisperLanguageOf(getters.aiTranscribeLanguage),
         signal,
         onProgress: (percent) => {

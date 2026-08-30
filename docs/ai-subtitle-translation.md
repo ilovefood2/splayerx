@@ -130,8 +130,10 @@ Unit tests: `test/unit/specs/services/subtitle/aiTranslator.spec.ts`.
 
 - When no text subtitle exists, speech recognition now prefers full Whisper
   `large-v3` for accuracy, while an installed turbo model remains an offline
-  fallback. Japanese VAD retains short/quiet utterances, and adjacent two-minute
-  audio chunks overlap so dialogue crossing a cut is not clipped or duplicated.
+  fallback. Japanese uses Whisper's native segmentation because external VAD can
+  merge separated dialogue into one long, mistimed cue. The chunk under the
+  playhead is recognized first, and adjacent chunks overlap so dialogue crossing
+  a cut is not clipped or duplicated.
 - The realtime path normally translates an **existing** subtitle track. When no
   text track exists, an explicit *AI Translate* command runs the bundled local
   Whisper ASR first; automatic translation never starts that expensive audio

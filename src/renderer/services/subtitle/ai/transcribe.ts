@@ -417,6 +417,8 @@ export interface TranscribeOptions {
   language?: string;
   /** Seconds of audio per chunk. */
   chunkSeconds?: number;
+  /** Playback position to transcribe first, instead of always starting at 0. */
+  priorityTime?: number;
   /** Decoding threads. */
   threads?: number;
   /** Called with each chunk's cues as soon as they are ready. */
@@ -536,7 +538,10 @@ export function whisperArgs(
     '--print-progress',
     // Suppress non-speech tokens ([Music] and friends).
     '-sns',
-  ].concat(vadArgs(env));
+    // Silero can merge separated Japanese speech islands into one 30-second
+    // Whisper cue, producing badly shifted subtitles and large apparent gaps.
+    // Native Whisper segmentation is more accurate for this Japanese-only path.
+  ].concat(language.toLowerCase() === 'ja' ? [] : vadArgs(env));
 }
 
 /**
@@ -553,6 +558,23 @@ export function chunkPlanOf(
     plan.push({ start, length: Math.min(chunkSeconds, duration - start) });
   }
   return plan;
+}
+
+/** Start with the chunk under the playhead, continue forward, then backfill. */
+export function prioritizedChunkPlanOf(
+  duration: number,
+  chunkSeconds: number,
+  priorityTime?: number,
+): { start: number, length: number }[] {
+  const plan = chunkPlanOf(duration, chunkSeconds);
+  if (priorityTime === undefined || !Number.isFinite(priorityTime) || plan.length < 2) return plan;
+  const clamped = Math.max(0, Math.min(duration, priorityTime));
+  const index = plan.findIndex((chunk, i) => {
+    const end = chunk.start + chunk.length;
+    return clamped >= chunk.start && (i === plan.length - 1 ? clamped <= end : clamped < end);
+  });
+  if (index <= 0) return plan;
+  return plan.slice(index).concat(plan.slice(0, index));
 }
 
 /** Add audio on both sides of a core chunk so speech crossing the cut is intact. */
@@ -719,7 +741,7 @@ export async function transcribeVideo(
   // the first visible state at 0 while duration detection is in progress.
   reportInitialProgress(reportProgress);
   const duration = await mediaDuration(options.duration, env.ffprobePath, videoPath);
-  const plan = chunkPlanOf(duration, chunkSeconds);
+  const plan = prioritizedChunkPlanOf(duration, chunkSeconds, options.priorityTime);
   const all: TimedText[] = [];
   let language = options.language === undefined ? '' : options.language;
 

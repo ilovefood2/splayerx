@@ -24,6 +24,7 @@ export {
   parseWhisperProgress,
   parseFfmpegProgress,
   chunkPlanOf,
+  prioritizedChunkPlanOf,
   extractionChunkOf,
   cuesOwnedByChunk,
   whisperArgs,
