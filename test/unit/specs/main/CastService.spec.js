@@ -6,7 +6,11 @@ vi.mock('../../../../src/main/helpers/cast/CastDiscovery', () => ({
   discoverWithKnown,
 }));
 
-import { CastService } from '../../../../src/main/helpers/cast/CastService';
+vi.mock('../../../../src/main/helpers/ffmpeg', () => ({
+  runMediaBinary: vi.fn(),
+}));
+
+import { CastService, canDirectCast } from '../../../../src/main/helpers/cast/CastService';
 
 describe('CastService discovery lifecycle', () => {
   beforeEach(() => {
@@ -44,5 +48,33 @@ describe('CastService discovery lifecycle', () => {
 
     expect(discoverWithKnown).toHaveBeenCalledTimes(2);
     expect(discoverWithKnown).toHaveBeenLastCalledWith(initial, undefined);
+  });
+});
+
+describe('Chromecast media compatibility', () => {
+  const h264 = { codec_type: 'video', codec_name: 'h264' };
+
+  it('keeps supported MP4 audio on the direct path', () => {
+    expect(canDirectCast('/media/movie.mp4', {
+      streams: [h264, { codec_type: 'audio', codec_name: 'aac' }],
+    })).to.equal(true);
+  });
+
+  it('does not direct-cast containers or audio codecs the receiver may drop', () => {
+    expect(canDirectCast('/media/movie.mkv', {
+      streams: [h264, { codec_type: 'audio', codec_name: 'aac' }],
+    })).to.equal(false);
+    expect(canDirectCast('/media/movie.mp4', {
+      streams: [h264, { codec_type: 'audio', codec_name: 'dts' }],
+    })).to.equal(false);
+  });
+
+  it('allows a supported WebM video/audio pair', () => {
+    expect(canDirectCast('/media/movie.webm', {
+      streams: [
+        { codec_type: 'video', codec_name: 'vp9' },
+        { codec_type: 'audio', codec_name: 'opus' },
+      ],
+    })).to.equal(true);
   });
 });

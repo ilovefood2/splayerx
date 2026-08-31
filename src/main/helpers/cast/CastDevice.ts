@@ -254,7 +254,13 @@ export class CastDevice extends EventEmitter {
   }
 
   public setVolume(level: number): void {
-    this.send(NS_RECEIVER, { type: 'SET_VOLUME', volume: { level }, requestId: this.requestId += 1 });
+    // SET_VOLUME does not necessarily clear a mute state left by the previous
+    // receiver session. Keep the TV's mute bit in sync with SPlayer's level.
+    this.send(NS_RECEIVER, {
+      type: 'SET_VOLUME',
+      volume: { level, muted: level <= 0 },
+      requestId: this.requestId += 1,
+    });
   }
 
   private stopHeartbeat(): void {

@@ -5,8 +5,8 @@
  * LAN (with range support, or the TV cannot seek) alongside a WebVTT track for
  * the AI subtitles, then points the device at those URLs.
  *
- * Direct play only: the Default Media Receiver decodes H.264/VP8/VP9 with
- * AAC/MP3/Opus. Anything else is refused rather than silently failing on the TV.
+ * Direct play is used for known-compatible files. Other supported containers
+ * and codecs are normalized to an MP4 with H.264/AAC before the TV fetches it.
  *
  * NOTE: no `?.`/`??` — webpack 4 cannot parse them.
  */
@@ -15,9 +15,10 @@ import http from 'http';
 import fs from 'fs';
 import os from 'os';
 import { EventEmitter } from 'events';
-import { extname, basename } from 'path';
+import { extname, basename, join } from 'path';
 import { CastDevice, CastMedia } from './CastDevice';
 import { discoverWithKnown, CastDeviceInfo } from './CastDiscovery';
+import { runMediaBinary } from '../ffmpeg';
 
 /** Containers the Default Media Receiver will accept. */
 const CONTENT_TYPES: { [ext: string]: string } = {
@@ -30,6 +31,122 @@ const CONTENT_TYPES: { [ext: string]: string } = {
 };
 
 export interface CastCue { start: number, end: number, text: string }
+
+interface CastProbeStream {
+  codec_type?: string;
+  codec_name?: string;
+}
+
+interface CastProbe {
+  streams?: CastProbeStream[];
+}
+
+interface CastSource {
+  filePath: string;
+  contentType: string;
+  extension: string;
+  cleanupDir?: string;
+}
+
+const DIRECT_VIDEO_CODECS = new Set(['h264', 'vp8', 'vp9']);
+const DIRECT_AUDIO_CODECS = new Set(['aac', 'mp3']);
+
+function codecOf(stream: CastProbeStream | undefined): string {
+  return stream && stream.codec_name ? stream.codec_name.toLowerCase() : '';
+}
+
+/**
+ * The Default Media Receiver accepts only a small subset of the codecs and
+ * containers that SPlayer can play locally. In particular, a video can start
+ * while a DTS/AC-3/TrueHD audio stream is silently discarded. Keep direct play
+ * for known-good combinations and normalize everything else to MP4/H.264/AAC.
+ */
+export function canDirectCast(filePath: string, probe: CastProbe): boolean {
+  const extension = extname(filePath).toLowerCase();
+  const streams = probe.streams || [];
+  const video = streams.find(stream => stream.codec_type === 'video');
+  const audio = streams.find(stream => stream.codec_type === 'audio');
+  const videoCodec = codecOf(video);
+  const audioCodec = codecOf(audio);
+  if (!video || !DIRECT_VIDEO_CODECS.has(videoCodec)) return false;
+
+  if (extension === '.webm') {
+    return (videoCodec === 'vp8' || videoCodec === 'vp9')
+      && (!audioCodec || audioCodec === 'opus' || audioCodec === 'vorbis');
+  }
+
+  const mp4Family = ['.mp4', '.m4v', '.mov'].includes(extension);
+  const isTransportStream = extension === '.ts';
+  if (!mp4Family && !isTransportStream) return false;
+  return !audioCodec || DIRECT_AUDIO_CODECS.has(audioCodec);
+}
+
+async function probeCastSource(filePath: string): Promise<CastProbe> {
+  const { stdout } = await runMediaBinary('ffprobe', [
+    '-v', 'error',
+    '-show_entries', 'stream=codec_type,codec_name',
+    '-of', 'json',
+    filePath,
+  ]);
+  return JSON.parse(stdout) as CastProbe;
+}
+
+async function removeCastDirectory(directory: string): Promise<void> {
+  try {
+    await fs.promises.rm(directory, { recursive: true, force: true });
+  } catch (error) {
+    // Cleanup must never hide the useful probe/transcode error.
+  }
+}
+
+async function prepareCastSource(filePath: string): Promise<CastSource> {
+  const originalContentType = contentTypeOf(filePath);
+  if (!originalContentType) {
+    throw new Error(`unsupported-container:${extname(filePath).slice(1) || '?'}`);
+  }
+
+  const probe = await probeCastSource(filePath);
+  if (canDirectCast(filePath, probe)) {
+    return {
+      filePath,
+      contentType: originalContentType,
+      extension: extname(filePath),
+    };
+  }
+
+  const directory = await fs.promises.mkdtemp(join(os.tmpdir(), 'splayer-cast-'));
+  const outputPath = join(directory, 'media.mp4');
+  const video = (probe.streams || []).find(stream => stream.codec_type === 'video');
+  const videoCodec = codecOf(video);
+  const args = [
+    '-y', '-v', 'error', '-i', filePath,
+    '-map', '0:v:0', '-map', '0:a:0?',
+  ];
+  if (videoCodec === 'h264') {
+    // Most of the work here is audio-only, so DTS/AC-3 files start quickly and
+    // do not needlessly lose the source video quality.
+    args.push('-c:v', 'copy');
+  } else {
+    args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p');
+  }
+  args.push(
+    '-c:a', 'aac', '-b:a', '192k', '-ac', '2',
+    '-movflags', '+faststart', outputPath,
+  );
+
+  try {
+    await runMediaBinary('ffmpeg', args);
+    return {
+      filePath: outputPath,
+      contentType: 'video/mp4',
+      extension: '.mp4',
+      cleanupDir: directory,
+    };
+  } catch (error) {
+    await removeCastDirectory(directory);
+    throw error;
+  }
+}
 
 function firstLanIp(): string | undefined {
   const interfaces = os.networkInterfaces();
@@ -90,6 +207,8 @@ export class CastService extends EventEmitter {
   private statusTimer?: NodeJS.Timeout;
 
   private statusBusy = false;
+
+  private castCleanupDir?: string;
 
   private lastStatus: CastStatus = {
     casting: false, currentTime: 0, duration: 0, paused: true,
@@ -206,19 +325,24 @@ export class CastService extends EventEmitter {
     currentTime = 0,
     volume = 1,
   ): Promise<void> {
-    const contentType = contentTypeOf(filePath);
-    if (!contentType) {
-      throw new Error(`unsupported-container:${extname(filePath).slice(1) || '?'}`);
-    }
     const ip = firstLanIp();
     if (!ip) throw new Error('no-lan-address');
 
-    this.filePath = filePath;
+    this.stopDevice();
+    this.releaseCastSource();
+    const source = await prepareCastSource(filePath);
+    this.castCleanupDir = source.cleanupDir;
+    this.filePath = source.filePath;
     this.vtt = cues.length ? cuesToVtt(cues) : '';
-    const port = await this.serve();
+    let port: number;
+    try {
+      port = await this.serve();
+    } catch (error) {
+      this.releaseCastSource();
+      throw error;
+    }
     const base = `http://${ip}:${port}`;
 
-    this.stopDevice();
     const device = new CastDevice(target.ip || target.host, target.port);
     this.device = device;
     // CastDevice reports socket failures through both its promise and its
@@ -227,6 +351,7 @@ export class CastService extends EventEmitter {
     device.on('close', () => {
       if (this.device !== device) return;
       this.device = undefined;
+      this.releaseCastSource();
       this.stopStatusPolling();
       this.publishStatus({
         casting: false,
@@ -236,8 +361,8 @@ export class CastService extends EventEmitter {
       });
     });
     const media: CastMedia = {
-      url: `${base}/video${extname(filePath)}`,
-      contentType,
+      url: `${base}/video${source.extension}`,
+      contentType: source.contentType,
       title: basename(filePath),
       currentTime,
     };
@@ -251,6 +376,7 @@ export class CastService extends EventEmitter {
       device.setVolume(Math.max(0, Math.min(1, volume)));
     } catch (error) {
       this.stopDevice();
+      this.releaseCastSource();
       throw error;
     }
     this.publishStatus({
@@ -324,9 +450,16 @@ export class CastService extends EventEmitter {
     this.stopStatusPolling();
   }
 
+  private releaseCastSource(): void {
+    const directory = this.castCleanupDir;
+    this.castCleanupDir = undefined;
+    if (directory) removeCastDirectory(directory);
+  }
+
   /** Stop casting and release the port. */
   public stop(): void {
     this.stopDevice();
+    this.releaseCastSource();
     if (this.server) {
       try { this.server.close(); } catch (e) { /* not listening */ }
       this.server = undefined;
