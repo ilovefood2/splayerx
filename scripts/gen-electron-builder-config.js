@@ -181,6 +181,26 @@ if (fs.existsSync(path.join(llamaBundleDir, 'llama-server'))) {
   );
 }
 
+const reazonSpeechBundleDir = path.join(__dirname, '../build/reazonspeech');
+if (
+  fs.existsSync(path.join(reazonSpeechBundleDir, 'sherpa-onnx-offline'))
+  && fs.existsSync(
+    path.join(reazonSpeechBundleDir, 'libonnxruntime.1.17.1.dylib'),
+  )
+) {
+  config.extraResources.push({
+    from: 'build/reazonspeech',
+    to: 'reazonspeech',
+    filter: ['**/*'],
+  });
+} else {
+  // eslint-disable-next-line no-console
+  console.warn(
+    'gen-electron-builder-config: build/reazonspeech not found — '
+    + 'run scripts/bundle-reazonspeech.sh to bundle ReazonSpeech inference.',
+  );
+}
+
 const json = JSON.stringify(config, null, 2);
 fs.writeFileSync(path.join(__dirname, '../electron-builder.json'), json, {
   encoding: 'utf-8',

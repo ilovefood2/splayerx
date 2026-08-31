@@ -44,6 +44,28 @@ export type {
   DownloadModelOptions,
 } from './transcribe';
 export {
+  REAZON_SPEECH_MODEL_FILES,
+  REAZON_SPEECH_TOTAL_BYTES,
+  REAZON_SPEECH_CORE_SECONDS,
+  REAZON_SPEECH_OVERLAP_SECONDS,
+  reazonSpeechModelPaths,
+  ensureReazonSpeechModel,
+  reazonSpeechCliArgs,
+  parseReazonSpeechStdout,
+  stitchReazonChunks,
+  cueizeReazonWords,
+  reazonSpeechChunkPlanOf,
+  transcribeVideoWithReazonSpeech,
+} from './reazonSpeech';
+export type {
+  ReazonSpeechModelPaths,
+  ReazonSpeechDownloadProgress,
+  ReazonSpeechToken,
+  ReazonSpeechChunk,
+  ReazonSpeechTranscribeEnvironment,
+  ReazonSpeechTranscribeOptions,
+} from './reazonSpeech';
+export {
   LOCAL_TUNING,
   isLocalhostUrl,
   resolveAIProvider,

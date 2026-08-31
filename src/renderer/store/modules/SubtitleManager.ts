@@ -31,11 +31,12 @@ import {
   registerAITranslation, makeAITranslationKey, clearAllAITranslations,
   appendAITranslationCues, getAITranslator, resolveAIProvider, configFor,
   checkTranscribeEnvironment, transcribeVideo, downloadModel,
+  ensureReazonSpeechModel, transcribeVideoWithReazonSpeech,
   ensureManagedModelServer, stopManagedModelServer,
   managedModelById,
   AIProviderResolution, AIProviderTuning, AIProviderPrefs, AITranslatorConfig,
   RealtimeTranslatorOptions, TimedText, BundledPaths, TranscribeEnvironment,
-  ManagedModelPaths, ManagedModelProgress,
+  ManagedModelPaths, ManagedModelProgress, ReazonSpeechModelPaths,
 } from '@/services/subtitle/ai';
 import { generateHints, calculatedName } from '@/libs/utils';
 import { log } from '@/libs/Log';
@@ -1188,18 +1189,10 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     );
     return added;
   },
-  /**
-   * Generate a subtitle from the video's own audio with whisper.cpp, then run it
-   * through the normal AI translation so it comes out in the target language.
-   *
-   * Transcription is minutes of GPU work, so it is only ever started by an
-   * explicit menu command, never automatically.
-   */
+  /** Generate a local source subtitle, then pass it to the normal translator. */
   async [a.transcribeAndTranslate]({ state, getters, dispatch }, { targetCode }) {
     const { originSrc } = getters;
     if (!originSrc) return undefined;
-    // The packaged app ships whisper-cli + ffmpeg in Resources/; prefer those so
-    // a fresh Mac needs nothing installed. In dev we fall back to Homebrew.
     const bundled: BundledPaths = remote.app.isPackaged ? {
       binDir: join(process.resourcesPath, 'bin'),
       whisperDir: join(process.resourcesPath, 'whisper'),
@@ -1207,113 +1200,164 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     const userData = remote.app.getPath('userData');
     const home = remote.app.getPath('home');
     const probe = () => checkTranscribeEnvironment(userData, home, bundled);
+    const baseEnv = probe();
+    const prefs = aiPrefsOf(getters);
+    const usesManagedModel = prefs.aiTranslateProvider === 'local'
+      || ((!prefs.aiTranslateProvider || prefs.aiTranslateProvider === 'auto')
+        && !prefs.aiTranslateApiKey);
+    const fixedSourceLanguage = usesManagedModel
+      ? managedModelById(prefs.aiTranslateManagedModel).sourceLanguageCode : undefined;
+    const spokenLanguage = whisperLanguageOf(
+      getters.aiTranscribeLanguage || fixedSourceLanguage,
+    );
+    const useReazonSpeech = spokenLanguage === 'ja' && process.arch === 'arm64';
+    const referenceHash = `${useReazonSpeech ? 'reazon' : 'whisper'}-${state.mediaHash}`;
+    let whisperEnv: TranscribeEnvironment | undefined;
+    let reazonModelPaths: ReazonSpeechModelPaths | undefined;
+    let reazonRuntimePath = '';
 
-    // With whisper + ffmpeg bundled, the only thing a fresh install lacks is the
-    // model — fetch it once (with progress) instead of the command line.
-    const env = await ensureTranscribeModel(probe(), probe, state.mediaHash);
-    if (!env) return undefined; // download failed or already in progress
-    if (!env.ok) {
-      // Name exactly what is missing: "it didn't work" sends people hunting.
-      addBubble(AI_TRANSLATE_NO_WHISPER, { missing: env.missing.join(', ') });
-      log.warn('SubtitleManager', `AI transcribe: missing ${env.missing.join(', ')}`);
-      return undefined;
+    if (useReazonSpeech) {
+      reazonRuntimePath = remote.app.isPackaged
+        ? join(process.resourcesPath, 'reazonspeech', 'sherpa-onnx-offline')
+        : join(remote.app.getAppPath(), 'build', 'reazonspeech', 'sherpa-onnx-offline');
+      if (!existsSync(reazonRuntimePath)
+        || !baseEnv.ffmpegPath || !existsSync(baseEnv.ffmpegPath)
+        || !baseEnv.ffprobePath || !existsSync(baseEnv.ffprobePath)) {
+        addBubble(AI_TRANSLATE_NO_WHISPER, { missing: 'ReazonSpeech runtime or ffmpeg' });
+        log.warn('SubtitleManager', 'AI transcribe: ReazonSpeech runtime unavailable');
+        return undefined;
+      }
+      if (transcribingMediaHash === state.mediaHash) return undefined;
+      const downloadMediaHash = state.mediaHash;
+      transcribingMediaHash = downloadMediaHash;
+      const downloadAbort = new AbortController();
+      transcribeAbort = downloadAbort;
+      showAIProgress(progressText('errorFile.aiProgress.downloading', { percent: 0 }));
+      try {
+        reazonModelPaths = await ensureReazonSpeechModel({
+          modelDir: join(userData, 'reazonspeech'),
+          signal: downloadAbort.signal,
+          onProgress: ({ received, total }) => {
+            const percent = total > 0 ? Math.round((received / total) * 100) : 0;
+            updateAIProgress(progressText('errorFile.aiProgress.downloading', { percent }));
+          },
+        });
+      } catch (error) {
+        if (downloadAbort.signal.aborted) return undefined;
+        endAIProgress();
+        addBubble(AI_TRANSLATE_NO_WHISPER, { missing: 'ReazonSpeech model (download failed)' });
+        log.warn('SubtitleManager', `AI transcribe: ReazonSpeech model unavailable — ${error}`);
+        return undefined;
+      } finally {
+        if (transcribingMediaHash === downloadMediaHash) transcribingMediaHash = '';
+        if (transcribeAbort === downloadAbort) transcribeAbort = undefined;
+      }
+    } else {
+      whisperEnv = await ensureTranscribeModel(baseEnv, probe, state.mediaHash);
+      if (!whisperEnv) return undefined;
+      if (!whisperEnv.ok) {
+        addBubble(AI_TRANSLATE_NO_WHISPER, { missing: whisperEnv.missing.join(', ') });
+        log.warn('SubtitleManager', `AI transcribe: missing ${whisperEnv.missing.join(', ')}`);
+        return undefined;
+      }
     }
-    if (transcribingMediaHash === state.mediaHash) return undefined; // already running
+
+    if (transcribingMediaHash === state.mediaHash) return undefined;
     const mediaHash = state.mediaHash;
     transcribingMediaHash = mediaHash;
-    // Two phases to wait through, and nothing on screen during either.
     showAIProgress(progressText('errorFile.aiProgress.transcribing', { percent: 0 }));
-    transcribeAbort = new AbortController();
-    const { signal } = transcribeAbort;
+    const transcriptionAbort = new AbortController();
+    transcribeAbort = transcriptionAbort;
+    const { signal } = transcriptionAbort;
     let added: ISubtitleControlListItem | undefined;
     let key = '';
     let trackCreationFailed = false;
-    try {
-      const { cues } = await transcribeVideo(originSrc, env, {
-        tmpDir: remote.app.getPath('temp'),
-        // The player already opened the source, so reuse its duration instead
-        // of probing a network share or URL a second time before progress starts.
-        duration: getters.duration,
-        // If playback has already started or the viewer sought ahead, generate
-        // subtitles around the playhead first instead of spending minutes at 0s.
-        priorityTime: videodata.time,
-        language: whisperLanguageOf(getters.aiTranscribeLanguage),
-        signal,
-        onProgress: (percent) => {
+    const transcribeOptions = {
+      tmpDir: remote.app.getPath('temp'),
+      duration: getters.duration,
+      priorityTime: videodata.time,
+      language: spokenLanguage,
+      signal,
+      onProgress: (percent: number) => {
+        if (signal.aborted || state.mediaHash !== mediaHash) return;
+        if (aiProgressTimer === undefined) {
+          updateAIProgress(progressText('errorFile.aiProgress.transcribing', { percent }));
+        }
+      },
+      onCues: async (chunk: TimedText[], info: {
+        language: string, done: number, total: number,
+      }) => {
+        if (signal.aborted || state.mediaHash !== mediaHash) return;
+        if (aiProgressTimer === undefined) {
+          updateAIProgress(progressText('errorFile.aiProgress.transcribing', {
+            percent: Math.round((info.done / info.total) * 100),
+          }));
+        }
+        if (!chunk.length) return;
+        if (added && key) {
+          appendAITranslationCues(key, chunk);
+          return;
+        }
+        if (trackCreationFailed) return;
+        try {
+          const entity = await dispatch(a.addTranscribedSubtitle, {
+            targetCode, language: info.language, cues: chunk, mediaHash, referenceHash,
+          });
           if (signal.aborted || state.mediaHash !== mediaHash) return;
-          if (aiProgressTimer === undefined) {
-            updateAIProgress(progressText('errorFile.aiProgress.transcribing', { percent }));
-          }
-        },
-        // Each chunk is shown as soon as it lands: whisper runs far faster than
-        // playback, so the viewer starts watching in seconds instead of waiting
-        // for a three-hour file to finish.
-        onCues: async (chunk, info) => {
-          if (signal.aborted || state.mediaHash !== mediaHash) return;
-          // Report transcription progress even for a silent chunk, otherwise a
-          // long musical opening looks like a hang.
-          if (aiProgressTimer === undefined) {
-            updateAIProgress(progressText('errorFile.aiProgress.transcribing', {
-              percent: Math.round((info.done / info.total) * 100),
-            }));
-          }
-          if (!chunk.length) return;
-          if (added && key) {
-            appendAITranslationCues(key, chunk);
+          added = entity;
+          if (!entity) {
+            trackCreationFailed = true;
             return;
           }
-          if (trackCreationFailed) return;
-          try {
-            const entity = await dispatch(a.addTranscribedSubtitle, {
-              targetCode, language: info.language, cues: chunk, mediaHash,
-            });
-            if (signal.aborted || state.mediaHash !== mediaHash) return;
-            added = entity;
-            if (!entity) {
-              trackCreationFailed = true;
-              return;
-            }
-            key = makeAITranslationKey(`whisper-${mediaHash}`, targetCode);
-            // Speech is found; from here the wait is the translation.
-            trackAIProgress(key, (done, total) => progressText(
-              'errorFile.aiProgress.translating', { done, total },
-            ));
-          } catch (error) {
-            trackCreationFailed = true;
-            log.warn('SubtitleManager', error);
-          }
-        },
-      });
+          key = makeAITranslationKey(referenceHash, targetCode);
+          trackAIProgress(key, (done, total) => progressText(
+            'errorFile.aiProgress.translating', { done, total },
+          ));
+        } catch (error) {
+          trackCreationFailed = true;
+          log.warn('SubtitleManager', error);
+        }
+      },
+    };
+
+    try {
+      const result = useReazonSpeech
+        ? await transcribeVideoWithReazonSpeech(originSrc, {
+          runtimePath: reazonRuntimePath,
+          ffmpegPath: baseEnv.ffmpegPath as string,
+          ffprobePath: baseEnv.ffprobePath as string,
+          modelPaths: reazonModelPaths as ReazonSpeechModelPaths,
+        }, transcribeOptions)
+        : await transcribeVideo(
+          originSrc, whisperEnv as TranscribeEnvironment, transcribeOptions,
+        );
       if (signal.aborted || state.mediaHash !== mediaHash) return undefined;
-      if (!cues.length) {
+      if (!result.cues.length) {
         endAIProgress();
         addBubble(AI_TRANSCRIBE_NO_SPEECH);
         return undefined;
       }
       return added;
     } catch (error) {
-      // An abort is us stopping it on purpose, not a failure to report.
       if (signal.aborted) return undefined;
       log.warn('SubtitleManager', error);
       endAIProgress();
       addBubble(AI_TRANSCRIBE_FAILED);
       return undefined;
     } finally {
-      transcribingMediaHash = '';
-      transcribeAbort = undefined;
+      if (transcribingMediaHash === mediaHash) transcribingMediaHash = '';
+      if (transcribeAbort === transcriptionAbort) transcribeAbort = undefined;
     }
   },
-  /**
-   * Register whisper's cues as the source for an AI-translated track, so the
-   * existing translator, cache and cue rendering are reused as-is.
-   */
+  /** Register locally recognized cues as the source for the translated track. */
   async [a.addTranscribedSubtitle]({ state, getters, dispatch }, {
-    targetCode, language, cues, mediaHash,
+    targetCode, language, cues, mediaHash, referenceHash,
   }: {
     targetCode: LanguageCode,
     language: string,
     cues: TimedText[],
     mediaHash: string,
+    referenceHash: string,
   }) {
     if (state.mediaHash !== mediaHash) return undefined;
     const sourceCode = normalizeCode(language);
@@ -1327,7 +1371,6 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     if (state.mediaHash !== mediaHash) return undefined;
     // A distinct reference hash per media, so a transcript is never confused
     // with a translation of a real subtitle track.
-    const referenceHash = `whisper-${mediaHash}`;
     registerAITranslation(
       makeAITranslationKey(referenceHash, targetCode),
       cues,

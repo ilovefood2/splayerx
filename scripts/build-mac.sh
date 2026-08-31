@@ -4,7 +4,7 @@ set -e
 [[ "$1" = mas* ]] && MAS=1 || MAS=0
 ARCH="${2:-arm64}"
 
-npm run prepare:mac
+SPLAYER_BUILD_ARCH="$ARCH" npm run prepare:mac
 node .electron-vue/build.js
 
 if ((MAS)) ; then

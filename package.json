@@ -2,7 +2,7 @@
   "name": "splayer",
   "productName": "splayer",
   "homepage": "https://splayer.org",
-  "version": "4.11.120",
+  "version": "4.11.121",
   "author": "tomasen <tomasen@gmail.com>",
   "description": "a media player",
   "license": "GPL-3.0-or-later",
@@ -36,7 +36,7 @@
     "unit:watch": "vitest",
     "unit:coverage": "vitest run --coverage",
     "postinstall": "node ./scripts/post-install.js",
-    "prepare:mac": "scripts/bundle-llama.sh && scripts/bundle-whisper.sh && node node_modules/ffmpeg-ffprobe-static/install.js && node scripts/gen-electron-builder-config.js",
+    "prepare:mac": "scripts/bundle-llama.sh && scripts/bundle-whisper.sh && scripts/bundle-reazonspeech.sh && node node_modules/ffmpeg-ffprobe-static/install.js && node scripts/gen-electron-builder-config.js",
     "pack:mac": "npm run pack && npm run prepare:mac && cross-env USE_HARD_LINKS=false CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir --arm64 -p never -c.mac.hardenedRuntime=false"
   },
   "_moduleAliases": {

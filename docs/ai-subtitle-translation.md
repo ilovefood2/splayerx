@@ -138,13 +138,11 @@ Unit tests: `test/unit/specs/services/subtitle/aiTranslator.spec.ts`.
 
 ## Scope / limitations
 
-- When no text subtitle exists, speech recognition now prefers full Whisper
-  `large-v3` for accuracy, while an installed turbo model remains an offline
-  fallback. Japanese uses Whisper's native segmentation because external VAD can
-  merge separated dialogue into one long, mistimed cue. The chunk under the
-  playhead is recognized first. Adjacent chunks include three seconds of audio
-  on both sides, while each cue belongs to the core chunk where it starts, so
-  small timestamp shifts between independent Whisper runs do not duplicate it.
+- When no text subtitle exists and the spoken language is Japanese, SPlayer uses
+  the local Apache-2.0 ReazonSpeech K2 v2 int8-fp32 model (about 169 MB). Its 24-second
+  windows carry two seconds of context on both sides; exact overlap is removed,
+  and differing overlap is joined only at a Japanese word boundary. Other and
+  automatically detected languages continue to use Whisper `large-v3`.
 - Whisper runs in native 30-second chunks so playback cannot outrun the first
   120-second transcription. Every ASR cue is queued for Chinese translation as
   soon as its chunk completes, even when that cue has already moved behind the
@@ -153,9 +151,11 @@ Unit tests: `test/unit/specs/services/subtitle/aiTranslator.spec.ts`.
   a slow first chunk does not leave the visible sentence behind older backlog.
   A transient local-model timeout or alignment failure requeues that ASR batch
   and retries after backoff instead of permanently stranding its Japanese cues.
+  ReazonSpeech starts with the playhead window and emits each stitched,
+  word-aligned window as soon as its neighboring context is recognized.
 - The realtime path normally translates an **existing** subtitle track. When no
   text track exists, an explicit *AI Translate* command runs the bundled local
-  Whisper ASR first; automatic translation never starts that expensive audio
+  local ASR first; automatic translation never starts that expensive audio
   transcription in the background.
 - Quality and latency depend on the chosen model. Small/fast models
   (`gpt-4o-mini` and equivalents) are recommended for realtime use.
