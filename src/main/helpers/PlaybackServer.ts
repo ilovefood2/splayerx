@@ -46,6 +46,9 @@ interface SharedMedia {
   filePath: string,
   prefix: Promise<Buffer>,
   virtualMedia: Promise<VirtualMedia | undefined>,
+  // The file size never changes while it's playing. Cache it so we don't stat
+  // the file — a network round-trip on a mounted share — on every range request.
+  size?: number,
   compatibility?: {
     duration: number,
     ffmpegPath: string,
@@ -480,9 +483,9 @@ export class PlaybackServer {
     }
 
     try {
-      const stat = await fs.promises.stat(media.filePath);
+      if (media.size === undefined) media.size = (await fs.promises.stat(media.filePath)).size;
       const virtualMedia = await media.virtualMedia;
-      const mediaSize = virtualMedia ? virtualMedia.size : stat.size;
+      const mediaSize = virtualMedia ? virtualMedia.size : media.size;
       const range = parseByteRange(request.headers.range, mediaSize);
       if (range === null) {
         response.writeHead(416, { 'Content-Range': `bytes */${mediaSize}` });

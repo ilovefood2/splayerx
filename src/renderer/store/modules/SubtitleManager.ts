@@ -8,7 +8,7 @@ import {
 } from 'lodash';
 import { ipcRenderer, remote, SaveDialogReturnValue } from 'electron';
 import { extname, basename, join } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, promises as fsPromises } from 'fs';
 import { rendererEventBus } from '@/services/globalEvents';
 import store from '@/store';
 import { SubtitleManager as m } from '@/store/mutationTypes';
@@ -839,14 +839,23 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         .then(() => dispatch(a.deleteSubtitlesByUuid, result.delete.map(({ id }) => id)));
     });
   },
-  [a.checkLocalSubtitles]({ state, dispatch }) {
-    const localInvalidSubtitleIds = Object.keys(state.allSubtitles)
+  async [a.checkLocalSubtitles]({ state, dispatch }) {
+    // access() rather than existsSync: a Local subtitle can live on the same
+    // network mount as the video, and a synchronous check would block the
+    // renderer's main thread (freezing the whole UI) if the mount is laggy.
+    const checked = await Promise.all(Object.keys(state.allSubtitles)
       .filter(id => state.allSubtitles[id])
-      .filter((id) => {
-        const subtitle = state.allSubtitles[id];
-        const source = subtitle.displaySource;
-        return source && source.type === Type.Local && !existsSync(source.source as string);
-      });
+      .map(async (id) => {
+        const source = state.allSubtitles[id].displaySource;
+        if (!source || source.type !== Type.Local) return undefined;
+        try {
+          await fsPromises.access(source.source as string);
+          return undefined;
+        } catch (error) {
+          return id;
+        }
+      }));
+    const localInvalidSubtitleIds = checked.filter(id => id !== undefined);
     if (localInvalidSubtitleIds.length) {
       dispatch(a.deleteSubtitlesByUuid, localInvalidSubtitleIds)
         .then(() => addBubble(LOCAL_SUBTITLE_REMOVED));

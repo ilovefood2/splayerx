@@ -44,6 +44,71 @@ describe('VideoCanvas window cleanup', () => {
   });
 });
 
+describe('VideoCanvas previous-folder navigation', () => {
+  it('uses the folder scan when playing a folder video', async () => {
+    const openPreviousFolderVideo = vi.fn().mockResolvedValue();
+    const context = {
+      switchingLock: false,
+      isFolderList: true,
+      openPreviousFolderVideo,
+    };
+
+    await VideoCanvas.methods.playPreviousVideo.call(context);
+
+    expect(openPreviousFolderVideo).toHaveBeenCalledOnce();
+  });
+
+  it('opens the preceding file from the refreshed folder list', async () => {
+    const list = ['/videos/one.mp4', '/videos/two.mp4', '/videos/three.mp4'];
+    const openFolderVideo = vi.fn().mockResolvedValue();
+    const context = {
+      originSrc: list[1],
+      playlistLoop: false,
+      getCurrentFolderVideos: vi.fn().mockResolvedValue(list),
+      openFolderVideo,
+      $bus: { $emit: vi.fn() },
+    };
+
+    await VideoCanvas.methods.openPreviousFolderVideo.call(context);
+
+    expect(openFolderVideo).toHaveBeenCalledWith(list[0], list);
+    expect(context.$bus.$emit).not.toHaveBeenCalled();
+  });
+
+  it('rewinds at the first file unless folder looping is enabled', async () => {
+    const list = ['/videos/one.mp4', '/videos/two.mp4'];
+    const context = {
+      originSrc: list[0],
+      playlistLoop: false,
+      getCurrentFolderVideos: vi.fn().mockResolvedValue(list),
+      openFolderVideo: vi.fn(),
+      $bus: { $emit: vi.fn() },
+    };
+
+    await VideoCanvas.methods.openPreviousFolderVideo.call(context);
+
+    expect(context.openFolderVideo).not.toHaveBeenCalled();
+    expect(context.$bus.$emit).toHaveBeenCalledWith('seek', 0);
+  });
+
+  it('wraps to the last folder file when folder looping is enabled', async () => {
+    const list = ['/videos/one.mp4', '/videos/two.mp4', '/videos/three.mp4'];
+    const openFolderVideo = vi.fn().mockResolvedValue();
+    const context = {
+      originSrc: list[0],
+      playlistLoop: true,
+      getCurrentFolderVideos: vi.fn().mockResolvedValue(list),
+      openFolderVideo,
+      $bus: { $emit: vi.fn() },
+    };
+
+    await VideoCanvas.methods.openPreviousFolderVideo.call(context);
+
+    expect(openFolderVideo).toHaveBeenCalledWith(list[2], list);
+    expect(context.$bus.$emit).not.toHaveBeenCalled();
+  });
+});
+
 describe('VideoCanvas image folder autoplay', () => {
   afterEach(() => {
     vi.useRealTimers();

@@ -62,6 +62,10 @@
           class="mask"
         />
       </div>
+      <NetworkLocations
+        compact
+        :on-open="openNetworkLocation"
+      />
     </div>
     <div
       :style="{
@@ -131,6 +135,7 @@ import { channelDetails } from '@/interfaces/IBrowsingChannelManager';
 import asyncStorage from '@/helpers/asyncStorage';
 import Icon from '@/components/BaseIconContainer.vue';
 import SidebarIcon from '@/components/SidebarIcon.vue';
+import NetworkLocations from '@/components/LandingView/NetworkLocations.vue';
 import BrowsingChannelManager from '@/services/browsing/BrowsingChannelManager';
 import { log } from '@/libs/Log';
 import BrowsingChannelMenu from '@/services/browsing/BrowsingChannelMenu';
@@ -142,6 +147,7 @@ export default {
   components: {
     Icon,
     SidebarIcon,
+    NetworkLocations,
   },
   props: {
     currentUrl: {
@@ -163,6 +169,10 @@ export default {
       channelInfo: {},
       openUrlTimer: 0,
       isStreaming: false,
+      ipcListeners: [],
+      busListeners: [],
+      scrollHandler: null,
+      losslessStreamingTimer: 0,
     };
   },
   computed: {
@@ -265,32 +275,33 @@ export default {
   mounted() {
     this.topMask = false;
     this.bottomMask = this.maxHeight < this.totalHeight;
-    this.$refs.iconBox.addEventListener('scroll', () => {
+    this.scrollHandler = () => {
       const scrollTop = this.$refs.iconBox.scrollTop;
       this.topMask = scrollTop !== 0;
       this.bottomMask = scrollTop + this.maxHeight < this.totalHeight;
-    });
-    this.$electron.ipcRenderer.on('send-url', (event: Event, urlInfo: { url: string, username: string, password: string }) => {
+    };
+    this.$refs.iconBox.addEventListener('scroll', this.scrollHandler);
+    this.registerIpcListener('send-url', (event: Event, urlInfo: { url: string, username: string, password: string }) => {
       this.handleUrl(urlInfo);
     });
-    this.$bus.$on('available-channel-update', () => {
+    this.registerBusListener('available-channel-update', () => {
       this.channelsDetail = BrowsingChannelManager.getAllAvailableChannels();
       const scrollTop = this.$refs.iconBox.scrollTop;
       this.topMask = this.maxHeight >= this.totalHeight ? false : scrollTop !== 0;
       this.bottomMask = scrollTop + this.maxHeight < this.totalHeight;
     });
-    this.$bus.$on('delete-channel', (channel: string) => {
+    this.registerBusListener('delete-channel', (channel: string) => {
       BrowsingChannelManager.deleteCustomizedByChannel(channel);
       this.$electron.ipcRenderer.send('clear-browsers-by-channel', channel);
       this.channelsDetail = BrowsingChannelManager.getAllAvailableChannels();
     });
-    this.$bus.$on('add-temporary-site', async (url: string) => {
+    this.registerBusListener('add-temporary-site', async (url: string) => {
       await this.handleUrl({ url, username: '', password: '' });
     });
-    this.$electron.ipcRenderer.on('add-temporary-site', async (e: Event, args: BrowsingHistoryItem) => {
+    this.registerIpcListener('add-temporary-site', async (e: Event, args: BrowsingHistoryItem) => {
       await this.handleUrl({ url: args.url, username: '', password: '' });
     });
-    this.$electron.ipcRenderer.on('store-temporary-channel', (e: Event, item: channelDetails) => {
+    this.registerIpcListener('store-temporary-channel', (e: Event, item: channelDetails) => {
       BrowsingChannelManager.storeTemporaryChannel(item, this.temporaryChannels.length - 1)
         .then((info: { channel: string, category: string }) => {
           this.temporaryChannels = BrowsingChannelManager.getTemporaryChannels();
@@ -301,7 +312,7 @@ export default {
           log.info('temporary to customized', info.channel);
         });
     });
-    this.$electron.ipcRenderer.on('remove-channel', async (e: Event, channel: string) => {
+    this.registerIpcListener('remove-channel', async (e: Event, channel: string) => {
       if (this.currentChannel === channel) {
         if (this.channelsDetail.length <= 2) {
           if (this.currentRouteName === 'browsing-view') {
@@ -341,18 +352,33 @@ export default {
     this.onLosslessStreamingInfoUpdate = (evt: unknown, info: { enabled: boolean }) => {
       this.isStreaming = info && info.enabled;
     };
-    this.$electron.ipcRenderer.on('losslessStreaming-info-update', this.onLosslessStreamingInfoUpdate);
+    this.registerIpcListener(
+      'losslessStreaming-info-update', this.onLosslessStreamingInfoUpdate,
+    );
     if (!this.isStreaming) {
-      this.$electron.ipcRenderer.once('losslessStreaming.getInfo-reply', (evt: unknown, info: { enabled: boolean }) => {
+      this.registerIpcListener('losslessStreaming.getInfo-reply', (evt: unknown, info: { enabled: boolean }) => {
         this.isStreaming = info && info.enabled;
-      });
-      setTimeout(() => {
+      }, true);
+      this.losslessStreamingTimer = setTimeout(() => {
         this.$electron.ipcRenderer.send('losslessStreaming.getInfo');
       }, 100);
     }
   },
-  unmounted() {
-    this.$electron.ipcRenderer.off('losslessStreaming-info-update', this.onLosslessStreamingInfoUpdate);
+  beforeUnmount() {
+    this.ipcListeners.forEach(({ channel, listener }) => {
+      this.$electron.ipcRenderer.off(channel, listener);
+    });
+    this.ipcListeners = [];
+    this.busListeners.forEach(({ eventName, listener }) => {
+      this.$bus.$off(eventName, listener);
+    });
+    this.busListeners = [];
+    if (this.scrollHandler && this.$refs.iconBox) {
+      this.$refs.iconBox.removeEventListener('scroll', this.scrollHandler);
+    }
+    this.scrollHandler = null;
+    clearTimeout(this.losslessStreamingTimer);
+    clearTimeout(this.openUrlTimer);
   },
   methods: {
     ...mapActions({
@@ -361,6 +387,18 @@ export default {
       updateCurrentCategory: browsingActions.UPDATE_CURRENT_CATEGORY,
       updateGettingTemporaryViewInfo: browsingActions.UPDATE_GETTING_TEMPORARY_VIEW_INFO,
     }),
+    registerIpcListener(
+      channel: string,
+      listener: (...args: any[]) => void, // eslint-disable-line @typescript-eslint/no-explicit-any
+      once = false,
+    ) {
+      this.$electron.ipcRenderer[once ? 'once' : 'on'](channel, listener);
+      this.ipcListeners.push({ channel, listener });
+    },
+    registerBusListener(eventName: string, listener: (...args: any[]) => void) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      this.$bus.$on(eventName, listener);
+      this.busListeners.push({ eventName, listener });
+    },
     handleChannelMenu(index: number, info: channelDetails) {
       if (this.isDarwin) {
         if (index >= this.temporaryChannels.length) {
@@ -467,6 +505,14 @@ export default {
     backToLanding() {
       this.updateCurrentPage('');
       this.$router.push({ name: 'landing-view' });
+    },
+    // Open a saved network folder from the sidebar. openFolder comes from the
+    // global helpers mixin (main.ts app.mixin(helpers)) and navigates to the
+    // player itself, so this works from the landing and browsing views alike.
+    openNetworkLocation(locationPath: string) {
+      this.$store.commit('source', '');
+      this.$electron.remote.app.addRecentDocument(locationPath);
+      return this.openFolder(locationPath);
     },
     openHomePage() {
       this.updateCurrentPage('homePage');

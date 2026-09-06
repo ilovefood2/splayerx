@@ -1,5 +1,10 @@
 import { readFileSync } from 'fs';
 import {
+  mkdtemp, rm, writeFile,
+} from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import {
   calculateTextSize,
   generateShortCutImageBy,
   mediaQuickHash,
@@ -53,6 +58,19 @@ describe('libs utils', () => {
     expect(await mediaQuickHash.try('./test/assets/test.avi')).to.be.equal(expectedResult);
     expect(await mediaQuickHash.try('./test/assets/test_not_exist.avi')).to.be.null;
   });
+  it('should hash files smaller than a hash chunk without a negative read offset', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'splayer-hash-'));
+    const filePath = join(directory, 'short.mp4');
+    try {
+      await writeFile(filePath, Buffer.from('short media'));
+      const hash = await mediaQuickHash(filePath);
+      const chunks = hash.split('-');
+      expect(chunks).to.have.length(4);
+      expect(new Set(chunks).size).to.equal(1);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   describe('method - timecodeFromSeconds', () => {
     it('time < 60s', () => {
       const result = timecodeFromSeconds(59);
@@ -69,6 +87,15 @@ describe('libs utils', () => {
     it('time > 1hour', () => {
       const result = timecodeFromSeconds(3610);
       expect(result).to.equal('1:00:10');
+    });
+    it('does not wrap after 24 hours', () => {
+      expect(timecodeFromSeconds(90000)).to.equal('25:00:00');
+      expect(timecodeFromSeconds(90000, true)).to.equal('25:00:00');
+    });
+    it('falls back to zero for non-finite values', () => {
+      expect(timecodeFromSeconds(NaN)).to.equal('00:00');
+      expect(timecodeFromSeconds(undefined)).to.equal('00:00');
+      expect(timecodeFromSeconds(Infinity)).to.equal('00:00');
     });
   });
 

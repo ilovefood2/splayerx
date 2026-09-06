@@ -62,6 +62,12 @@
         }
       },
       {
+        "id": "file.deleteCurrent",
+        "label": "msg.file.deleteCurrent",
+        "accelerator": "Command+Backspace",
+        "enabled": false
+      },
+      {
         "id": "menubar.separator"
       },
       {
@@ -209,13 +215,15 @@
       {
         "id": "playback.previousVideo",
         "label": "msg.playback.previousVideo",
-        "accelerator": "CmdOrCtrl+Left",
+        "accelerator": "Command+Left",
+        "winAccelerator": "Ctrl+Left",
         "enabled": true
       },
       {
         "id": "playback.nextVideo",
         "label": "msg.playback.nextVideo",
-        "accelerator": "CmdOrCtrl+Right",
+        "accelerator": "Command+Right",
+        "winAccelerator": "Ctrl+Right",
         "enabled": true
       },
       {

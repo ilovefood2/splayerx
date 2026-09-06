@@ -15,6 +15,22 @@ describe('NetworkLocations', () => {
     sandbox.restore();
   });
 
+  it('keeps the controls clickable inside the draggable macOS window', async () => {
+    sandbox.stub(asyncStorage, 'get').resolves({});
+    const wrapper = shallowMount(NetworkLocations, {
+      props: { onOpen: sandbox.stub().resolves() },
+      global: {
+        mocks: {
+          $t: key => key,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.get('.network-locations').classes()).to.include('no-drag');
+    wrapper.unmount();
+  });
+
   it('loads a favorite and opens it from the landing page', async () => {
     sandbox.stub(asyncStorage, 'get').resolves({
       locations: [{ name: 'TV Shows', path: '/Volumes/TV Shows' }],

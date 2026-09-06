@@ -86,6 +86,32 @@
       @update:volume-state="updateVolumeState"
     />
     <div
+      v-if="hasVisualMedia"
+      v-show="!isEditable && !isProfessional && showAllWidgets"
+      :title="$t('msg.playback.brightness')"
+      @mousedown.stop
+      @mouseup.stop
+      @click.stop
+      @dblclick.stop
+      class="brightness-control no-drag"
+    >
+      <span
+        aria-hidden="true"
+        class="brightness-icon"
+      >☀</span>
+      <input
+        :aria-label="$t('msg.playback.brightness')"
+        :value="brightnessPercent"
+        min="50"
+        max="200"
+        step="1"
+        type="range"
+        class="brightness-slider"
+        @input="updateBrightness"
+      >
+      <output class="brightness-value">{{ brightnessPercent }}%</output>
+    </div>
+    <div
       v-if="!isImage"
       v-show="!isEditable && !isProfessional"
       v-fade-in="showAllWidgets"
@@ -210,6 +236,7 @@ const createWidgetStatus = () => ({
 
 export default {
   name: 'TheVideoController',
+  emits: ['update:brightness'],
   // @ts-ignore
   type: INPUT_COMPONENT_TYPE,
   components: {
@@ -225,6 +252,12 @@ export default {
     'forbidden-modal': ForbiddenModal,
     'subtitle-editor': SubtitleEditor,
     'reference-subtitle-control': ReferenceSubtitleControl,
+  },
+  props: {
+    brightness: {
+      type: Number,
+      default: 1,
+    },
   },
   data() {
     return {
@@ -320,6 +353,12 @@ export default {
     },
     controllerPaused() {
       return this.casting ? this.castPaused : this.paused;
+    },
+    hasVisualMedia() {
+      return this.intrinsicWidth > 0 && this.intrinsicHeight > 0;
+    },
+    brightnessPercent() {
+      return Math.round(Math.min(2, Math.max(0.5, this.brightness)) * 100);
     },
     showAllWidgets() {
       if (this.invokeAllWidgets) return true;
@@ -736,7 +775,7 @@ export default {
       this.clock.tick(ticks > 0 ? ticks : 0);
       this.UIStateManager();
       // 当处于字幕高级编辑模式，不自动播放下一视频
-      if (!this.isProfessional && !videodata.paused && videodata.time + 1 >= this.duration) {
+      if (this.shouldAdvanceToNextVideo()) {
         // we need set the paused state to go to next video
         // this state will be reset on mounted of BaseVideoPlayer
         videodata.paused = true;
@@ -783,6 +822,10 @@ export default {
       if (this.$refs.editor) {
         requestAnimationFrame(this.$refs.editor.loopCues);
       }
+    },
+    shouldAdvanceToNextVideo() {
+      return !this.singleCycle && !this.isProfessional
+        && !videodata.paused && videodata.time + 1 >= this.duration;
     },
     UIDisplayManager() {
       const tempObject = {
@@ -1006,6 +1049,10 @@ export default {
     updateVolume(val: number) {
       this.$store.dispatch(videoActions.VOLUME_UPDATE, val);
     },
+    updateBrightness(event: Event) {
+      const value = Number((event.target as HTMLInputElement).value);
+      if (Number.isFinite(value)) this.$emit('update:brightness', value / 100);
+    },
     updateMuted() {
       this.$store.dispatch(videoActions.TOGGLE_MUTED);
     },
@@ -1116,6 +1163,42 @@ export default {
     rgba(0, 0, 0, 0.29) 100%
   );
 }
+.brightness-control {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-width: 128px;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 15px;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  cursor: default;
+
+  .brightness-icon {
+    font-size: 17px;
+    line-height: 1;
+  }
+
+  .brightness-slider {
+    width: 70px;
+    margin: 0;
+    accent-color: #fff;
+    cursor: pointer;
+  }
+
+  .brightness-value {
+    width: 31px;
+    font-family: DINCondensed-Bold, sans-serif;
+    font-size: 12px;
+    text-align: right;
+  }
+}
 .notification-bubble {
   z-index: 105;
 }
@@ -1175,6 +1258,10 @@ export default {
     width: 54px;
     height: 54px;
   }
+  .brightness-control {
+    top: 23px;
+    left: 23px;
+  }
 }
 @media
   screen and (max-aspect-ratio: 1/1) and (min-width: 289px) and (max-width: 480px),
@@ -1194,6 +1281,10 @@ export default {
   .play-button {
     width: 67px;
     height: 67px;
+  }
+  .brightness-control {
+    top: 25px;
+    left: 25px;
   }
 }
 @media
@@ -1215,6 +1306,10 @@ export default {
     width: 93px;
     height: 93px;
   }
+  .brightness-control {
+    top: 29px;
+    left: 30px;
+  }
 }
 @media
   screen and (max-aspect-ratio: 1/1) and (min-width: 1080px),
@@ -1234,6 +1329,10 @@ export default {
   .play-button {
     width: 129px;
     height: 129px;
+  }
+  .brightness-control {
+    top: 37px;
+    left: 45px;
   }
 }
 .cast-top {

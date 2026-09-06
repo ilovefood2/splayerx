@@ -1,7 +1,17 @@
 <template>
-  <div class="player trackpad-surface">
+  <div
+    class="player trackpad-surface"
+    @wheel.capture="handleMediaPinch"
+    @pointerdown.capture="startMediaPan"
+    @pointermove.capture="moveMediaPan"
+    @pointerup.capture="endMediaPan"
+    @pointercancel.capture="endMediaPan"
+    @mousedown.capture="suppressMediaMouseDown"
+    @click.capture="handleMediaClick"
+  >
     <the-video-canvas
       ref="videoCanvas"
+      :brightness="brightness"
       @media-ready="onMediaReady"
     />
     <subtitle-image-renderer
@@ -9,7 +19,11 @@
       :windowHeight="winHeight"
       :currentCues="allCues"
     />
-    <the-video-controller ref="videoctrl" />
+    <the-video-controller
+      ref="videoctrl"
+      :brightness="brightness"
+      @update:brightness="updateBrightness"
+    />
     <thumbnailPost
       :key="savedName"
       v-if="generatePost"
@@ -30,6 +44,7 @@ import thumbnailPost from '@/components/PlayingView/ThumbnailPost/ThumbnailPost.
 import VideoCanvas from '@/containers/VideoCanvas.vue';
 import TheVideoController from '@/containers/TheVideoController.vue';
 import { offListenersExceptWhiteList } from '@/libs/utils';
+import { isMediaPinchGesture } from '@/helpers/mediaZoom';
 import { videodata } from '../store/video';
 import { getStreams } from '../plugins/mediaTasks';
 
@@ -61,6 +76,12 @@ export default {
       savedName: '',
       mediaReadySrc: '',
       initializedMediaKey: '',
+      brightness: 1,
+      mediaPanPointerId: null as number | null,
+      mediaPanStart: { x: 0, y: 0 },
+      mediaPanOrigin: { x: 0, y: 0 },
+      isMediaPanning: false,
+      skipNextMediaClick: false,
     };
   },
   computed: {
@@ -79,6 +100,9 @@ export default {
         this.generatePost = false;
         this.mediaReadySrc = '';
         this.initializedMediaKey = '';
+        this.mediaPanPointerId = null;
+        this.isMediaPanning = false;
+        this.skipNextMediaClick = false;
         this.resetManager();
       },
     },
@@ -170,6 +194,79 @@ export default {
       const date = new Date();
       return `SPlayer-${date.getFullYear()}${date.getMonth()}${date.getDate()}`
           + `-${basename(this.originSrc)}-${type}x${type}`;
+    },
+    updateBrightness(value: number) {
+      const brightness = Number(value);
+      this.brightness = Number.isFinite(brightness)
+        ? Math.min(2, Math.max(0.5, brightness)) : 1;
+    },
+    handleMediaPinch(event: WheelEvent) {
+      if (!isMediaPinchGesture(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.$refs.videoCanvas.handleMediaPinch(event);
+    },
+    isMediaPanTarget(target: EventTarget | null) {
+      if (!(target instanceof Element)) return false;
+      return !target.closest(
+        '.no-drag, button, input, select, textarea, .mainMenu, .subtitle-editor, '
+        + '.play-button, .the-progress-bar, .recent-playlist, .notification-bubble, '
+        + '.cast-top, .control-buttons, .sub-control-wrapper',
+      );
+    },
+    startMediaPan(event: PointerEvent) {
+      if (this.isProfessional || event.button !== 0 || !this.isMediaPanTarget(event.target)) return;
+      const mediaCanvas = this.$refs.videoCanvas;
+      if (!mediaCanvas || !mediaCanvas.canPanMedia()) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      this.mediaPanPointerId = event.pointerId;
+      this.mediaPanStart = { x: event.clientX, y: event.clientY };
+      this.mediaPanOrigin = mediaCanvas.mediaPanPosition();
+      this.isMediaPanning = false;
+      const player = event.currentTarget as HTMLElement;
+      if (player.setPointerCapture) player.setPointerCapture(event.pointerId);
+    },
+    moveMediaPan(event: PointerEvent) {
+      if (event.pointerId !== this.mediaPanPointerId) return;
+      const deltaX = event.clientX - this.mediaPanStart.x;
+      const deltaY = event.clientY - this.mediaPanStart.y;
+      if (!this.isMediaPanning && Math.hypot(deltaX, deltaY) < 2) return;
+
+      this.isMediaPanning = true;
+      this.skipNextMediaClick = true;
+      event.preventDefault();
+      event.stopPropagation();
+      this.$refs.videoCanvas.setMediaPan(
+        this.mediaPanOrigin.x + deltaX,
+        this.mediaPanOrigin.y + deltaY,
+      );
+    },
+    endMediaPan(event: PointerEvent) {
+      if (event.pointerId !== this.mediaPanPointerId) return;
+      const wasPanning = this.isMediaPanning;
+      const player = event.currentTarget as HTMLElement;
+      if (player.hasPointerCapture && player.hasPointerCapture(event.pointerId)) {
+        player.releasePointerCapture(event.pointerId);
+      }
+      this.mediaPanPointerId = null;
+      this.isMediaPanning = false;
+      if (!wasPanning) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    suppressMediaMouseDown(event: MouseEvent) {
+      if (this.mediaPanPointerId === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    handleMediaClick(event: MouseEvent) {
+      if (!this.skipNextMediaClick) return;
+      this.skipNextMediaClick = false;
+      event.preventDefault();
+      event.stopPropagation();
     },
     async loopCues() {
       if (this.isImage) return;

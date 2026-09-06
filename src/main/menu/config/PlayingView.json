@@ -141,12 +141,14 @@
         {
           "id": "playback.previousVideo",
           "label": "msg.playback.previousVideo",
-          "accelerator": "CmdOrCtrl+Left"
+          "accelerator": "Command+Left",
+          "winAccelerator": "Ctrl+Left"
         },
         {
           "id": "playback.nextVideo",
           "label": "msg.playback.nextVideo",
-          "accelerator": "CmdOrCtrl+Right"
+          "accelerator": "Command+Right",
+          "winAccelerator": "Ctrl+Right"
         },
         {
           "id": "menubar.separator"

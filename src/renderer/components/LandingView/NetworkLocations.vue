@@ -1,6 +1,48 @@
 <template>
   <section
-    class="network-locations"
+    v-if="compact"
+    class="network-locations network-locations--compact no-drag"
+    :aria-label="$t('browsing.networkLocations.title')"
+  >
+    <button
+      v-for="location in locations"
+      :key="location.path"
+      type="button"
+      class="compact-item"
+      :title="`${location.name}\n${location.path}`"
+      :aria-label="$t('browsing.networkLocations.open', { name: location.name })"
+      @click="openLocation(location)"
+    >
+      <span
+        class="compact-icon"
+        aria-hidden="true"
+      >★</span>
+      <span class="compact-name">{{ location.name }}</span>
+      <span
+        class="compact-remove"
+        role="button"
+        :aria-label="$t('browsing.networkLocations.remove', { name: location.name })"
+        @click.stop="removeLocation(location.path)"
+      >×</span>
+    </button>
+    <button
+      type="button"
+      class="compact-item compact-add"
+      :disabled="choosingLocation"
+      :title="$t('browsing.networkLocations.add')"
+      :aria-label="$t('browsing.networkLocations.add')"
+      @click="addLocation"
+    >
+      <span
+        class="compact-icon"
+        aria-hidden="true"
+      >＋</span>
+      <span class="compact-name">{{ $t('browsing.networkLocations.add') }}</span>
+    </button>
+  </section>
+  <section
+    v-else
+    class="network-locations no-drag"
     :aria-label="$t('browsing.networkLocations.title')"
   >
     <div class="section-heading">
@@ -86,6 +128,11 @@ export default {
       type: Function,
       required: true,
     },
+    // Renders a narrow, icon-only list for the sidebar instead of the full cards.
+    compact: {
+      type: Boolean,
+      default: false,
+    },
   },
   data() {
     return {
@@ -150,6 +197,10 @@ export default {
     },
     async openLocation(location: NetworkLocation) {
       this.statusMessage = '';
+      // On a sandboxed (MAS) build the folder is only reachable after we re-open
+      // the security-scoped bookmark saved when it was added; without this the
+      // stat below is denied and a reachable favorite looks unavailable.
+      bookmark.startAccessing(location.path);
       try {
         const stats = await fsPromises.stat(location.path);
         if (!stats.isDirectory()) throw new Error('Network location is not a directory');
@@ -308,5 +359,91 @@ button {
 .status-message {
   margin-top: 4px;
   color: #ffb4ab;
+}
+
+/* Sidebar (icon-only) layout. */
+.network-locations--compact {
+  position: static;
+  top: auto;
+  left: auto;
+  right: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  padding: 8px 6px 0;
+  box-sizing: border-box;
+
+  .compact-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    padding: 8px 2px;
+    margin: 0 0 6px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    cursor: pointer;
+    transition: background 100ms ease-out, color 100ms ease-out;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+  }
+
+  .compact-icon {
+    font-size: 20px;
+    line-height: 20px;
+    color: #f8d64e;
+  }
+
+  .compact-add .compact-icon {
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .compact-name {
+    max-width: 100%;
+    font-size: 11px;
+    line-height: 13px;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .compact-remove {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    width: 16px;
+    height: 16px;
+    line-height: 15px;
+    text-align: center;
+    border-radius: 50%;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    transition: opacity 100ms ease-out;
+  }
+
+  .compact-item:hover .compact-remove {
+    opacity: 1;
+  }
+
+  .compact-remove:hover {
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+  }
 }
 </style>

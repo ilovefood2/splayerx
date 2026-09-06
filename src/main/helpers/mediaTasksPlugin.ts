@@ -1,10 +1,24 @@
 import { createHash } from 'crypto';
 import { app, ipcMain, IpcMainEvent } from 'electron';
 import {
-  existsSync, mkdirSync, readFile, renameSync, statSync, unlinkSync,
+  existsSync, mkdirSync, readFile, renameSync, unlinkSync, promises as fsPromises,
 } from 'fs';
 import path from 'path';
 import { mediaBinaryPath, runMediaBinary } from './ffmpeg';
+
+// existsSync/statSync block the main process for the full duration of the
+// syscall. On a laggy network mount (/Volumes/... over SMB) that can be seconds,
+// during which even window dragging — an ipcMain handler — freezes. Any check on
+// a user-supplied video path (which may be on such a mount) must be async; the
+// synchronous variants are kept only for our own local temp/cache files.
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fsPromises.access(target);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
 import {
   isHdrColorMetadata, PlaybackServer, shouldUsePlaybackServer,
 } from './PlaybackServer';
@@ -49,8 +63,8 @@ const compatibilityTasks = new Map<string, Promise<string>>();
 const playbackServer = new PlaybackServer();
 let playbackServerShutdownRegistered = false;
 
-function compatibilityOutputPath(videoPath: string): string {
-  const stat = statSync(videoPath);
+async function compatibilityOutputPath(videoPath: string): Promise<string> {
+  const stat = await fsPromises.stat(videoPath);
   const key = createHash('sha1')
     .update(`${videoPath}\u0000${stat.size}\u0000${stat.mtimeMs}`)
     .digest('hex');
@@ -62,7 +76,7 @@ function compatibilityOutputPath(videoPath: string): string {
 async function preparePlaybackSource(videoPath: string): Promise<string> {
   const extension = path.extname(videoPath).toLowerCase();
   if (extension === '.mkv') {
-    if (!existsSync(videoPath)) throw new Error('File does not exist.');
+    if (!(await pathExists(videoPath))) throw new Error('File does not exist.');
     const { stdout } = await runMediaBinary('ffprobe', [
       '-v', 'error',
       '-show_entries', 'format=duration:stream=codec_type,color_transfer',
@@ -86,9 +100,9 @@ async function preparePlaybackSource(videoPath: string): Promise<string> {
   if (extension !== '.ts') {
     return shouldUsePlaybackServer(videoPath) ? playbackServer.urlFor(videoPath) : videoPath;
   }
-  if (!existsSync(videoPath)) throw new Error('File does not exist.');
+  if (!(await pathExists(videoPath))) throw new Error('File does not exist.');
 
-  const outputPath = compatibilityOutputPath(videoPath);
+  const outputPath = await compatibilityOutputPath(videoPath);
   if (existsSync(outputPath)) return outputPath;
   const runningTask = compatibilityTasks.get(outputPath);
   if (runningTask) return runningTask;
@@ -154,7 +168,7 @@ export default function registerMediaTasks() {
   ));
 
   ipcMain.on('media-info-request', async (event, videoPath) => {
-    if (!existsSync(videoPath)) {
+    if (!(await pathExists(videoPath))) {
       reply(event, 'media-info-reply', 'File does not exist.');
       return;
     }
@@ -175,7 +189,7 @@ export default function registerMediaTasks() {
       reply(event, 'snapshot-reply', null, imagePath);
       return;
     }
-    if (!existsSync(videoPath)) {
+    if (!(await pathExists(videoPath))) {
       reply(event, 'snapshot-reply', 'File does not exist.');
       return;
     }
@@ -242,7 +256,7 @@ export default function registerMediaTasks() {
       reply(event, 'thumbnail-reply', null, imagePath, videoPath);
       return;
     }
-    if (!existsSync(videoPath)) {
+    if (!(await pathExists(videoPath))) {
       reply(event, 'thumbnail-reply', 'File does not exist.');
       return;
     }

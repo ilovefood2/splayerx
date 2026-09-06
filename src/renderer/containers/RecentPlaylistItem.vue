@@ -336,12 +336,16 @@ export default {
       }
     },
     item(val: string) {
-      if (val) this.updateUI();
+      if (val) this.loadMediaDetails();
     },
     isPlaying(val: boolean) {
       if (val) {
+        this.loadMediaDetails();
         requestAnimationFrame(this.updateAnimationOut);
       }
+    },
+    isInRange(val: boolean) {
+      if (val) this.loadMediaDetails();
     },
     displayIndex(val: number) {
       requestAnimationFrame(() => {
@@ -410,19 +414,30 @@ export default {
   },
   created() {
     this.displayIndex = this.index;
-    this.recentPlayService = new RecentPlayService(
-      mediaStorageService,
-      this.path,
-      this.items[this.index],
-    );
-    this.recentPlayService.on('image-loaded', () => {
-      this.updateUI();
-    });
-    this.updateUI();
+    // Folder playlists can contain hundreds of entries. Constructing a media
+    // service for every hidden tile immediately hashes and probes every sibling
+    // file. On SMB that creates hundreds of concurrent reads, grows the renderer
+    // heap until it is unresponsive, and starves the video that was just opened.
+    // Load only the visible page (and the currently playing item); entering a
+    // later page triggers the same work through the watchers above.
+    this.loadMediaDetails();
     this.$bus.$on('database-saved', this.updateUI);
   },
   methods: {
+    loadMediaDetails() {
+      if (this.recentPlayService || (!this.isInRange && !this.isPlaying)) return;
+      this.recentPlayService = new RecentPlayService(
+        mediaStorageService,
+        this.path,
+        this.items[this.index],
+      );
+      this.recentPlayService.on('image-loaded', () => {
+        this.updateUI();
+      });
+      this.updateUI();
+    },
     async updateUI(result: MediaItem) {
+      if (!this.recentPlayService) return;
       if (result !== undefined && result.path !== this.path) return;
       await this.recentPlayService.getRecord(this.items[this.index], result);
       this.imageSrc = this.recentPlayService.imageSrc;

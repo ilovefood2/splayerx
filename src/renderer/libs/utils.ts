@@ -2,7 +2,6 @@ import { createHash } from 'crypto';
 // @ts-ignore
 import romanize from 'romanize';
 import {
-  times,
   padStart,
   sortBy,
   take,
@@ -149,21 +148,26 @@ export async function mediaQuickHash(filePath: string) {
   if (!filePath) return '';
   if (filePath.startsWith('http')) return 'open-url-hash'; // TODO design openUrl hash
 
-  const fileHandler = await fsPromises.open(filePath, 'r');
   const len = (await fsPromises.stat(filePath)).size;
-  const position = [
+  const maxStart = Math.max(0, len - 4096);
+  const positions = [
     4096,
     Math.floor(len / 3),
     Math.floor(len / 3) * 2,
     len - 8192,
-  ];
-  const res = await Promise.all(times(4).map(async (i) => {
-    const buf = Buffer.alloc(4096);
-    const { bytesRead } = await fileHandler.read(buf, 0, 4096, position[i]);
-    return md5Hex(buf.slice(0, bytesRead));
-  }));
-  fileHandler.close();
-  return res.join('-');
+  ].map(position => Math.max(0, Math.min(position, maxStart)));
+  const fileHandler = await fsPromises.open(filePath, 'r');
+  try {
+    const hashes = [];
+    for (const position of positions) {
+      const buf = Buffer.alloc(4096);
+      const { bytesRead } = await fileHandler.read(buf, 0, buf.length, position);
+      hashes.push(md5Hex(buf.subarray(0, bytesRead)));
+    }
+    return hashes.join('-');
+  } finally {
+    await fileHandler.close();
+  }
 }
 
 /** Silently calculate hash of file, returns null if there was an error */
@@ -177,13 +181,14 @@ mediaQuickHash.try = async (filePath: string) => {
 };
 
 export function timecodeFromSeconds(s: number, addZeroOnHour = false) {
-  const dt = new Date(Math.abs(s) * 1000);
-  const hours = addZeroOnHour ? padStart(dt.getUTCHours().toString(), 2, '0') : dt.getUTCHours();
-  const minutes = padStart(dt.getUTCMinutes().toString(), 2, '0');
-  const seconds = padStart(dt.getUTCSeconds().toString(), 2, '0');
+  const totalSeconds = Number.isFinite(s) ? Math.floor(Math.abs(s)) : 0;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = padStart(Math.floor((totalSeconds % 3600) / 60).toString(), 2, '0');
+  const seconds = padStart((totalSeconds % 60).toString(), 2, '0');
 
   if (hours > 0) {
-    return `${hours}:${minutes}:${seconds}`;
+    const hourText = addZeroOnHour ? padStart(hours.toString(), 2, '0') : hours;
+    return `${hourText}:${minutes}:${seconds}`;
   }
   return `${minutes}:${seconds}`;
 }

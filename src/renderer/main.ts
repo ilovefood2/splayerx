@@ -86,6 +86,7 @@ const app = createApp({
       selectedMenuItem: undefined,
       maxVolume: 100,
       volumeMutating: false,
+      deletingCurrentVideo: false,
     };
   },
   computed: {
@@ -93,6 +94,7 @@ const app = createApp({
       'primarySubtitleId', 'secondarySubtitleId', 'audioTrackList', 'isFullScreen', 'paused', 'casting', 'castPaused', 'singleCycle', 'playlistLoop', 'isHiddenByBossKey', 'isMinimized', 'isFocused', 'originSrc', 'defaultDir', 'ableToPushCurrentSubtitle', 'displayLanguage', 'calculatedNoSub', 'sizePercent', 'snapshotSavedPath', 'duration', 'reverseScrolling', 'pipSize', 'pipPos',
       'showSidebar', 'preferenceData', 'userInfo', 'canTryToUploadCurrentSubtitle', 'gettingTemporaryViewInfo', 'isDarkMode',
       'isEditable', 'isProfessional', 'referenceSubtitle', 'subtitleEditMenuPrevEnable', 'subtitleEditMenuNextEnable', 'subtitleEditMenuEnterEnable', 'editorHistory', 'editorCurrentIndex',
+      'playingList', 'playingIndex', 'items', 'playListId', 'isFolderList', 'videoId', 'incognitoMode',
     ]),
     ...inputMapGetters({
       wheelDirection: iGT.GET_WHEEL_DIRECTION,
@@ -194,6 +196,10 @@ const app = createApp({
         );
       }
       this.menuService.updateRouteName(val);
+      this.menuService.updateMenuItemEnabled(
+        'file.deleteCurrent',
+        val === 'playing-view' && this.isLocalVideoPath(this.originSrc),
+      );
       if (val === 'browsing-view') this.menuService.addBrowsingHistoryItems();
       if (val === 'landing-view' || val === 'playing-view') this.menuService.addRecentPlayItems();
       if (val === 'landing-view') this.topOnWindow = false;
@@ -263,6 +269,10 @@ const app = createApp({
     },
     $route(to) {
       this.menuService.updateMenuItemEnabled('file.losslessStreaming.selectCurrent', to.name === 'playing-view' && !!this.originSrc);
+      this.menuService.updateMenuItemEnabled(
+        'file.deleteCurrent',
+        to.name === 'playing-view' && this.isLocalVideoPath(this.originSrc),
+      );
     },
     originSrc(newVal) {
       if (newVal && !this.isWheelEnd) {
@@ -275,6 +285,10 @@ const app = createApp({
         });
       }
       this.menuService.updateMenuItemEnabled('file.losslessStreaming.selectCurrent', !!newVal);
+      this.menuService.updateMenuItemEnabled(
+        'file.deleteCurrent',
+        this.currentRouteName === 'playing-view' && this.isLocalVideoPath(newVal),
+      );
     },
     isProfessional(val: boolean) {
       this.menuService.updateMenuByProfessinal(val);
@@ -580,7 +594,7 @@ const app = createApp({
     });
     /* eslint-disable */
 
-    window.addEventListener('drop', (e) => {
+    window.addEventListener('drop', async (e) => {
       if (this.currentRouteName !== 'landing-view' && this.currentRouteName !== 'playing-view') return;
       if (this.isProfessional) return;
       e.preventDefault();
@@ -590,7 +604,8 @@ const app = createApp({
         e.dataTransfer!.files,
         (file: File) => webUtils.getPathForFile(file),
       ) as string[];
-      const onlyFolders = files.every((file: fs.PathLike) => fs.statSync(file).isDirectory());
+      const stats = await Promise.all(files.map(file => fsPromises.stat(file)));
+      const onlyFolders = stats.every(stat => stat.isDirectory());
       if (this.currentRouteName === 'landing-view' && !onlyFolders && files.every((file) => isSubtitle(file))) {
         this.$electron.ipcRenderer.send('drop-subtitle', files);
       } else {
@@ -619,13 +634,14 @@ const app = createApp({
       else this.openPlayList(playlistId);
     });
 
-    this.$electron.ipcRenderer.on('open-file', (event: Event, args: { onlySubtitle: boolean, files: string[] }) => {
+    this.$electron.ipcRenderer.on('open-file', async (event: Event, args: { onlySubtitle: boolean, files: string[] }) => {
       if (!['landing-view', 'playing-view', 'browsing-view'].includes(this.currentRouteName)) return;
       if (!args.files.length && args.onlySubtitle) {
         log.info('helpers/index.js', `Cannot find any related video in the folder: ${args.files}`);
         addBubble(LOAD_SUBVIDEO_FAILED);
       } else {
-        const onlyFolders = args.files.every((file: any) => fs.statSync(file).isDirectory());
+        const stats = await Promise.all(args.files.map(file => fsPromises.stat(file)));
+        const onlyFolders = stats.every(stat => stat.isDirectory());
         if (onlyFolders) {
           this.openFolder(...args.files);
         } else {
@@ -731,6 +747,10 @@ const app = createApp({
       }
 
       if (this.currentRouteName === 'playing-view') {
+        this.menuService.updateMenuItemEnabled(
+          'file.deleteCurrent',
+          this.isLocalVideoPath(this.originSrc),
+        );
         this.menuService.addPrimarySub(this.recentSubMenu());
         this.menuService.addSecondarySub(this.recentSecondarySubMenu());
         this.menuService.addAudioTrack(this.updateAudioTrack());
@@ -775,6 +795,9 @@ const app = createApp({
       });
       this.menuService.on('file.openRecent', (e: Event, id: number) => {
         this.openPlayList(id);
+      });
+      this.menuService.on('file.deleteCurrent', () => {
+        this.deleteCurrentVideo();
       });
 
       this.menuService.on('file.losslessStreaming.selectCurrent', (e: Event, id: number) => {
@@ -1336,6 +1359,110 @@ const app = createApp({
       }
       const oldRect = this.winPos.concat(this.winSize);
       windowRectService.calculateWindowRect(videoSize, false, oldRect);
+    },
+    isLocalVideoPath(src: string) {
+      return !!src && path.isAbsolute(src) && !/^[a-z][a-z\d+.-]*:\/\//i.test(src);
+    },
+    async removeDeletedVideoFromHistory(videoPath: string, videoId: number) {
+      if (this.incognitoMode) return;
+      if (Number.isFinite(videoId)) {
+        try {
+          await this.infoDB.delete('media-item', videoId);
+        } catch (error) {
+          log.warn('Delete current video: could not remove media history', error);
+        }
+      }
+
+      if (!Number.isFinite(this.playListId)) return;
+      try {
+        const playlist = await this.infoDB.get('recent-played', this.playListId);
+        if (!playlist) return;
+        let deletedIndex = playlist.items.indexOf(videoId);
+        if (deletedIndex < 0) {
+          deletedIndex = playlist.hpaths.findIndex(
+            (hashedPath: string) => hashedPath.endsWith(`-${videoPath}`),
+          );
+        }
+        if (deletedIndex < 0) return;
+        playlist.items.splice(deletedIndex, 1);
+        playlist.hpaths.splice(deletedIndex, 1);
+        if (!playlist.items.length) {
+          await this.infoDB.delete('recent-played', playlist.id);
+          return;
+        }
+        playlist.playedIndex = Math.min(deletedIndex, playlist.items.length - 1);
+        await this.infoDB.update('recent-played', playlist, playlist.id);
+      } catch (error) {
+        log.warn('Delete current video: could not update playlist history', error);
+      }
+    },
+    async deleteCurrentVideo() {
+      const videoPath = this.originSrc;
+      if (this.deletingCurrentVideo || this.currentRouteName !== 'playing-view'
+        || !this.isLocalVideoPath(videoPath)) return;
+
+      this.deletingCurrentVideo = true;
+      const { remote } = this.$electron;
+      try {
+        const { response } = await remote.dialog.showMessageBox({
+          type: 'warning',
+          title: this.$t('msg.file.deleteCurrent'),
+          message: this.$t('msg.file.deleteCurrentConfirm', {
+            filename: path.basename(videoPath),
+          }),
+          detail: this.$t('msg.file.deleteCurrentDetail'),
+          buttons: [
+            this.$t('msg.file.deletePermanentlyButton'),
+            this.$t('browsing.cancel'),
+          ],
+          cancelId: 1,
+          defaultId: 1,
+          noLink: true,
+        });
+        if (response !== 0) return;
+
+        const playingList = [...this.playingList];
+        const itemIds = [...this.items];
+        const deletedIndex = playingList.indexOf(videoPath);
+        const replacementIndex = deletedIndex >= 0
+          ? (deletedIndex + 1 < playingList.length ? deletedIndex + 1 : deletedIndex - 1)
+          : -1;
+        const replacementPath = playingList[replacementIndex];
+        const replacementId = itemIds[replacementIndex];
+        const deletedVideoId = itemIds[deletedIndex] || this.videoId;
+
+        try {
+          await remote.fileSystem.deleteFile(videoPath);
+        } catch (error) {
+          log.error('Delete current video failed', error);
+          await remote.dialog.showMessageBox({
+            type: 'error',
+            title: this.$t('msg.file.deleteCurrentFailed'),
+            message: this.$t('msg.file.deleteCurrentFailed'),
+            detail: error instanceof Error ? error.message : String(error),
+          });
+          return;
+        }
+
+        if (this.casting) ipcRenderer.send('cast-stop');
+        await this.$store.dispatch('RemoveItemFromPlayingList', videoPath);
+        await this.removeDeletedVideoFromHistory(videoPath, deletedVideoId);
+
+        try {
+          if (replacementPath) {
+            if (this.isFolderList) await this.openVideoFile(replacementPath);
+            else await this.playFile(replacementPath, replacementId);
+          } else {
+            await this.$router.push({ name: 'landing-view' });
+          }
+        } catch (error) {
+          log.error('Delete current video: could not continue playback', error);
+          await this.$router.push({ name: 'landing-view' });
+        }
+        await this.menuService.addRecentPlayItems();
+      } finally {
+        this.deletingCurrentVideo = false;
+      }
     },
     // eslint-disable-next-line complexity
     /**

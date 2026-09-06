@@ -10,7 +10,7 @@
       :last-audio-track-id="lastAudioTrackId"
       :events="['loadedmetadata', 'audiotrack', 'playing', 'ended', 'timeupdate']"
       :styles="{objectFit: 'contain', width: '100%', height: '100%'}"
-      :loop="loop && !isFolderList"
+      :loop="loop"
       :crossOrigin="'anonymous'"
       :src="convertedSrc"
       :playback-rate="rate"
@@ -23,7 +23,7 @@
       :autoplay="false"
       @loadedmetadata="onMetaLoaded"
       @playing="switchingLock = false"
-      @ended="$bus.$emit('next-video')"
+      @ended="handleVideoEnded"
       @error="handleMediaPlaybackError"
       @timeupdate="handleVideoTimeupdate"
       @audiotrack="onAudioTrack"
@@ -60,6 +60,7 @@ import { playInfoStorageService } from '@/services/storage/PlayInfoStorageServic
 import { settingStorageService } from '@/services/storage/SettingStorageService';
 import { generateShortCutImageBy, ShortCut } from '@/libs/utils';
 import { log } from '@/libs/Log';
+import { zoomMediaFromPinch } from '@/helpers/mediaZoom';
 import { Video as videoMutations } from '@/store/mutationTypes';
 import { Video as videoActions } from '@/store/actionTypes';
 import { videodata } from '@/store/video';
@@ -72,6 +73,12 @@ export default {
   name: 'VideoCanvas',
   components: {
     'base-video-player': BaseVideoPlayer,
+  },
+  props: {
+    brightness: {
+      type: Number,
+      default: 1,
+    },
   },
   data() {
     return {
@@ -95,6 +102,9 @@ export default {
       imageAutoplayDeadline: 0,
       imageAutoplayRemaining: IMAGE_AUTOPLAY_DURATION,
       imageAutoplayPausedByUser: false,
+      mediaZoom: 1,
+      mediaPanX: 0,
+      mediaPanY: 0,
       failedMediaSrc: '',
       mediaErrorAdvanced: false,
       audioCtx: null,
@@ -115,6 +125,17 @@ export default {
     }),
   },
   watch: {
+    brightness() {
+      this.applyMediaAppearance();
+    },
+    loop(isLooping: boolean) {
+      if (!this.isImage || !this.imageElement) return;
+      if (isLooping) {
+        this.clearImageAutoplayTimer();
+      } else if (!this.imageAutoplayPausedByUser) {
+        this.startImageAutoplay();
+      }
+    },
     playingList(newList: string[]) {
       this.advancePastFailedMediaIfPossible(newList);
       if (!this.isImage || !this.imageElement) return;
@@ -151,6 +172,9 @@ export default {
     },
     originSrc(val: string, oldVal: string) {
       this.clearImageAutoplayTimer();
+      this.mediaZoom = 1;
+      this.mediaPanX = 0;
+      this.mediaPanY = 0;
       this.imageAutoplayPausedByUser = false;
       this.failedMediaSrc = '';
       this.mediaErrorAdvanced = false;
@@ -269,22 +293,7 @@ export default {
         this.$bus.$emit('seek', Math.ceil(this.duration));
       }
     });
-    this.$bus.$on('previous-video', () => {
-      if (this.switchingLock) return;
-      if (this.previousVideo === undefined) { // 同上，当前为播放列表第一个视频
-        this.$bus.$emit('seek', 0);
-        return;
-      }
-      this.switchingLock = true;
-      videodata.paused = false;
-      if (this.previousVideo !== '') {
-        if (this.isFolderList) this.openVideoFile(this.previousVideo);
-        else this.playFile(this.previousVideo, this.previousVideoId);
-      } else if (this.previousVideo === '') {
-        this.$store.commit('LOOP_UPDATE', true);
-        this.$bus.$emit('seek', 0);
-      }
-    });
+    this.$bus.$on('previous-video', this.playPreviousVideo);
     this.$bus.$on('seek', (e: number) => {
       if (this.casting) this.$electron.ipcRenderer.send('cast-seek', e);
       // update vuex currentTime to use some where
@@ -334,6 +343,25 @@ export default {
       removeAllAudioTrack: videoActions.REMOVE_ALL_AUDIO_TRACK,
       updatePlayinglistRate: videoActions.UPDATE_PLAYINGLIST_RATE,
     }),
+    async playPreviousVideo() {
+      if (this.switchingLock) return;
+      if (this.isFolderList) {
+        await this.openPreviousFolderVideo();
+        return;
+      }
+      if (this.previousVideo === undefined) { // 同上，当前为播放列表第一个视频
+        this.$bus.$emit('seek', 0);
+        return;
+      }
+      this.switchingLock = true;
+      videodata.paused = false;
+      if (this.previousVideo !== '') {
+        this.playFile(this.previousVideo, this.previousVideoId);
+      } else if (this.previousVideo === '') {
+        this.$store.commit('LOOP_UPDATE', true);
+        this.$bus.$emit('seek', 0);
+      }
+    },
     onImageLoaded(event: Event) {
       const target = event.target as HTMLImageElement;
       if (!target.naturalWidth || !target.naturalHeight) return;
@@ -356,13 +384,15 @@ export default {
         ratio: target.naturalWidth / target.naturalHeight,
       });
       this.changeWindowRotate(this.winAngle);
+      this.applyMediaAppearance();
       this.windowRectControl();
       this.$emit('media-ready', this.originSrc);
       this.enableVideoInfoStore = true;
       if (shouldAutoplay) this.scheduleImageAutoplay();
     },
     canAutoplayImage() {
-      return this.isImage && Array.isArray(this.playingList) && this.playingList.length > 1;
+      return this.isImage && !this.loop
+        && Array.isArray(this.playingList) && this.playingList.length > 1;
     },
     clearImageAutoplayTimer(preserveRemaining = false) {
       if (this.imageAutoplayTimer) {
@@ -451,7 +481,8 @@ export default {
         ratio: target.videoWidth / target.videoHeight,
       });
       this.changeWindowRotate(this.winAngle);
-      this.windowRectControl();
+      this.applyMediaAppearance();
+      // Keep the user-selected window dimensions when the media source changes.
 
       if (mediaInfo && mediaInfo.audioTrackId) this.lastAudioTrackId = mediaInfo.audioTrackId;
       this.gainNode = this.audioCtx.createGain();
@@ -480,12 +511,30 @@ export default {
       }
       await this.openFolderVideo(nextVideo, list);
     },
+    async openPreviousFolderVideo() {
+      const list = await this.getCurrentFolderVideos();
+      const index = list.findIndex((item: string) => item === this.originSrc);
+      const previousVideo = index > 0 ? list[index - 1] : undefined;
+      if (!previousVideo) {
+        if (this.playlistLoop && list.length > 1) {
+          await this.openFolderVideo(list[list.length - 1], list);
+        } else {
+          this.$bus.$emit('seek', 0);
+        }
+        return;
+      }
+      await this.openFolderVideo(previousVideo, list);
+    },
     handleVideoTimeupdate(event: Event) {
-      if (!this.isFolderList || this.switchingLock || this.folderAutoplayFallbackFired) return;
+      if (this.loop || !this.isFolderList
+        || this.switchingLock || this.folderAutoplayFallbackFired) return;
       const video = event.target as HTMLVideoElement;
       if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
       if (video.currentTime < video.duration - 0.25) return;
       this.$bus.$emit('next-video');
+    },
+    handleVideoEnded() {
+      if (!this.loop) this.$bus.$emit('next-video');
     },
     async getCurrentFolderVideos() {
       let list = Array.isArray(this.playingList) ? this.playingList.filter(Boolean) : [];
@@ -515,6 +564,46 @@ export default {
     },
     amplifyAudio(gain: number) {
       if (this.gainNode && this.gainNode.gain) this.gainNode.gain.value = gain;
+    },
+    handleMediaPinch(event: WheelEvent) {
+      const zoom = zoomMediaFromPinch(this.mediaZoom, event);
+      if (zoom === this.mediaZoom) return;
+      this.mediaZoom = zoom;
+      if (zoom === 1) {
+        this.mediaPanX = 0;
+        this.mediaPanY = 0;
+      }
+      this.changeWindowRotate(this.winAngle);
+    },
+    canPanMedia() {
+      return this.mediaZoom > 1 && !!this.mediaContainerElement();
+    },
+    mediaPanPosition() {
+      return { x: this.mediaPanX, y: this.mediaPanY };
+    },
+    setMediaPan(x: number, y: number) {
+      if (!this.canPanMedia()) return;
+      this.mediaPanX = x;
+      this.mediaPanY = y;
+      this.applyMediaTransform(this.isFullScreen, this.winAngle);
+    },
+    mediaPanBounds(mediaContainer = this.mediaContainerElement()) {
+      const viewport = this.$el as HTMLElement;
+      if (!viewport || !mediaContainer) return { x: 0, y: 0 };
+      const viewportRect = viewport.getBoundingClientRect();
+      const mediaRect = mediaContainer.getBoundingClientRect();
+      return {
+        x: Math.max(0, (mediaRect.width - viewportRect.width) / 2),
+        y: Math.max(0, (mediaRect.height - viewportRect.height) / 2),
+      };
+    },
+    clampMediaPan(x = this.mediaPanX, y = this.mediaPanY) {
+      const bounds = this.mediaPanBounds();
+      const clamp = (value: number, limit: number) => Math.min(limit, Math.max(-limit, value));
+      return {
+        x: clamp(x, bounds.x),
+        y: clamp(y, bounds.y),
+      };
     },
     onAudioTrack(event: TrackEvent) {
       const { type, track } = event;
@@ -553,31 +642,51 @@ export default {
     },
     changeWindowRotate(val: number) {
       requestAnimationFrame(() => {
-        const mediaContainer = this.mediaContainerElement();
-        if (!mediaContainer) return;
-        const scale = windowRectService.calculateWindowScaleBy(this.isFullScreen, val, this.ratio);
-        mediaContainer.style.setProperty('transform', `rotate(${val}deg) scale(${scale}, ${scale})`);
+        this.applyMediaTransform(this.isFullScreen, val);
       });
     },
     toFullScreen() {
       this.winSizeBeforeFullScreen = this.winSize;
       this.winAngleBeforeFullScreen = this.winAngle;
       requestAnimationFrame(() => {
-        const mediaContainer = this.mediaContainerElement();
-        if (!mediaContainer) return;
-        const scale = windowRectService.calculateWindowScaleBy(true, this.winAngle, this.ratio);
-        mediaContainer.style.setProperty('transform', `rotate(${this.winAngle}deg) scale(${scale}, ${scale})`);
+        this.applyMediaTransform(true, this.winAngle);
       });
       windowRectService.uploadWindowBy(true);
     },
     offFullScreen() {
       requestAnimationFrame(() => {
-        const mediaContainer = this.mediaContainerElement();
-        if (!mediaContainer) return;
-        const scale = windowRectService.calculateWindowScaleBy(false, this.winAngle, this.ratio);
-        mediaContainer.style.setProperty('transform', `rotate(${this.winAngle}deg) scale(${scale}, ${scale})`);
+        this.applyMediaTransform(false, this.winAngle);
       });
       windowRectService.uploadWindowBy(false, 'playing-view', this.winAngle, this.winAngleBeforeFullScreen, this.winSizeBeforeFullScreen, this.winPos);
+    },
+    applyMediaTransform(fullScreen: boolean, angle: number) {
+      const mediaContainer = this.mediaContainerElement();
+      if (!mediaContainer) return;
+      const scale = windowRectService.calculateWindowScaleBy(fullScreen, angle, this.ratio)
+        * this.mediaZoom;
+      const updateTransform = () => {
+        mediaContainer.style.setProperty(
+          'transform',
+          `translate(${this.mediaPanX}px, ${this.mediaPanY}px) rotate(${angle}deg) scale(${scale}, ${scale})`,
+        );
+      };
+      updateTransform();
+      const pan = this.clampMediaPan();
+      if (pan.x !== this.mediaPanX || pan.y !== this.mediaPanY) {
+        this.mediaPanX = pan.x;
+        this.mediaPanY = pan.y;
+        updateTransform();
+      }
+    },
+    applyMediaAppearance() {
+      const mediaContainer = this.mediaContainerElement();
+      if (!mediaContainer) return;
+      const brightness = Number(this.brightness);
+      if (!Number.isFinite(brightness) || brightness === 1) {
+        mediaContainer.style.removeProperty('filter');
+        return;
+      }
+      mediaContainer.style.setProperty('filter', `brightness(${Math.min(2, Math.max(0.5, brightness))})`);
     },
     mediaContainerElement() {
       const media = this.isImage ? this.$refs.imageCanvas : this.$refs.videoCanvas;
@@ -708,6 +817,7 @@ export default {
   position: relative;
   width: 100%;
   height: 100%;
+  overflow: hidden;
   z-index: auto;
 }
 .mask {
@@ -728,6 +838,10 @@ export default {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+.base-video-player,
+.image-element {
+  will-change: transform, filter;
 }
 .canvas {
   visibility: hidden;

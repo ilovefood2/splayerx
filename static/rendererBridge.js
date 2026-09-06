@@ -331,6 +331,9 @@ const bridge = {
     showMessageBox: (...args) => asyncCall('dialog:message', { args: [args[args.length - 1]] }),
     showOpenDialog: (...args) => asyncCall('dialog:open', { args: [args[args.length - 1]] }),
   },
+  fileSystem: {
+    deleteFile: path => asyncCall('fileSystem:deleteFile', { args: [path] }),
+  },
   getCurrentWebContents: () => createWebContents({ window: {} }),
   getCurrentWindow: () => createWindow({}),
   getGlobal: name => sync('global:get', { name }),
@@ -344,7 +347,9 @@ const bridge = {
       args: [point], method: 'getDisplayNearestPoint',
     }),
   },
-  shell: { openExternal: url => asyncCall('shell:openExternal', { args: [url] }) },
+  shell: {
+    openExternal: url => asyncCall('shell:openExternal', { args: [url] }),
+  },
   TouchBar: RendererTouchBar,
   WebContentsView: RendererWebContentsView,
 };

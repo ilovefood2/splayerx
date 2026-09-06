@@ -87,7 +87,10 @@ export default {
       if (to.name === 'landing-view' && from.name === 'language-setting') this.transitionMode = 'fade';
       if (from.name === 'playing-view' && to.name !== 'playing-view') this.resetManager();
       else this.transitionMode = '';
-      if (to.name !== 'browsing-view' && !(to.name === 'landing-view' && from.name === 'browsing-view')) this.updateShowSidebar(false);
+      // The sidebar now also hosts network-location favorites, so keep it shown
+      // on the landing view; only hide it on views that have no sidebar.
+      if (to.name !== 'browsing-view' && to.name !== 'landing-view') this.updateShowSidebar(false);
+      if (to.name === 'landing-view') this.updateShowSidebar(true);
       if (from.name === 'browsing-view' && to.name === 'landing-view') this.currentUrl = '';
       if (from.name === 'browsing-view' && to.name === 'playing-view') {
         if (!this.$electron.remote.getCurrentWindow().isVisible()) {
@@ -104,6 +107,9 @@ export default {
     },
   },
   async mounted() {
+    // Initial launch lands here without a route change, so the $route watcher
+    // never fires — show the sidebar (and its network favorites) explicitly.
+    if (this.$route.name === 'landing-view') this.updateShowSidebar(true);
     this.$event.on('side-bar-mouseup', () => {
       if (this.playlistState && !this.showSidebar) {
         this.$bus.$emit('close-playlist');

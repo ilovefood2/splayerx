@@ -267,7 +267,7 @@ export default {
     },
     async addFiles(...files) { // eslint-disable-line complexity
       const videoFiles = [];
-      files = await expandInputPaths(files);
+      files = await expandInputPaths(files, { recurse: true });
 
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];
@@ -344,7 +344,7 @@ export default {
         let containsSubFiles = false;
         const subtitleFiles = [];
         const videoFiles = [];
-        files = await expandInputPaths(files);
+        files = await expandInputPaths(files, { recurse: true });
 
         files.forEach((tempFilePath) => {
           const baseName = path.basename(tempFilePath);
@@ -438,10 +438,33 @@ export default {
     },
     // create new play list record in recent-played and play the video
     async createPlayList(...videoFiles) {
+      // Videos on a mounted / network volume must NOT be hashed a whole folder at
+      // a time: mediaQuickHash reads near the end of each file, forcing a far-seek
+      // over SMB, and doing that for every file in the folder starves the video
+      // being played (the app freezes and seeking stops working). Play the first
+      // file straight away and let each file be fingerprinted lazily when it is
+      // actually opened (openVideoFile), keeping the folder's paths for the
+      // playlist panel and next/previous navigation.
+      const isMounted = videoFiles[0].startsWith('/Volumes/') || /^\\\\/.test(videoFiles[0]);
+      if (isMounted) {
+        this.$store.dispatch('PlayingList', { id: '', paths: videoFiles, items: [] });
+        await this.openVideoFile(videoFiles[0], { keepCurrentFolderList: true });
+        this.$bus.$emit('open-playlist');
+        this.$bus.$emit('new-playlist');
+        return undefined;
+      }
       const hash = await mediaQuickHash.try(videoFiles[0]);
       if (!hash) return;
+      // Resolve the first video's existing media-item up front (if it was played
+      // before) so resume-to-last-position works immediately, rather than only
+      // after the whole folder finishes indexing in the background. NaN otherwise,
+      // which onMetaLoaded reads as "no saved position".
+      const knownVideo = this.$store.getters.incognitoMode
+        ? null
+        : await this.infoDB.get('media-item', 'path', videoFiles[0]);
+      const firstId = knownVideo && knownVideo.quickHash === hash ? knownVideo.videoId : NaN;
       this.$store.dispatch('PlayingList', { id: '', paths: videoFiles, items: [] });
-      this.$store.dispatch('SRC_SET', { src: videoFiles[0], id: NaN, mediaHash: hash });
+      this.$store.dispatch('SRC_SET', { src: videoFiles[0], id: firstId, mediaHash: hash });
       if (this.$router.currentRoute.value.name !== 'playing-view') {
         this.$router.push({ name: 'playing-view' });
       }
@@ -458,7 +481,12 @@ export default {
             paths: videoFiles,
             items: playlistItem.items,
           });
-          const currentIndex = videoFiles.indexOf(this.$store.getters.originSrc);
+          // Match the currently-playing file by path, not position: videos whose
+          // quickHash failed are skipped, so items[] can be shorter than and
+          // misaligned with videoFiles, which would otherwise assign a wrong id.
+          const currentSrc = this.$store.getters.originSrc;
+          const currentIndex = (playlistItem.hpaths || [])
+            .findIndex(hpath => hpath.endsWith(`-${currentSrc}`));
           if (currentIndex >= 0 && playlistItem.items[currentIndex]) {
             this.$store.commit('ID_UPDATE', playlistItem.items[currentIndex]);
           }

@@ -14,6 +14,8 @@ import {
   TouchBar,
   WebContentsView,
 } from 'electron';
+import { promises as fsPromises } from 'fs';
+import { normalizeExternalUrl } from './externalUrl';
 
 const views = new Map();
 const subscriptions = new Map();
@@ -313,7 +315,13 @@ function registerRendererBridge() {
     }
     if (operation === 'dialog:open') return dialog.showOpenDialog(getSenderWindow(event), args[0] || {});
     if (operation === 'dialog:message') return dialog.showMessageBox(getSenderWindow(event), args[0] || {});
-    if (operation === 'shell:openExternal') return shell.openExternal(args[0]);
+    if (operation === 'shell:openExternal') {
+      return shell.openExternal(normalizeExternalUrl(args[0]));
+    }
+    if (operation === 'fileSystem:deleteFile') {
+      if (typeof args[0] !== 'string' || !args[0]) throw new Error('Invalid file path');
+      return fsPromises.unlink(args[0]);
+    }
     if (operation === 'desktopCapturer:getSources') {
       const sources = await desktopCapturer.getSources(args[0]);
       return sources.map(source => ({

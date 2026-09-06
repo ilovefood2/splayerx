@@ -7,6 +7,7 @@ import Input from '@/store/modules/Input';
 import Playlist from '@/store/modules/Playlist';
 import TheVideoController from '@/containers/TheVideoController.vue';
 import PlayButton from '@/components/PlayingView/PlayButton.vue';
+import { videodata } from '@/store/video';
 
 describe('Component - TheVideoController Unit Test', () => {
   let wrapper;
@@ -136,5 +137,31 @@ describe('Component - TheVideoController Unit Test', () => {
 
     await imageButton.trigger('click');
     sinon.assert.calledWithExactly(emit, 'toggle-playback');
+  });
+
+  it('does not auto-advance near the end while looping one file', () => {
+    videodata.paused = false;
+    videodata.time = 9.5;
+
+    const shouldAdvance = TheVideoController.methods.shouldAdvanceToNextVideo.call({
+      singleCycle: true,
+      isProfessional: false,
+      duration: 10,
+    });
+
+    expect(shouldAdvance).to.equal(false);
+  });
+
+  it('still auto-advances near the end when single-file loop is off', () => {
+    videodata.paused = false;
+    videodata.time = 9.5;
+
+    const shouldAdvance = TheVideoController.methods.shouldAdvanceToNextVideo.call({
+      singleCycle: false,
+      isProfessional: false,
+      duration: 10,
+    });
+
+    expect(shouldAdvance).to.equal(true);
   });
 });

@@ -424,6 +424,11 @@ function getAllValidVideo(onlySubtitle, files) {
     const videoFiles = [];
 
     for (let i = 0; i < files.length; i += 1) {
+      // The extension already tells us that this is a file. Avoid a blocking
+      // metadata round trip for known media paths, which can stall Electron's
+      // main process when the path is on a slow or reconnecting network mount.
+      if (isSubtitle(files[i]) || isVideo(files[i])
+        || isAudio(files[i]) || isImage(files[i])) continue;
       if (fs.statSync(files[i]).isDirectory()) {
         const dirPath = files[i];
         const dirFiles = fs.readdirSync(dirPath).map(file => path.join(dirPath, file));
@@ -433,7 +438,10 @@ function getAllValidVideo(onlySubtitle, files) {
     if (!process.mas) {
       files.forEach((tempFilePath) => {
         const baseName = path.basename(tempFilePath);
-        if (baseName.startsWith('.') || fs.statSync(tempFilePath).isDirectory()) return;
+        if (baseName.startsWith('.')) return;
+        const isKnownMedia = isSubtitle(tempFilePath)
+          || isVideo(tempFilePath) || isAudio(tempFilePath) || isImage(tempFilePath);
+        if (!isKnownMedia && fs.statSync(tempFilePath).isDirectory()) return;
         if (isSubtitle((tempFilePath))) {
           const tempVideo = searchForLocalVideo(tempFilePath);
           videoFiles.push(...tempVideo);
@@ -444,7 +452,10 @@ function getAllValidVideo(onlySubtitle, files) {
     } else {
       files.forEach((tempFilePath) => {
         const baseName = path.basename(tempFilePath);
-        if (baseName.startsWith('.') || fs.statSync(tempFilePath).isDirectory()) return;
+        if (baseName.startsWith('.')) return;
+        const isKnownMedia = isSubtitle(tempFilePath)
+          || isVideo(tempFilePath) || isAudio(tempFilePath) || isImage(tempFilePath);
+        if (!isKnownMedia && fs.statSync(tempFilePath).isDirectory()) return;
         if (isVideo(tempFilePath) || isAudio(tempFilePath) || isImage(tempFilePath)) {
           videoFiles.push(tempFilePath);
         }
@@ -475,9 +486,9 @@ function takeQueuedOpenRequest() {
 
 function collectOpenPath(file, videoFiles, subtitleFiles) {
   try {
-    const isDirectory = fs.statSync(file).isDirectory();
-    if (isSubtitle(file) || isDirectory) subtitleFiles.push(file);
+    if (isSubtitle(file)) subtitleFiles.push(file);
     else if (isVideo(file) || isAudio(file) || isImage(file)) videoFiles.push(file);
+    else if (fs.statSync(file).isDirectory()) subtitleFiles.push(file);
   } catch (ex) {
     // Ignore arguments that are not readable media paths.
   }

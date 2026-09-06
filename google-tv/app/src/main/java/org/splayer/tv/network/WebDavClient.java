@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 
 public final class WebDavClient {
     private static final MediaType XML = MediaType.get("application/xml; charset=utf-8");
@@ -63,10 +64,29 @@ public final class WebDavClient {
         }
     }
 
+    // Disable DOCTYPE and external entities so a malicious WebDAV server can't
+    // drive an XXE. Each feature is best-effort: some Android DOM parsers reject
+    // a given feature by throwing, and blindly propagating that would fail every
+    // listing, so we set what's supported and still parse.
+    private static void hardenAgainstXxe(DocumentBuilderFactory factory) {
+        trySetFeature(factory, "http://apache.org/xml/features/disallow-doctype-decl", true);
+        trySetFeature(factory, "http://xml.org/sax/features/external-general-entities", false);
+        trySetFeature(factory, "http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setExpandEntityReferences(false);
+    }
+
+    private static void trySetFeature(DocumentBuilderFactory factory, String feature, boolean value) {
+        try {
+            factory.setFeature(feature, value);
+        } catch (ParserConfigurationException ignored) {
+            // Feature unsupported on this parser; the other defenses still apply.
+        }
+    }
+
     static List<NetworkEntry> parseListing(String directoryUri, InputStream input) throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(true);
-        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        hardenAgainstXxe(factory);
         Document document = factory.newDocumentBuilder().parse(input);
         NodeList responses = document.getElementsByTagNameNS("*", "response");
         URI base = URI.create(directoryUri);

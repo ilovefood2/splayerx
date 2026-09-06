@@ -325,6 +325,8 @@ export default {
       hoveredPausedIcon: false,
       revealInFinderHoveredIndex: -1,
       isDarkMode: false,
+      ipcListeners: [],
+      nativeThemeUpdatedHandler: null,
     };
   },
   computed: {
@@ -339,21 +341,12 @@ export default {
   },
   mounted() {
     this.isDarkMode = electron.remote.nativeTheme.shouldUseDarkColors;
-    electron.remote.nativeTheme.on('updated', () => {
+    this.nativeThemeUpdatedHandler = () => {
       this.isDarkMode = electron.remote.nativeTheme.shouldUseDarkColors;
-    });
-    window.addEventListener('offline', () => {
-      this.downloadList.forEach((i: { id: string, name: string, path: string, ext: string,
-        url: string, date: number, paused: boolean, offline: boolean, speed: number, }) => {
-        if (!i.paused) {
-          i.offline = true;
-          i.speed = 0;
-          BrowsingDownloadManager.pauseItem(i.id);
-          i.paused = true;
-        }
-      });
-    });
-    electron.ipcRenderer.on('file-not-found', (evt: Event, id: string) => {
+    };
+    electron.remote.nativeTheme.on('updated', this.nativeThemeUpdatedHandler);
+    window.addEventListener('offline', this.handleOffline);
+    this.registerIpcListener('file-not-found', (evt: Event, id: string) => {
       const item = this.downloadList.find((i: { id: string, fileRemoved: boolean,
         paused: boolean, pos: number, size: number, }) => i.id === id);
       if (item) {
@@ -363,14 +356,14 @@ export default {
       }
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    electron.ipcRenderer.on('download-headers', (evt: Event, headers: any) => {
+    this.registerIpcListener('download-headers', (evt: Event, headers: any) => {
       this.requestHeaders = headers;
     });
-    electron.ipcRenderer.on('abort-download', async (evt: Event, id: string) => {
+    this.registerIpcListener('abort-download', async (evt: Event, id: string) => {
       BrowsingDownloadManager.killItemProcess(id);
       this.downloadList = this.downloadList.filter((i: { id: string }) => i.id !== id);
     });
-    electron.ipcRenderer.on('downloading-network-error', (evt: Event, id: string) => {
+    this.registerIpcListener('downloading-network-error', (evt: Event, id: string) => {
       const errorItem = this.downloadList
         .find((i: { id: string, name: string, path: string, ext: string, url: string,
           date: number, paused: boolean, offline: boolean, speed: number, }) => i.id === id);
@@ -381,11 +374,11 @@ export default {
         errorItem.paused = true;
       }
     });
-    electron.ipcRenderer.on('quit', (evt: Event, needToRestore?: boolean) => {
+    this.registerIpcListener('quit', (evt: Event, needToRestore?: boolean) => {
       this.quit = true;
       this.needToRestore = !!needToRestore;
     });
-    electron.ipcRenderer.on('continue-download-video', (evt: Event, args: { id: string, downloadId: string, name: string, path: string, progress: number, size: number, url: string }[]) => {
+    this.registerIpcListener('continue-download-video', (evt: Event, args: { id: string, downloadId: string, name: string, path: string, progress: number, size: number, url: string }[]) => {
       args.forEach((i: {
         id: string, downloadId: string, name: string, path: string,
         progress: number, size: number, url: string,
@@ -406,7 +399,7 @@ export default {
         }
       });
     });
-    electron.ipcRenderer.on('download-video', (evt: Event, args: { id: string, name: string, path: string, ext: string, url: string, date: number, time: number }) => {
+    this.registerIpcListener('download-video', (evt: Event, args: { id: string, name: string, path: string, ext: string, url: string, date: number, time: number }) => {
       if (navigator.onLine) {
         BrowsingDownloadManager.addItem(`${args.url}-${args.id}-${args.time}`, new BrowsingDownload(args.url, `${args.url}-${args.id}-${args.time}`, args.id));
         const defaultName = args.name.endsWith(args.ext) ? args.name : `${args.name}.${args.ext}`;
@@ -421,20 +414,8 @@ export default {
         electron.ipcRenderer.send('start-download-error');
       }
     });
-    window.onbeforeunload = (e: BeforeUnloadEvent) => {
-      if (this.quit) {
-        if (!this.asyncTasksDone && !this.needToRestore) {
-          e.returnValue = false;
-          BrowsingDownloadManager.saveItems();
-          this.asyncTasksDone = true;
-          electron.remote.app.quit();
-        }
-      } else {
-        e.returnValue = false;
-        electron.remote.getCurrentWindow().hide();
-      }
-    };
-    electron.ipcRenderer.on('transfer-download-info', (evt: Event, info: { id: string, downloadId: string, url: string, name: string, path: string, size: number}) => {
+    window.addEventListener('beforeunload', this.handleBeforeUnload);
+    this.registerIpcListener('transfer-download-info', (evt: Event, info: { id: string, downloadId: string, url: string, name: string, path: string, size: number}) => {
       const showSize = this.readablizeBytes(info.size, 'MB');
       const showProgress = '0 MB';
       const pos = 0;
@@ -449,7 +430,7 @@ export default {
         electron.remote.getCurrentWindow().show();
       }
     });
-    electron.ipcRenderer.on('transfer-progress', (evt: Event, progress: { id: string, pos: number, speed: number }) => {
+    this.registerIpcListener('transfer-progress', (evt: Event, progress: { id: string, pos: number, speed: number }) => {
       const downloadingItem = this.downloadList
         .find((i: {
           id: string, paused: boolean, pos: number,
@@ -463,7 +444,47 @@ export default {
       }
     });
   },
+  beforeUnmount() {
+    this.ipcListeners.forEach(({ channel, listener }) => {
+      electron.ipcRenderer.off(channel, listener);
+    });
+    this.ipcListeners = [];
+    if (this.nativeThemeUpdatedHandler) {
+      electron.remote.nativeTheme.removeListener('updated', this.nativeThemeUpdatedHandler);
+      this.nativeThemeUpdatedHandler = null;
+    }
+    window.removeEventListener('offline', this.handleOffline);
+    window.removeEventListener('beforeunload', this.handleBeforeUnload);
+  },
   methods: {
+    registerIpcListener(channel: string, listener: (...args: any[]) => void) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      electron.ipcRenderer.on(channel, listener);
+      this.ipcListeners.push({ channel, listener });
+    },
+    handleOffline() {
+      this.downloadList.forEach((i: { id: string, name: string, path: string, ext: string,
+        url: string, date: number, paused: boolean, offline: boolean, speed: number, }) => {
+        if (!i.paused) {
+          i.offline = true;
+          i.speed = 0;
+          BrowsingDownloadManager.pauseItem(i.id);
+          i.paused = true;
+        }
+      });
+    },
+    handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (this.quit) {
+        if (!this.asyncTasksDone && !this.needToRestore) {
+          e.returnValue = false;
+          BrowsingDownloadManager.saveItems();
+          this.asyncTasksDone = true;
+          electron.remote.app.quit();
+        }
+      } else {
+        e.returnValue = false;
+        electron.remote.getCurrentWindow().hide();
+      }
+    },
     controlBtnDefault(paused: boolean) {
       if (this.isDarkMode) return paused ? 'downloadResumeDark' : 'downloadPauseDark';
       return paused ? 'downloadResume' : 'downloadPause';

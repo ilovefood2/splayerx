@@ -43,6 +43,17 @@ describe('renderer IPC bridge', () => {
     );
   });
 
+  it('routes permanent file deletion requests asynchronously', async () => {
+    await bridge.fileSystem.deleteFile('/tmp/video.mp4');
+    expect(ipcRenderer.invoke).to.have.been.calledWith(
+      'splayer-renderer-bridge-async',
+      sinon.match({
+        operation: 'fileSystem:deleteFile',
+        args: ['/tmp/video.mp4'],
+      }),
+    );
+  });
+
   it('serializes touch bar callbacks as bridge action identifiers', () => {
     const button = new bridge.TouchBar.TouchBarButton({
       click() {},

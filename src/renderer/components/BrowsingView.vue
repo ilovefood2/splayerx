@@ -84,7 +84,6 @@ import BrowsingHomePage from '@/components/BrowsingView/BrowsingHomePage.vue';
 import asyncStorage from '@/helpers/asyncStorage';
 import syncStorage from '@/helpers/syncStorage';
 import NotificationBubble from '@/components/NotificationBubble.vue';
-import { offListenersExceptWhiteList } from '@/libs/utils';
 import MenuService from '@/services/menu/MenuService';
 import { log } from '@/libs/Log';
 import { browsingHistory } from '@/services/browsing/BrowsingHistoryService';
@@ -171,6 +170,9 @@ export default {
       downloadErrorCode: '',
       blacklistTimer: 0,
       requestCookie: '',
+      ipcListeners: [],
+      busListeners: [],
+      lifecycleWindow: null,
     };
   },
   computed: {
@@ -523,13 +525,13 @@ export default {
       this.createTouchBar();
     }
 
-    this.$bus.$on('disable-sidebar-shortcut', (val: boolean) => {
+    this.registerBusListener('disable-sidebar-shortcut', (val: boolean) => {
       this.menuService.updateMenuItemEnabled('browsing.window.sidebar', !val);
     });
-    this.$bus.$on('toggle-reload', this.handleUrlReload);
-    this.$bus.$on('toggle-back', this.handleUrlBack);
-    this.$bus.$on('toggle-forward', this.handleUrlForward);
-    this.$bus.$on('toggle-side-bar', () => {
+    this.registerBusListener('toggle-reload', this.handleUrlReload);
+    this.registerBusListener('toggle-back', this.handleUrlBack);
+    this.registerBusListener('toggle-forward', this.handleUrlForward);
+    this.registerBusListener('toggle-side-bar', () => {
       setTimeout(() => {
         if (this.acceleratorAvailable) {
           this.$event.emit('side-bar-mouseup');
@@ -538,7 +540,7 @@ export default {
         }
       }, 10);
     });
-    this.$bus.$on('toggle-pip', (isGlobal: boolean) => {
+    this.registerBusListener('toggle-pip', (isGlobal: boolean) => {
       const focusedOnMainWindow = this.$electron.remote.getCurrentWindow().isVisible()
         && this.$electron.remote.getCurrentWindow().isFocused();
       setTimeout(() => {
@@ -553,8 +555,8 @@ export default {
         }
       }, 10);
     });
-    this.$bus.$on('sidebar-selected', this.handleBookmarkOpen);
-    this.$bus.$on('channel-manage', () => {
+    this.registerBusListener('sidebar-selected', this.handleBookmarkOpen);
+    this.registerBusListener('channel-manage', () => {
       if (!this.showChannelManager) {
         if (this.currentMainWebContentsView()) {
           this.removeListener();
@@ -575,7 +577,7 @@ export default {
         this.menuService.updateMenuItemEnabled('history.reload', false);
       }
     });
-    this.$bus.$on('show-homepage', () => {
+    this.registerBusListener('show-homepage', () => {
       if (!this.showHomePage) {
         if (this.currentMainWebContentsView()) {
           this.removeListener();
@@ -598,35 +600,35 @@ export default {
     });
     window.addEventListener('focus', this.focusHandler);
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
-    this.$electron.ipcRenderer.on('store-download-date', () => {
+    this.registerIpcListener('store-download-date', () => {
       this.updateDownloadDate(Date.now());
     });
-    this.$electron.ipcRenderer.on('store-download-info', (evt: Event, info: { resolution: number, path: string }) => {
+    this.registerIpcListener('store-download-info', (evt: Event, info: { resolution: number, path: string }) => {
       this.updateDownloadPath(info.path);
       this.updateDownloadResolution(info.resolution);
     });
-    this.$electron.ipcRenderer.on('keydown', () => {
+    this.registerIpcListener('keydown', () => {
       this.acceleratorAvailable = false;
     });
-    this.$electron.ipcRenderer.on('handle-exit-pip', () => {
+    this.registerIpcListener('handle-exit-pip', () => {
       this.handleExitPip();
     });
-    this.$electron.ipcRenderer.on('handle-danmu-display', () => {
+    this.registerIpcListener('handle-danmu-display', () => {
       this.handleDanmuDisplay();
     });
-    this.$electron.ipcRenderer.on('update-pip-pos', (e: Event, pos: number[]) => {
+    this.registerIpcListener('update-pip-pos', (e: Event, pos: number[]) => {
       this.$store.dispatch('updatePipPos', pos);
     });
-    this.$electron.ipcRenderer.on('quit', () => {
+    this.registerIpcListener('quit', () => {
       this.quit = true;
     });
-    this.$electron.ipcRenderer.on(
+    this.registerIpcListener(
       'update-pip-size',
       (e: Event, args: number[]) => {
         this.$store.dispatch('updatePipSize', args);
       },
     );
-    this.$electron.ipcRenderer.on(
+    this.registerIpcListener(
       'update-pip-state',
       (e: Event, info: { size: number[], position: number[] }) => {
         this.$store.dispatch('updatePipPos', info.position);
@@ -634,16 +636,13 @@ export default {
         this.updateIsPip(false);
       },
     );
-    this.$electron.ipcRenderer.on('get-info-cookie', (evt: Event, Cookie: string) => {
+    this.registerIpcListener('get-info-cookie', (evt: Event, Cookie: string) => {
       this.requestCookie = Cookie;
     });
-    this.$electron.remote.getCurrentWindow().on('enter-html-full-screen', () => {
-      this.headerToShow = false;
-    });
-    this.$electron.remote.getCurrentWindow().on('leave-html-full-screen', () => {
-      this.headerToShow = true;
-    });
-    this.$electron.ipcRenderer.on(
+    this.lifecycleWindow = this.$electron.remote.getCurrentWindow();
+    this.lifecycleWindow.on('enter-html-full-screen', this.handleEnterHtmlFullScreen);
+    this.lifecycleWindow.on('leave-html-full-screen', this.handleLeaveHtmlFullScreen);
+    this.registerIpcListener(
       'update-browser-state',
       (
         e: Event,
@@ -675,7 +674,7 @@ export default {
     );
   },
   beforeUnmount() {
-    this.$electron.ipcRenderer.removeAllListeners('update-browser-state');
+    this.cleanupLifecycleListeners();
     this.removeListener();
     this.$store.dispatch('updateBrowsingSize', this.winSize);
     this.boundBackPosition();
@@ -690,8 +689,6 @@ export default {
         pipMode: this.pipMode,
       })
       .finally(() => {
-        window.removeEventListener('beforeunload', this.beforeUnloadHandler);
-        window.removeEventListener('focus', this.focusHandler);
         this.$electron.ipcRenderer.send('remove-browser');
         if (this.backToLandingView) {
           setTimeout(() => {
@@ -717,8 +714,7 @@ export default {
     this.removeListener();
     this.backToLandingView = true;
     this.updateShowSidebar(false);
-    // event bus 解绑 过滤白名单的事件
-    offListenersExceptWhiteList(this.$bus);
+    this.cleanupBusListeners();
     next();
   },
   methods: {
@@ -735,6 +731,46 @@ export default {
       updateDownloadResolution: downloadActions.UPDATE_RESOLUTION,
       updateDownloadPath: downloadActions.UPDATE_PATH,
     }),
+    registerIpcListener(channel: string, listener: (...args: any[]) => void) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      this.$electron.ipcRenderer.on(channel, listener);
+      this.ipcListeners.push({ channel, listener });
+    },
+    registerBusListener(eventName: string, listener: (...args: any[]) => void) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      this.$bus.$on(eventName, listener);
+      this.busListeners.push({ eventName, listener });
+    },
+    cleanupBusListeners() {
+      this.busListeners.forEach(({ eventName, listener }) => {
+        this.$bus.$off(eventName, listener);
+      });
+      this.busListeners = [];
+    },
+    cleanupLifecycleListeners() {
+      clearTimeout(this.blacklistTimer);
+      this.ipcListeners.forEach(({ channel, listener }) => {
+        this.$electron.ipcRenderer.off(channel, listener);
+      });
+      this.ipcListeners = [];
+      this.cleanupBusListeners();
+      if (this.lifecycleWindow) {
+        this.lifecycleWindow.removeListener(
+          'enter-html-full-screen', this.handleEnterHtmlFullScreen,
+        );
+        this.lifecycleWindow.removeListener(
+          'leave-html-full-screen', this.handleLeaveHtmlFullScreen,
+        );
+        this.lifecycleWindow = null;
+      }
+      window.removeEventListener('online', this.onlineHandler);
+      window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+      window.removeEventListener('focus', this.focusHandler);
+    },
+    handleEnterHtmlFullScreen() {
+      this.headerToShow = false;
+    },
+    handleLeaveHtmlFullScreen() {
+      this.headerToShow = true;
+    },
     bookmarkAccessing(vidPath: string) {
       const bookmarkObj = syncStorage.getSync('bookmark');
       if (!Object.prototype.hasOwnProperty.call(bookmarkObj, vidPath)) {

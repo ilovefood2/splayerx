@@ -31,9 +31,8 @@ export class SrtParser implements IParser {
   private baseTags = { alignment: 2, pos: undefined };
 
   private normalizer(parsedSubtitle: ParsedSubtitle) {
-    if (!parsedSubtitle.length) throw new Error('Unsupported Subtitle');
     const finalDialogues: TextCue[] = [];
-    parsedSubtitle
+    (Array.isArray(parsedSubtitle) ? parsedSubtitle : [])
       .filter(({ text }) => text)
       .forEach((subtitle) => {
         finalDialogues.push({
@@ -51,7 +50,13 @@ export class SrtParser implements IParser {
   public async getDialogues(time?: number) {
     if (!this.loader.fullyRead) {
       const payload = await this.loader.getPayload() as string;
-      if (this.loader.fullyRead) this.normalizer(parse(payload));
+      if (this.loader.fullyRead) {
+        try {
+          this.normalizer(parse(payload || ''));
+        } catch (error) {
+          this.normalizer([]);
+        }
+      }
     }
     return getDialogues(this.dialogues, time);
   }
