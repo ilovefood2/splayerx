@@ -10,8 +10,8 @@
       @mousedown="handleMousedown"
       @mouseup="handleMouseup"
       @dblclick.stop=""
-      :class="[iconClass, { 'no-drag': showAllWidgets }]"
-      class="icon-wrapper"
+      :class="iconClass"
+      class="icon-wrapper no-drag"
     >
       <Icon
         v-show="showPlayIcon"
@@ -64,9 +64,6 @@ export default {
       iconClass: 'fade-out',
       iconFadingId: NaN,
       detectMovePosition: false,
-      justCloseAttached: false,
-      justFocused: false,
-      justMousedownOnVolume: false,
     };
   },
   watch: {
@@ -78,27 +75,19 @@ export default {
         this.detectMovePosition = true;
       }
     },
-    attachedShown(val: boolean, oldVal: boolean) {
+    attachedShown(val: boolean) {
       if (!val && this.mouseover) {
-        if (oldVal) this.justCloseAttached = true;
         this.detectMovePosition = true;
-      }
-    },
-    isFocused(val: boolean, oldVal: boolean) {
-      if (val && !oldVal && this.mouseover) {
-        this.justFocused = true;
       }
     },
     mousedownOnVolume(val: boolean, oldVal: boolean) {
       if (!val && oldVal) {
-        this.justMousedownOnVolume = true;
         if (this.mouseover) this.detectMovePosition = true;
       }
     },
     mousemovePosition(newVal: {x: number, y: number}, oldVal: {x: number, y: number}) {
       if (this.detectMovePosition && this.isFocused) {
         if (Math.abs(newVal.x - oldVal.x) > 0 || Math.abs(newVal.y - oldVal.y) > 0) {
-          this.justFocused = this.justCloseAttached = this.justMousedownOnVolume = false;
           this.cursorAppear = true;
           this.iconClass = 'fade-in';
           this.detectMovePosition = false;
@@ -132,7 +121,6 @@ export default {
       if (!this.attachedShown && this.isFocused && !this.mousedownOnVolume) {
         this.cursorAppear = true;
         this.iconClass = 'fade-in';
-        this.justMousedownOnVolume = false;
       } else if (!this.isFocused) {
         this.detectMovePosition = true;
       }
@@ -154,30 +142,17 @@ export default {
         this.iconClass = 'fade-in';
       }
     },
-    handleMousedown() { // eslint-disable-line complexity
-      if (
-        this.justFocused
-        || (
-          this.showAllWidgets && (this.justCloseAttached || this.justMousedownOnVolume)
-        )
-      ) {
-        this.justFocused = this.justCloseAttached = this.justMousedownOnVolume = false;
-        this.cursorAppear = true;
-        this.iconClass = 'fade-in';
-      } else if (this.showAllWidgets && !this.attachedShown && this.isFocused) {
+    handleMousedown() {
+      if (!this.attachedShown && this.isFocused) {
         this.cursorAppear = true;
         this.iconClass = 'fade-in';
         this.mousedown = true;
         this.animationMode = 'icon-ani-fade-out';
         this.$emit('update:playbutton-state', true);
-      } else if (!this.showAllWidgets && !this.attachedShown && this.isFocused) {
-        this.cursorAppear = true;
-        this.iconClass = 'fade-in';
       }
     },
     handleMouseup() {
       if (this.mousedown && !this.attachedShown) {
-        this.showPlayIcon = !this.showPlayIcon;
         this.onPlayButtonMouseup();
       }
     },
@@ -224,6 +199,8 @@ export default {
 }
 .icon-wrapper {
   position: relative;
+  // The controller's shared fade-out rule must not hide the button's hit target.
+  visibility: visible;
 }
 .icon {
   position: absolute;

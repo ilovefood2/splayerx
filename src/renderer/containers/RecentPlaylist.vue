@@ -542,7 +542,9 @@ export default {
         && this.indexOfMovingItem === this.playingList.length
         && this.filePathNeedToDelete !== this.playingList[index]) {
         this.mousedownIndex = NaN;
-        if (this.isFolderList) this.openVideoFile(this.playingList[index]);
+        if (this.isFolderList) {
+          this.openVideoFile(this.playingList[index], { keepCurrentFolderList: true });
+        }
         else this.playFile(this.playingList[index], this.items[index]);
       } else if (index === this.playingIndex
         && this.indexOfMovingItem === this.playingList.length) {

@@ -1450,7 +1450,9 @@ const app = createApp({
 
         try {
           if (replacementPath) {
-            if (this.isFolderList) await this.openVideoFile(replacementPath);
+            if (this.isFolderList) {
+              await this.openVideoFile(replacementPath, { keepCurrentFolderList: true });
+            }
             else await this.playFile(replacementPath, replacementId);
           } else {
             await this.$router.push({ name: 'landing-view' });

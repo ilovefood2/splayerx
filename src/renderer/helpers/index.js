@@ -278,6 +278,13 @@ export default {
       }
       if (videoFiles.length !== 0) {
         const addFiles = videoFiles.filter(file => !this.$store.getters.playingList.includes(file));
+        if (this.$store.getters.isFolderList || this.$store.getters.incognitoMode) {
+          await this.$store.dispatch('FolderList', {
+            id: this.playListId,
+            paths: [...this.$store.getters.playingList, ...addFiles],
+          });
+          return;
+        }
         const playlist = await this.infoDB.get('recent-played', this.playListId);
         const addIds = [];
         for (const videoPath of addFiles) {
@@ -446,8 +453,8 @@ export default {
       // actually opened (openVideoFile), keeping the folder's paths for the
       // playlist panel and next/previous navigation.
       const isMounted = videoFiles[0].startsWith('/Volumes/') || /^\\\\/.test(videoFiles[0]);
-      if (isMounted) {
-        this.$store.dispatch('PlayingList', { id: '', paths: videoFiles, items: [] });
+      if (isMounted || this.$store.getters.incognitoMode) {
+        this.$store.dispatch('FolderList', { id: '', paths: videoFiles, items: [] });
         await this.openVideoFile(videoFiles[0], { keepCurrentFolderList: true });
         this.$bus.$emit('open-playlist');
         this.$bus.$emit('new-playlist');
@@ -509,6 +516,7 @@ export default {
     // open single video
     async openVideoFile(videoFile, options = {}) {
       if (!videoFile) return;
+      const incognito = this.$store.getters.incognitoMode;
       let id;
       let playlist;
       if (!options.keepCurrentFolderList) {
@@ -518,7 +526,7 @@ export default {
           items: [],
         });
       }
-      const knownVideoPromise = this.$store.getters.incognitoMode
+      const knownVideoPromise = incognito
         ? Promise.resolve(null)
         : this.infoDB.get('media-item', 'path', videoFile).then((knownVideo) => {
           if (knownVideo && this.$store.getters.originSrc === videoFile) {
@@ -530,7 +538,10 @@ export default {
         this.playFile(videoFile, NaN),
         knownVideoPromise,
       ]);
-      if (!quickHash) return;
+      // Private folder playback stays in memory, including when a slow hash
+      // finishes after the player has already closed or switched files.
+      if (!quickHash || incognito || this.$store.getters.incognitoMode
+        || this.$store.getters.originSrc !== videoFile) return;
       playlist = await this.infoDB.get('recent-played', 'hpaths', [`${quickHash}-${videoFile}`]);
       if (quickHash && playlist && !this.$store.getters.incognitoMode) {
         id = playlist.id;
@@ -560,13 +571,13 @@ export default {
       if (!quickHash || !playlist) return;
       if (this.$store.getters.originSrc === videoFile) {
         this.$store.commit('ID_UPDATE', playlist.items[0]);
-        if (!options.keepCurrentFolderList) {
-          this.$store.dispatch('FolderList', {
-            id,
-            paths: [videoFile],
-            items: playlist.items.slice(0, 1),
-          });
-        }
+        const paths = this.$store.getters.playingList;
+        this.$store.dispatch('FolderList', {
+          id,
+          paths,
+          items: paths.map((file, index) => (file === videoFile
+            ? playlist.items[0] : this.$store.getters.items[index])),
+        });
       }
     },
     bookmarkAccessing(vidPath) {

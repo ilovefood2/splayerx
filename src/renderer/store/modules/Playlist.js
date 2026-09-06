@@ -85,6 +85,8 @@ const mutations = {
     state.items = t;
   },
   playList(state, t) {
+    const idsByPath = new Map(state.playList.map((file, index) => [file, state.items[index]]));
+    state.items = t.map(file => idsByPath.get(file));
     state.playList = t;
   },
   AddIdsToPlayingList(state, t) {

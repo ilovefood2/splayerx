@@ -151,12 +151,13 @@ export default {
       this.changeWindowRotate(val);
     },
     async playListId(val: number, oldVal: number) {
-      if (this.incognitoMode && oldVal) {
+      if (this.incognitoMode && Number.isFinite(oldVal)) {
         const playlistItem = await playInfoStorageService.getPlaylistRecord(oldVal);
+        if (!playlistItem) return;
         const mediaItem = await playInfoStorageService
           .getMediaItem(playlistItem.items[playlistItem.playedIndex]);
 
-        if (mediaItem.lastPlayedTime) return;
+        if (mediaItem && mediaItem.lastPlayedTime) return;
 
         await playInfoStorageService.deleteRecentPlayedBy(oldVal);
         return;
@@ -449,6 +450,7 @@ export default {
       const mediaInfo = this.videoId
         ? await playInfoStorageService.getMediaItem(this.videoId)
         : null;
+      if (!this.$refs.videoCanvas || this.$refs.videoCanvas.videoElement() !== target) return;
       let currentTime = 0;
       if (mediaInfo && mediaInfo.lastPlayedTime
         && target.duration - mediaInfo.lastPlayedTime > 10) {
@@ -458,7 +460,6 @@ export default {
       this.$bus.$emit('seek', currentTime);
 
       this.videoConfigInitialize({
-        paused: false,
         volume: this.volume * 100,
         muted: this.muted,
         rate: this.nowRate,
@@ -490,10 +491,10 @@ export default {
       this.gainNode.connect(this.audioCtx.destination);
       if (this.volume > 1) this.amplifyAudio(this.volume);
 
-      this.videoElement.play();
+      if (!this.paused) this.videoElement.play();
       this.$emit('media-ready', this.originSrc);
       setTimeout(() => {
-        this.enableVideoInfoStore = true;
+        if (this.videoElement === target) this.enableVideoInfoStore = true;
       }, 20);
     },
     async openNextFolderVideo() {
@@ -544,7 +545,6 @@ export default {
           this.$store.dispatch('FolderList', {
             id: this.playListId,
             paths: list,
-            items: this.items,
           });
         }
       }
@@ -693,8 +693,9 @@ export default {
       return media && (media.$el || media);
     },
     async updatePlaylist(playlistId: number) {
-      if (!Number.isNaN(playlistId) && !this.isFolderList) {
+      if (Number.isFinite(playlistId) && !this.isFolderList) {
         const playlistRecord = await playInfoStorageService.getPlaylistRecord(playlistId);
+        if (!playlistRecord) return;
         playlistRecord.playedIndex = this.playingIndex;
 
         await playInfoStorageService
@@ -738,11 +739,13 @@ export default {
       const playListId = this.playListId;
       // incognito mode
       if (this.incognitoMode) {
+        if (!Number.isFinite(playListId)) return;
         const playlistItem = await playInfoStorageService.getPlaylistRecord(playListId);
+        if (!playlistItem) return;
         const mediaItem = await playInfoStorageService
           .getMediaItem(playlistItem.items[playlistItem.playedIndex]);
 
-        if (mediaItem.lastPlayedTime) return;
+        if (mediaItem && mediaItem.lastPlayedTime) return;
 
         await playInfoStorageService.deleteRecentPlayedBy(playListId);
         return;

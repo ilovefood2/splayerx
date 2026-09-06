@@ -204,6 +204,8 @@ function generateRate(rateInfo, nowRate, oldRateGroup) {
   return newRateGroup;
 }
 const mutations = mutationsGenerator(videoMutations);
+// Requests belong to a player store, so opening a second window cannot cancel the first.
+const sourceRequests = new WeakMap();
 
 const actions = {
   async [videoActions.SRC_SET]({ state, commit, dispatch }, { src, mediaHash, id }) {
@@ -212,7 +214,9 @@ const actions = {
       windows: RegExp(/^[a-zA-Z]:\/(((?![<>:"//|?*]).)+((?<![ .])\/)?)*$/),
     };
     const isValid = Object.keys(srcRegexes).some(type => srcRegexes[type].test(src));
-    if (!isValid) return undefined;
+    if (!isValid && src !== '') return undefined;
+    const request = Symbol();
+    sourceRequests.set(state, request);
     let playbackSrc = src;
     // Transport streams need remuxing. Matroska is streamed as fragmented MP4
     // because Chromium cannot demux common HEVC/DTS MKVs. Mounted MP4-family
@@ -223,17 +227,26 @@ const actions = {
     const isMountedMp4 = isMountedMedia && /\.(m4v|mov|mp4)$/i.test(src);
     if (process.env.NODE_ENV !== 'testing'
       && (/\.(mkv|ts)$/i.test(src) || isMountedMp4)) {
-      playbackSrc = await ipcRenderer.invoke('prepare-playback-source', src);
+      try {
+        playbackSrc = await ipcRenderer.invoke('prepare-playback-source', src);
+      } catch (error) {
+        if (sourceRequests.get(state) !== request) return undefined;
+        throw error;
+      }
     }
+    if (sourceRequests.get(state) !== request) return undefined;
     commit(videoMutations.CURRENT_SRC_UPDATE, playbackSrc);
     commit(videoMutations.MEDIA_HASH_UPDATE, mediaHash || '');
     commit(videoMutations.ID_UPDATE, id);
+    commit(videoMutations.PAUSED_UPDATE, !src);
     commit(videoMutations.SRC_UPDATE, src);
+    if (!src) return undefined;
     dispatch(subtitleActions.INITIALIZE_VIDEO_SUBTITLE_MAP, { videoSrc: src });
 
     if (mediaHash) return mediaHash;
     const calculatedHash = await mediaQuickHash.try(src);
-    if (calculatedHash && state.src === src) {
+    if (sourceRequests.get(state) !== request) return undefined;
+    if (calculatedHash) {
       commit(videoMutations.MEDIA_HASH_UPDATE, calculatedHash);
     }
     return calculatedHash;

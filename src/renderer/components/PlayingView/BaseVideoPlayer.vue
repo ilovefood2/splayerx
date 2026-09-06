@@ -408,11 +408,10 @@ export default {
       this.compatibilityOffset = start;
       const streamUrl = new URL(this.src);
       streamUrl.searchParams.set('start', start.toFixed(3));
-      const shouldResume = !this.paused;
       video.addEventListener('loadedmetadata', async () => {
         if (generation !== this.compatibilityGeneration) return;
         video.currentTime = 0;
-        if (shouldResume) {
+        if (!this.paused) {
           try {
             await video.play();
           } catch (error) {

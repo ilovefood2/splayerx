@@ -187,7 +187,7 @@ describe('network location opening', () => {
     );
 
     // Every folder path is kept for the playlist panel and next/previous nav.
-    sinon.assert.calledWithExactly(dispatch, 'PlayingList', {
+    sinon.assert.calledWithExactly(dispatch, 'FolderList', {
       id: '',
       paths: ['/Volumes/Share/Episode 1.mp4', '/Volumes/Share/Episode 2.mp4'],
       items: [],

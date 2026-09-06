@@ -36,6 +36,7 @@ describe('VideoCanvas media controls', () => {
       currentTime: 0,
       play,
     };
+    context.$refs = { videoCanvas: { videoElement: () => target } };
 
     await VideoCanvas.methods.onMetaLoaded.call(context, { target });
 
