@@ -137,7 +137,14 @@ public final class PlayerActivity extends Activity
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        if (preparing || player != null) return;
+        if (player != null) {
+            // Home, the screensaver or ambient mode destroy the surface; the
+            // player survives, so bind it to the new one instead of leaving it
+            // rendering into a released surface (black video / playback error).
+            player.setDisplay(holder);
+            return;
+        }
+        if (preparing) return;
         preparing = true;
         if ("smb".equals(location.getScheme())) {
             status.setText(R.string.loading);
@@ -167,7 +174,11 @@ public final class PlayerActivity extends Activity
     private void configurePlayer(SurfaceHolder holder, SmbMediaDataSource source) {
         try {
             player = new MediaPlayer();
-            player.setDisplay(holder);
+            // For SMB this runs after the share opens; the surface may have been
+            // destroyed meanwhile. surfaceCreated() attaches it when it returns.
+            if (holder.getSurface() != null && holder.getSurface().isValid()) {
+                player.setDisplay(holder);
+            }
             player.setAudioStreamType(AudioManager.STREAM_MUSIC);
             player.setWakeMode(this, android.os.PowerManager.PARTIAL_WAKE_LOCK);
             player.setOnPreparedListener(mediaPlayer -> {
@@ -226,6 +237,7 @@ public final class PlayerActivity extends Activity
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
+        if (player != null) player.setDisplay(null);
     }
 
     @Override

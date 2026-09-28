@@ -63,14 +63,76 @@ const compatibilityTasks = new Map<string, Promise<string>>();
 const playbackServer = new PlaybackServer();
 let playbackServerShutdownRegistered = false;
 
+function compatibilityDirectory(): string {
+  return path.join(app.getPath('temp'), 'splayer-compat-media');
+}
+
 async function compatibilityOutputPath(videoPath: string): Promise<string> {
   const stat = await fsPromises.stat(videoPath);
   const key = createHash('sha1')
     .update(`${videoPath}\u0000${stat.size}\u0000${stat.mtimeMs}`)
     .digest('hex');
-  const directory = path.join(app.getPath('temp'), 'splayer-compat-media');
+  const directory = compatibilityDirectory();
   mkdirSync(directory, { recursive: true });
   return path.join(directory, `${key}.mp4`);
+}
+
+// Each remuxed .ts is a full copy of the recording. Keep enough to make
+// re-opening recent files instant without letting the cache grow forever.
+export const COMPAT_CACHE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
+export const COMPAT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Drop remux leftovers: partial files from a remux that was interrupted (app
+ * quit or crashed mid-copy — nothing else ever deletes them), then completed
+ * copies not used within the age limit or beyond the size budget, least
+ * recently used first.
+ */
+export async function pruneCompatibilityCache(
+  directory: string,
+  {
+    now = Date.now(),
+    pid = process.pid,
+    maxBytes = COMPAT_CACHE_MAX_BYTES,
+    maxAgeMs = COMPAT_CACHE_MAX_AGE_MS,
+  }: { now?: number, pid?: number, maxBytes?: number, maxAgeMs?: number } = {},
+): Promise<void> {
+  let names: string[];
+  try {
+    names = await fsPromises.readdir(directory);
+  } catch {
+    return; // nothing cached yet
+  }
+  const completed: { file: string, size: number, used: number }[] = [];
+  await Promise.all(names.map(async (name) => {
+    const file = path.join(directory, name);
+    let stat;
+    try {
+      stat = await fsPromises.stat(file);
+    } catch {
+      return;
+    }
+    if (!stat.isFile()) return;
+    const partial = /\.(\d+)\.partial\.mp4$/.exec(name);
+    if (partial) {
+      // A remux in flight belongs to this process; any other is abandoned.
+      if (Number(partial[1]) !== pid) await fsPromises.unlink(file).catch(() => {});
+      return;
+    }
+    if (name.endsWith('.mp4')) completed.push({ file, size: stat.size, used: stat.mtimeMs });
+  }));
+  completed.sort((left, right) => right.used - left.used);
+  let kept = 0;
+  await Promise.all(completed.map((entry, index) => {
+    kept += entry.size;
+    // The newest copy is always kept, however large: it is the one that was
+    // just remuxed (or reused) and is about to be played.
+    const overBudget = index > 0 && kept > maxBytes;
+    if (now - entry.used > maxAgeMs || overBudget) {
+      return fsPromises.unlink(entry.file).catch(() => {});
+    }
+    return undefined;
+  }));
 }
 
 async function preparePlaybackSource(videoPath: string): Promise<string> {
@@ -103,7 +165,12 @@ async function preparePlaybackSource(videoPath: string): Promise<string> {
   if (!(await pathExists(videoPath))) throw new Error('File does not exist.');
 
   const outputPath = await compatibilityOutputPath(videoPath);
-  if (existsSync(outputPath)) return outputPath;
+  if (existsSync(outputPath)) {
+    // Mark it recently used so cache pruning keeps what is actually watched.
+    const now = new Date();
+    await fsPromises.utimes(outputPath, now, now).catch(() => {});
+    return outputPath;
+  }
   const runningTask = compatibilityTasks.get(outputPath);
   if (runningTask) return runningTask;
 
@@ -116,6 +183,7 @@ async function preparePlaybackSource(videoPath: string): Promise<string> {
         '-c', 'copy', '-movflags', '+faststart', partialPath,
       ]);
       renameSync(partialPath, outputPath);
+      pruneCompatibilityCache(path.dirname(outputPath)).catch(() => {});
       return outputPath;
     } catch (error) {
       if (existsSync(partialPath)) unlinkSync(partialPath);
@@ -161,6 +229,8 @@ export default function registerMediaTasks() {
   if (!playbackServerShutdownRegistered) {
     playbackServerShutdownRegistered = true;
     app.once('before-quit', () => playbackServer.close());
+    // Clear what earlier runs left behind; never blocks startup.
+    pruneCompatibilityCache(compatibilityDirectory()).catch(() => {});
   }
   ipcMain.removeHandler('prepare-playback-source');
   ipcMain.handle('prepare-playback-source', (event, videoPath: string) => (

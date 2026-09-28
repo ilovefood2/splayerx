@@ -15,10 +15,12 @@ import http from 'http';
 import fs from 'fs';
 import os from 'os';
 import { EventEmitter } from 'events';
+import { pipeline } from 'stream';
 import { extname, basename, join } from 'path';
 import { CastDevice, CastMedia } from './CastDevice';
 import { discoverWithKnown, CastDeviceInfo } from './CastDiscovery';
 import { runMediaBinary } from '../ffmpeg';
+import { parseByteRange } from '../PlaybackServer';
 
 /** Containers the Default Media Receiver will accept. */
 const CONTENT_TYPES: { [ext: string]: string } = {
@@ -81,15 +83,18 @@ export function canDirectCast(filePath: string, probe: CastProbe): boolean {
   return !audioCodec || DIRECT_AUDIO_CODECS.has(audioCodec);
 }
 
-async function probeCastSource(filePath: string): Promise<CastProbe> {
+async function probeCastSource(filePath: string, signal?: AbortSignal): Promise<CastProbe> {
   const { stdout } = await runMediaBinary('ffprobe', [
     '-v', 'error',
     '-show_entries', 'stream=codec_type,codec_name',
     '-of', 'json',
     filePath,
-  ]);
+  ], { signal });
   return JSON.parse(stdout) as CastProbe;
 }
+
+/** A newer cast (or a stop) replaced this one while it was being prepared. */
+export const CAST_SUPERSEDED = 'cast-superseded';
 
 async function removeCastDirectory(directory: string): Promise<void> {
   try {
@@ -99,13 +104,13 @@ async function removeCastDirectory(directory: string): Promise<void> {
   }
 }
 
-async function prepareCastSource(filePath: string): Promise<CastSource> {
+async function prepareCastSource(filePath: string, signal?: AbortSignal): Promise<CastSource> {
   const originalContentType = contentTypeOf(filePath);
   if (!originalContentType) {
     throw new Error(`unsupported-container:${extname(filePath).slice(1) || '?'}`);
   }
 
-  const probe = await probeCastSource(filePath);
+  const probe = await probeCastSource(filePath, signal);
   if (canDirectCast(filePath, probe)) {
     return {
       filePath,
@@ -135,7 +140,9 @@ async function prepareCastSource(filePath: string): Promise<CastSource> {
   );
 
   try {
-    await runMediaBinary('ffmpeg', args);
+    // Abortable: a transcode can take minutes, and a newer cast or a stop
+    // must not leave it running (and writing a copy nobody will serve).
+    await runMediaBinary('ffmpeg', args, { signal });
     return {
       filePath: outputPath,
       contentType: 'video/mp4',
@@ -148,18 +155,44 @@ async function prepareCastSource(filePath: string): Promise<CastSource> {
   }
 }
 
-function firstLanIp(): string | undefined {
-  const interfaces = os.networkInterfaces();
-  const names = Object.keys(interfaces);
-  for (let i = 0; i < names.length; i += 1) {
-    const addresses = interfaces[names[i]];
-    for (let j = 0; j < addresses.length; j += 1) {
-      const address = addresses[j];
-      // The TV has to reach us, so loopback and IPv6 are no use here.
-      if (address.family === 'IPv4' && !address.internal) return address.address;
-    }
+function ipv4ToInt(address: string): number | undefined {
+  const parts = address.split('.').map(Number);
+  if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return undefined;
   }
-  return undefined;
+  // eslint-disable-next-line no-bitwise
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+/**
+ * The address the TV should fetch from. Prefer the interface on the TV's own
+ * subnet: the first non-internal IPv4 can just as well be a VPN tunnel or a
+ * virtualization bridge (Parallels, Internet Sharing) the TV cannot reach, in
+ * which case the cast loads forever.
+ */
+export function lanIpFor(
+  targetAddress?: string,
+  interfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]> = os.networkInterfaces(),
+): string | undefined {
+  const candidates: os.NetworkInterfaceInfo[] = [];
+  Object.keys(interfaces).forEach((name) => {
+    (interfaces[name] || []).forEach((address) => {
+      // The TV has to reach us, so loopback and IPv6 are no use here.
+      if (address.family === 'IPv4' && !address.internal) candidates.push(address);
+    });
+  });
+  const target = targetAddress ? ipv4ToInt(targetAddress) : undefined;
+  if (target !== undefined) {
+    const sameSubnet = candidates.find((address) => {
+      const ip = ipv4ToInt(address.address);
+      const mask = ipv4ToInt(address.netmask);
+      if (ip === undefined || mask === undefined) return false;
+      // eslint-disable-next-line no-bitwise
+      return ((ip & mask) >>> 0) === ((target & mask) >>> 0);
+    });
+    if (sameSubnet) return sameSubnet.address;
+  }
+  return candidates.length ? candidates[0].address : undefined;
 }
 
 function vttTime(seconds: number): string {
@@ -196,6 +229,9 @@ export class CastService extends EventEmitter {
 
   private filePath = '';
 
+  /** Size of `filePath`, taken once per cast rather than per range request. */
+  private fileSize = 0;
+
   private vtt = '';
 
   private port = 0;
@@ -209,6 +245,11 @@ export class CastService extends EventEmitter {
   private statusBusy = false;
 
   private castCleanupDir?: string;
+
+  /** Bumped by every cast() and stop(); an older cast() sees it and bows out. */
+  private castGeneration = 0;
+
+  private castAbort?: AbortController;
 
   private lastStatus: CastStatus = {
     casting: false, currentTime: 0, duration: 0, paused: true,
@@ -273,44 +314,45 @@ export class CastService extends EventEmitter {
       res.end(this.vtt);
       return;
     }
-    if (url.indexOf('/video') !== 0 || !this.filePath) {
+    if (url.indexOf('/video') !== 0 || !this.filePath || !this.fileSize) {
       res.writeHead(404);
       res.end();
       return;
     }
-    let stat: fs.Stats;
-    try {
-      stat = fs.statSync(this.filePath);
-    } catch (e) {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
+    const size = this.fileSize;
     const type = contentTypeOf(this.filePath) || 'video/mp4';
-    const range = req.headers.range;
-    if (range) {
-      // Without range support the device cannot seek, and some receivers refuse
-      // to start at all.
-      const match = /bytes=(\d*)-(\d*)/.exec(range);
-      const start = match && match[1] ? parseInt(match[1], 10) : 0;
-      const end = match && match[2] ? parseInt(match[2], 10) : stat.size - 1;
-      res.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${stat.size}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': end - start + 1,
-        'Content-Type': type,
+    // Without range support the device cannot seek, and some receivers refuse
+    // to start at all. Suffix ranges ("bytes=-N", used to find a trailing moov)
+    // and ends past EOF must be honoured exactly, or Content-Length promises
+    // bytes that never arrive and the TV stalls.
+    const range = parseByteRange(req.headers.range, size);
+    if (range === null) {
+      res.writeHead(416, {
+        'Content-Range': `bytes */${size}`,
         'Access-Control-Allow-Origin': '*',
       });
-      fs.createReadStream(this.filePath, { start, end }).pipe(res);
+      res.end();
       return;
     }
-    res.writeHead(200, {
-      'Content-Length': stat.size,
-      'Content-Type': type,
+    const start = range ? range.start : 0;
+    const end = range ? range.end : size - 1;
+    const headers: http.OutgoingHttpHeaders = {
       'Accept-Ranges': 'bytes',
+      'Content-Length': end - start + 1,
+      'Content-Type': type,
       'Access-Control-Allow-Origin': '*',
-    });
-    fs.createReadStream(this.filePath).pipe(res);
+    };
+    if (range) headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
+    res.writeHead(range ? 206 : 200, headers);
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
+    // pipeline() closes the file when the TV aborts a request (it does so
+    // constantly while seeking and buffering) and turns a read error — e.g. the
+    // network share dropping — into a destroyed response instead of an
+    // unhandled 'error' event in the main process.
+    pipeline(fs.createReadStream(this.filePath, { start, end }), res, () => {});
   }
 
   /**
@@ -325,21 +367,45 @@ export class CastService extends EventEmitter {
     currentTime = 0,
     volume = 1,
   ): Promise<void> {
-    const ip = firstLanIp();
+    const ip = lanIpFor(target.ip || target.host);
     if (!ip) throw new Error('no-lan-address');
 
+    const generation = this.supersedeCast();
+    const abort = new AbortController();
+    this.castAbort = abort;
+    const superseded = () => generation !== this.castGeneration;
     this.stopDevice();
     this.releaseCastSource();
-    const source = await prepareCastSource(filePath);
+    let source: CastSource;
+    try {
+      source = await prepareCastSource(filePath, abort.signal);
+    } catch (error) {
+      throw superseded() ? new Error(CAST_SUPERSEDED) : error;
+    }
+    if (superseded()) {
+      // Preparing can take minutes. If another cast started meanwhile, this
+      // copy was never handed to the service, so no one else will delete it.
+      if (source.cleanupDir) removeCastDirectory(source.cleanupDir);
+      throw new Error(CAST_SUPERSEDED);
+    }
+    this.castAbort = undefined;
     this.castCleanupDir = source.cleanupDir;
-    this.filePath = source.filePath;
     this.vtt = cues.length ? cuesToVtt(cues) : '';
     let port: number;
     try {
+      // Stat once, asynchronously: the TV makes many range requests, and a
+      // synchronous stat per request blocks the main process for a full SMB
+      // round trip each time when casting from a network drive.
+      const { size } = await fs.promises.stat(source.filePath);
+      // A newer cast already released (and deleted) this source.
+      if (superseded()) throw new Error(CAST_SUPERSEDED);
+      this.fileSize = size;
+      this.filePath = source.filePath;
       port = await this.serve();
+      if (superseded()) throw new Error(CAST_SUPERSEDED);
     } catch (error) {
-      this.releaseCastSource();
-      throw error;
+      if (!superseded()) this.releaseCastSource();
+      throw superseded() ? new Error(CAST_SUPERSEDED) : error;
     }
     const base = `http://${ip}:${port}`;
 
@@ -372,9 +438,18 @@ export class CastService extends EventEmitter {
     }
     try {
       await device.connect();
+      if (superseded()) throw new Error(CAST_SUPERSEDED);
       await device.load(media);
+      if (superseded()) throw new Error(CAST_SUPERSEDED);
       device.setVolume(Math.max(0, Math.min(1, volume)));
     } catch (error) {
+      if (superseded()) {
+        // The newer cast (or stop) owns the service state now. Only make sure
+        // this receiver does not start playing the old file behind its back.
+        if (this.device === device) this.device = undefined;
+        device.stop();
+        throw new Error(CAST_SUPERSEDED);
+      }
       this.stopDevice();
       this.releaseCastSource();
       throw error;
@@ -453,11 +528,25 @@ export class CastService extends EventEmitter {
   private releaseCastSource(): void {
     const directory = this.castCleanupDir;
     this.castCleanupDir = undefined;
+    // Stop serving the old file; its transcoded copy is about to be deleted.
+    this.filePath = '';
+    this.fileSize = 0;
     if (directory) removeCastDirectory(directory);
+  }
+
+  /** Invalidate any cast() still preparing and kill its probe/transcode. */
+  private supersedeCast(): number {
+    this.castGeneration += 1;
+    if (this.castAbort) {
+      this.castAbort.abort();
+      this.castAbort = undefined;
+    }
+    return this.castGeneration;
   }
 
   /** Stop casting and release the port. */
   public stop(): void {
+    this.supersedeCast();
     this.stopDevice();
     this.releaseCastSource();
     if (this.server) {

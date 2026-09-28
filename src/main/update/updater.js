@@ -96,18 +96,28 @@ const UpdaterFactory = ((() => {
 
     doUpdate() {
       return new Promise((resolve, reject) => {
+        let handleRejectionProcess;
+        // The process-wide handler is only meant to catch autoUpdater errors
+        // while a check or download is running. Left installed, it swallowed
+        // every later main-process exception (one more copy per check).
+        const releaseProcessHandler = () => {
+          process.removeListener('uncaughtException', handleRejectionProcess);
+        };
         const handleRejection = (err) => {
           this.ulog(`update error at rejection: ${err.stack}\n `);
+          releaseProcessHandler();
           autoUpdater.removeAllListeners();
           reject(err);
         };
-        const handleRejectionProcess = (err) => {
+        handleRejectionProcess = (err) => {
           this.ulog(`update error at process ejection: ${err.stack}\n `);
+          releaseProcessHandler();
           autoUpdater.removeAllListeners();
           reject(err);
         };
         const handleResolve = (message) => {
           this.ulog(message);
+          releaseProcessHandler();
           autoUpdater.removeAllListeners();
           resolve(message);
         };
@@ -138,6 +148,7 @@ const UpdaterFactory = ((() => {
           this.mainHelper.sendStatusToWindow(logMessage);
         });
         autoUpdater.on('update-downloaded', () => {
+          releaseProcessHandler();
           this.mainHelper.onUpdateDownloaded(this.currentUpdateInfo);
         });
         autoUpdater.checkForUpdates().catch(handleRejection);

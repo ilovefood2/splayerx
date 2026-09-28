@@ -27,7 +27,18 @@ import { addBubble } from './notificationControl';
 
 const clock = FakeTimers.createClock();
 
-async function expandInputPath(inputPath, assumeDirectory, recurse) {
+// Directories macOS presents to users as single files (apps, photo libraries,
+// bundles). They are never a media folder, and descending into them floods the
+// queue with icons and thumbnails.
+const PACKAGE_DIRECTORY = /\.(app|bundle|framework|plugin|kext|photoslibrary|photolibrary|imovielibrary|fcpbundle|tvlibrary|musiclibrary|xcodeproj|xcworkspace)$/i;
+
+// How many directories the implicit "what plays next" scan may read before it
+// gives up on nesting. Real media folders are small (a show with seasons is a
+// few dozen); a video opened from the home folder or a share root would
+// otherwise walk the whole tree — measured at 181k directories / 160 s.
+export const SIMILAR_MEDIA_SCAN_DIRECTORY_LIMIT = 256;
+
+async function expandInputPath(inputPath, assumeDirectory, recurse, budget) {
   if (path.basename(inputPath).startsWith('.')) return [];
 
   let isDirectory = assumeDirectory;
@@ -40,6 +51,13 @@ async function expandInputPath(inputPath, assumeDirectory, recurse) {
   }
   if (!isDirectory) return [inputPath];
 
+  if (budget) {
+    if (budget.directories <= 0) {
+      budget.exceeded = true;
+      return [];
+    }
+    budget.directories -= 1;
+  }
   let entries;
   try {
     entries = await fsPromises.readdir(inputPath, { withFileTypes: true });
@@ -52,7 +70,10 @@ async function expandInputPath(inputPath, assumeDirectory, recurse) {
     if (entry.name.startsWith('.')) return [];
     const childPath = path.join(inputPath, entry.name);
     // Reuse the dirent type so recursive folder scans do not stat every child.
-    if (entry.isDirectory()) return recurse ? expandInputPath(childPath, true, recurse) : [];
+    if (entry.isDirectory()) {
+      if (!recurse || PACKAGE_DIRECTORY.test(entry.name)) return [];
+      return expandInputPath(childPath, true, recurse, budget);
+    }
     return [childPath];
   }));
   return groups.flat();
@@ -98,20 +119,29 @@ export default {
       return `${minutes}:${seconds}`;
     },
     async findSimilarVideoByVidPath(vidPath) {
-      vidPath = decodeURI(vidPath);
-
-      if (process.platform === 'win32') {
-        vidPath = vidPath.replace(/^file:\/\/\//, '');
-      } else {
-        vidPath = vidPath.replace(/^file:\/\//, '');
+      // Callers pass plain filesystem paths; only legacy file:// URLs are
+      // URI-encoded. decodeURI on a plain path throws for a literal '%'
+      // ("100% Real.mp4"), which used to break next/auto-advance for that file.
+      if (/^file:\/\//i.test(vidPath)) {
+        vidPath = vidPath.replace(process.platform === 'win32' ? /^file:\/\/\//i : /^file:\/\//i, '');
+        try {
+          vidPath = decodeURI(vidPath);
+        } catch (error) {
+          // Keep the undecoded path; it is still the best guess we have.
+        }
       }
 
       const dirPath = path.dirname(vidPath);
 
       // Continue a folder queue through nested folders without an lstat for
       // each child. This is what lets an image/video sequence flow from one
-      // subfolder into the next.
-      const videoFiles = (await expandInputPath(dirPath, true, true))
+      // subfolder into the next. The folder was not chosen by the user here —
+      // it is just wherever the opened file lives — so bound the walk, and fall
+      // back to the file's siblings if the tree is too large to be a media folder.
+      const budget = { directories: SIMILAR_MEDIA_SCAN_DIRECTORY_LIMIT, exceeded: false };
+      let files = await expandInputPath(dirPath, true, true, budget);
+      if (budget.exceeded) files = await expandInputPath(dirPath, true, false);
+      const videoFiles = files
         .filter(file => isVideo(file) || isImage(file)); // TODO: audio
       videoFiles.sort(sortVideoFile);
 

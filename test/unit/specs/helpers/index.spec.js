@@ -66,6 +66,87 @@ describe('index.js', () => {
       sinon.assert.calledWithExactly(readdir, directory, { withFileTypes: true });
       sinon.assert.calledWithExactly(readdir, nestedDirectory, { withFileTypes: true });
     });
+
+    it('falls back to siblings instead of walking a huge tree (e.g. the home folder)', async () => {
+      const home = path.join(path.sep, 'Users', 'someone');
+      const readdir = sandbox.stub(fs.promises, 'readdir').callsFake((currentDirectory) => {
+        if (currentDirectory === home) {
+          return Promise.resolve([
+            { name: 'b.mp4', isDirectory: () => false },
+            { name: 'a.mp4', isDirectory: () => false },
+            { name: 'Library', isDirectory: () => true },
+          ]);
+        }
+        // Every directory below has two more: an effectively unbounded tree,
+        // full of cached thumbnails.
+        return Promise.resolve([
+          { name: 'x', isDirectory: () => true },
+          { name: 'y', isDirectory: () => true },
+          { name: 'thumb.jpg', isDirectory: () => false },
+        ]);
+      });
+
+      const result = await helpers.methods.findSimilarVideoByVidPath(path.join(home, 'a.mp4'));
+
+      expect(result).to.deep.equal([path.join(home, 'a.mp4'), path.join(home, 'b.mp4')]);
+      // Bounded: the budget plus the sibling-only fallback read.
+      expect(readdir.callCount).to.be.at.most(257 + 1);
+    });
+
+    it('never descends into macOS package directories', async () => {
+      const directory = path.join(path.sep, 'Movies');
+      const entries = {
+        [directory]: [
+          { name: 'clip.mp4', isDirectory: () => false },
+          { name: 'Photos Library.photoslibrary', isDirectory: () => true },
+          { name: 'Player.app', isDirectory: () => true },
+          { name: 'Season 1', isDirectory: () => true },
+        ],
+        [path.join(directory, 'Photos Library.photoslibrary')]: [
+          { name: 'IMG_0001.jpg', isDirectory: () => false },
+        ],
+        [path.join(directory, 'Player.app')]: [
+          { name: 'AppIcon.png', isDirectory: () => false },
+        ],
+        [path.join(directory, 'Season 1')]: [
+          { name: 'Episode 1.mp4', isDirectory: () => false },
+        ],
+      };
+      sandbox.stub(fs.promises, 'readdir').callsFake(currentDirectory => (
+        Promise.resolve(entries[currentDirectory] || [])
+      ));
+
+      const result = await helpers.methods.findSimilarVideoByVidPath(path.join(directory, 'clip.mp4'));
+
+      // Real subfolders still continue the queue; package contents never do.
+      expect(result).to.have.members([
+        path.join(directory, 'clip.mp4'),
+        path.join(directory, 'Season 1', 'Episode 1.mp4'),
+      ]);
+    });
+
+    it('handles file names containing a literal percent sign', async () => {
+      const directory = path.join(path.sep, 'Movies');
+      sandbox.stub(fs.promises, 'readdir').callsFake(currentDirectory => Promise.resolve(
+        currentDirectory === directory
+          ? [
+            { name: '100% Real.mp4', isDirectory: () => false },
+            { name: 'My%20Clip.mp4', isDirectory: () => false },
+          ]
+          : [],
+      ));
+
+      // decodeURI() on these plain paths used to throw (or rewrite "%20"),
+      // which broke next/auto-advance for the file.
+      const result = await helpers.methods.findSimilarVideoByVidPath(
+        path.join(directory, '100% Real.mp4'),
+      );
+
+      expect(result).to.deep.equal([
+        path.join(directory, '100% Real.mp4'),
+        path.join(directory, 'My%20Clip.mp4'),
+      ]);
+    });
   });
 
   describe('openFolder', () => {

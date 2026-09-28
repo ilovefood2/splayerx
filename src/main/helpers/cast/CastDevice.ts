@@ -113,6 +113,8 @@ export class CastDevice extends EventEmitter {
       socket.on('close', () => {
         this.stopHeartbeat();
         this.emit('close');
+        // stop() before the handshake finished; no-op once connected.
+        reject(new Error('cast connection closed'));
       });
       this.socket = socket;
     });

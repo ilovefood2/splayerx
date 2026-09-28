@@ -12,7 +12,7 @@ import path, {
 } from 'path';
 import fs from 'fs';
 import qs from 'querystring';
-import { castService } from './helpers/cast/CastService';
+import { castService, CAST_SUPERSEDED } from './helpers/cast/CastService';
 import { applePayVerify } from './helpers/ApplePayVerify';
 import './helpers/electronPrototypes';
 import './helpers/rendererBridge';
@@ -2433,7 +2433,10 @@ ipcMain.handle('cast-start', async (e, {
     );
     return { ok: true };
   } catch (error) {
-    if (castOwnerWindow === ownerWindow) castOwnerWindow = null;
+    // A superseded cast was replaced by a newer one, which owns the window now.
+    if (error.message !== CAST_SUPERSEDED && castOwnerWindow === ownerWindow) {
+      castOwnerWindow = null;
+    }
     return { ok: false, reason: error.message };
   }
 });

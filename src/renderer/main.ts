@@ -1504,6 +1504,8 @@ const app = createApp({
         volume: this.muted ? 0 : Math.min(1, this.volume),
       });
       if (!result.ok) {
+        // Replaced by a newer cast (or stopped) while it was being prepared.
+        if (result.reason === 'cast-superseded') return;
         addBubble(result.reason && result.reason.indexOf('unsupported-container') === 0
           ? CAST_UNSUPPORTED : CAST_FAILED);
         return;
