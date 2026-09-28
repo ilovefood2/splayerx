@@ -20,7 +20,7 @@ async function pathExists(target: string): Promise<boolean> {
   }
 }
 import {
-  isHdrColorMetadata, PlaybackServer, shouldUsePlaybackServer,
+  isHdrColorMetadata, isMountedMediaPath, PlaybackServer, shouldUsePlaybackServer,
 } from './PlaybackServer';
 
 function reply(event: IpcMainEvent, channel: string, ...args: unknown[]) {
@@ -67,10 +67,15 @@ function compatibilityDirectory(): string {
   return path.join(app.getPath('temp'), 'splayer-compat-media');
 }
 
+// Bump when the rules for which files get remuxed change. Copies made under
+// older rules (e.g. MPEG-2 video Chromium cannot show) are then never reused;
+// cache pruning deletes them.
+const REMUX_CACHE_VERSION = 2;
+
 async function compatibilityOutputPath(videoPath: string): Promise<string> {
   const stat = await fsPromises.stat(videoPath);
   const key = createHash('sha1')
-    .update(`${videoPath}\u0000${stat.size}\u0000${stat.mtimeMs}`)
+    .update(`${REMUX_CACHE_VERSION}\u0000${videoPath}\u0000${stat.size}\u0000${stat.mtimeMs}`)
     .digest('hex');
   const directory = compatibilityDirectory();
   mkdirSync(directory, { recursive: true });
@@ -135,29 +140,69 @@ export async function pruneCompatibilityCache(
   }));
 }
 
+async function probeForCompatibility(videoPath: string): Promise<MediaProbe> {
+  const { stdout } = await runMediaBinary('ffprobe', [
+    '-v', 'error',
+    '-show_entries', 'format=duration:stream=codec_type,codec_name,color_transfer',
+    '-of', 'json', videoPath,
+  ]);
+  return JSON.parse(stdout) as MediaProbe;
+}
+
+function probeDuration(probe: MediaProbe): number {
+  const duration = Number(probe.format && probe.format.duration);
+  return Number.isFinite(duration) && duration > 0 ? duration : 0;
+}
+
+function compatibilityStreamUrl(
+  videoPath: string,
+  probe: MediaProbe,
+  duration: number,
+): Promise<string> {
+  const videoStream = (probe.streams || []).find(stream => stream['codec_type'] === 'video');
+  return playbackServer.compatibilityUrlFor(
+    videoPath,
+    duration,
+    mediaBinaryPath('ffmpeg'),
+    isHdrColorMetadata({
+      colorTransfer: videoStream && videoStream['color_transfer'],
+    }),
+  );
+}
+
+const REMUX_VIDEO_CODECS = new Set(['h264', 'hevc']);
+const REMUX_AUDIO_CODECS = new Set(['aac', 'mp3']);
+
+/**
+ * How to play a transport stream that has no cached remux yet.
+ *
+ * The lossless copy into MP4 has to finish before the first frame shows. That
+ * is quick on a local disk, but on a network share it means pulling the whole
+ * recording across first -- minutes for a large one, with nothing on screen.
+ * And for broadcast MPEG-2 video or AC-3/MP2 audio, which Chromium cannot
+ * decode, the copy would not play properly anyway. Both of those start
+ * immediately, seekable, through the same compatibility encoder as .mkv.
+ */
+export function transportStreamPlan(videoPath: string, probe: MediaProbe): 'remux' | 'stream' {
+  if (isMountedMediaPath(videoPath)) return 'stream';
+  const streams = probe.streams || [];
+  const codec = (stream?: { [key: string]: string | undefined }) => (
+    ((stream && stream['codec_name']) || '').toLowerCase()
+  );
+  const video = streams.find(stream => stream['codec_type'] === 'video');
+  if (!REMUX_VIDEO_CODECS.has(codec(video))) return 'stream';
+  const audio = streams.filter(stream => stream['codec_type'] === 'audio');
+  return audio.every(stream => REMUX_AUDIO_CODECS.has(codec(stream))) ? 'remux' : 'stream';
+}
+
 async function preparePlaybackSource(videoPath: string): Promise<string> {
   const extension = path.extname(videoPath).toLowerCase();
   if (extension === '.mkv') {
     if (!(await pathExists(videoPath))) throw new Error('File does not exist.');
-    const { stdout } = await runMediaBinary('ffprobe', [
-      '-v', 'error',
-      '-show_entries', 'format=duration:stream=codec_type,color_transfer',
-      '-of', 'json', videoPath,
-    ]);
-    const probe = JSON.parse(stdout) as MediaProbe;
-    const duration = Number(probe.format && probe.format.duration);
-    if (!Number.isFinite(duration) || duration <= 0) {
-      throw new Error('Cannot determine Matroska duration.');
-    }
-    const videoStream = (probe.streams || []).find(stream => stream['codec_type'] === 'video');
-    return playbackServer.compatibilityUrlFor(
-      videoPath,
-      duration,
-      mediaBinaryPath('ffmpeg'),
-      isHdrColorMetadata({
-        colorTransfer: videoStream && videoStream['color_transfer'],
-      }),
-    );
+    const probe = await probeForCompatibility(videoPath);
+    const duration = probeDuration(probe);
+    if (!duration) throw new Error('Cannot determine Matroska duration.');
+    return compatibilityStreamUrl(videoPath, probe, duration);
   }
   if (extension !== '.ts') {
     return shouldUsePlaybackServer(videoPath) ? playbackServer.urlFor(videoPath) : videoPath;
@@ -173,6 +218,20 @@ async function preparePlaybackSource(videoPath: string): Promise<string> {
   }
   const runningTask = compatibilityTasks.get(outputPath);
   if (runningTask) return runningTask;
+
+  let probe: MediaProbe | undefined;
+  try {
+    probe = await probeForCompatibility(videoPath);
+  } catch (error) {
+    // Unreadable metadata: the remux below reports the real problem.
+  }
+  const duration = probe ? probeDuration(probe) : 0;
+  // Streaming needs the duration for its timeline; without one, copy instead.
+  if (probe && duration && transportStreamPlan(videoPath, probe) === 'stream') {
+    return compatibilityStreamUrl(videoPath, probe, duration);
+  }
+  const startedMeanwhile = compatibilityTasks.get(outputPath);
+  if (startedMeanwhile) return startedMeanwhile;
 
   const partialPath = `${outputPath}.${process.pid}.partial.mp4`;
   const task = (async () => {

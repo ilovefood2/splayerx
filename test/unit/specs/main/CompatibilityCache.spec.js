@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { pruneCompatibilityCache } from '@/../main/helpers/mediaTasksPlugin';
+import { pruneCompatibilityCache, transportStreamPlan } from '@/../main/helpers/mediaTasksPlugin';
 
 describe('compatibility remux cache', () => {
   const DAY = 24 * 60 * 60 * 1000;
@@ -61,5 +61,30 @@ describe('compatibility remux cache', () => {
 
   it('does nothing when the cache directory does not exist yet', async () => {
     await pruneCompatibilityCache(path.join(directory, 'missing'), { now });
+  });
+});
+
+describe('transport stream playback plan', () => {
+  const probe = (video, ...audio) => ({
+    format: { duration: '1800' },
+    streams: [
+      { codec_type: 'video', codec_name: video },
+      ...audio.map(codec => ({ codec_type: 'audio', codec_name: codec })),
+    ],
+  });
+
+  it('copies a local H.264/AAC recording losslessly', () => {
+    expect(transportStreamPlan('/Users/me/Movies/show.ts', probe('h264', 'aac'))).to.equal('remux');
+    expect(transportStreamPlan('/Users/me/Movies/silent.ts', probe('h264'))).to.equal('remux');
+  });
+
+  it('streams codecs Chromium cannot decode instead of copying them', () => {
+    // Broadcast MPEG-2 video, or AC-3/MP2 audio next to a playable track.
+    expect(transportStreamPlan('/Users/me/Movies/dvb.ts', probe('mpeg2video', 'mp2'))).to.equal('stream');
+    expect(transportStreamPlan('/Users/me/Movies/atsc.ts', probe('h264', 'aac', 'ac3'))).to.equal('stream');
+  });
+
+  it.runIf(process.platform === 'darwin')('starts network recordings immediately instead of copying them first', () => {
+    expect(transportStreamPlan('/Volumes/Share/show.ts', probe('h264', 'aac'))).to.equal('stream');
   });
 });
