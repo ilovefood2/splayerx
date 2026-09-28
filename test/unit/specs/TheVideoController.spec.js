@@ -164,4 +164,28 @@ describe('Component - TheVideoController Unit Test', () => {
 
     expect(shouldAdvance).to.equal(true);
   });
+
+  describe('minimum window size', () => {
+    const minimumSizeFor = (ratio) => {
+      const send = sinon.spy();
+      TheVideoController.methods.updateMinimumSize.call({
+        tempRecentPlaylistDisplayState: true,
+        ratio,
+        $electron: { ipcRenderer: { send } },
+      });
+      return send.firstCall.args[2];
+    };
+
+    it('follows the video aspect ratio while the playlist is open', () => {
+      expect(minimumSizeFor(16 / 9)).to.deep.equal([512, 288]);
+    });
+
+    it('never sends a missing height for a file without a picture', () => {
+      // 0x0 video: ratio 0/0 = NaN, which used to become [512, null] and
+      // make setMinimumSize throw in the main process.
+      expect(minimumSizeFor(NaN)).to.deep.equal([320, 180]);
+      expect(minimumSizeFor(Infinity)).to.deep.equal([320, 180]);
+      expect(minimumSizeFor(0)).to.deep.equal([320, 180]);
+    });
+  });
 });

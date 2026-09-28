@@ -741,7 +741,10 @@ export default {
       this.$electron.remote.getCurrentWindow().setTouchBar(this.touchBar);
     },
     updateMinimumSize() {
-      const minimumSize = this.tempRecentPlaylistDisplayState && this.ratio !== 0
+      // A file without a picture reports 0x0, so its ratio is NaN; the height
+      // would then reach Electron as null and setMinimumSize throws.
+      const hasRatio = Number.isFinite(this.ratio) && this.ratio > 0;
+      const minimumSize = this.tempRecentPlaylistDisplayState && hasRatio
         ? [512, Math.round(512 / this.ratio)]
         : [320, 180];
       this.$electron.ipcRenderer.send('callMainWindowMethod', 'setMinimumSize', minimumSize);
