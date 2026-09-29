@@ -16,6 +16,7 @@ import upload from '@/services/subtitle/upload';
 import { VideoTimeSegments } from '@/libs/TimeSegments';
 import { log } from '@/libs/Log';
 import { IEmbeddedOrigin, EmbeddedStreamLoader } from '@/services/subtitle/utils/loaders';
+import { SHARE_DATA_WITH_SERVERS } from '@/../shared/privacy';
 
 enum ErrorCodes {
   REAL_SOURCE_MISSING = 'REAL_SOURCE_MISSING',
@@ -237,7 +238,7 @@ const actions: ActionTree<ISubtitleState, {}> = {
   async [a.store]({ getters }) { return storeSubtitle(getters.entity); },
   async [a.upload]({ state, getters, commit }) {
     const subtitle = subtitleLoaderParserMap.get(state.hash);
-    if (getters.canAutoUpload && subtitle && subtitle.loader) {
+    if (SHARE_DATA_WITH_SERVERS && getters.canAutoUpload && subtitle && subtitle.loader) {
       if (state.format !== Format.SagiText) {
         const payload = Buffer.from(await subtitle.loader.getPayload() as string);
         return upload.add(getters.getUploadParam(payload))
@@ -263,7 +264,7 @@ const actions: ActionTree<ISubtitleState, {}> = {
   },
   async [a.manualUpload]({ state, getters }) {
     const subtitle = subtitleLoaderParserMap.get(state.hash);
-    if (subtitle && subtitle.loader) {
+    if (SHARE_DATA_WITH_SERVERS && subtitle && subtitle.loader) {
       if (getters.canUpload) {
         if (state.format !== Format.SagiText) {
           const payload = Buffer.from(await subtitle.loader.getPayload() as string);

@@ -59,6 +59,16 @@ export function isImage(filepath: string) {
   return validImageRegex.test(filepath);
 }
 
+/**
+ * macOS bundles and libraries look like folders but are opaque documents. A
+ * folder scan must never descend into them: a Photos library alone holds
+ * hundreds of thousands of thumbnails.
+ */
+export const PACKAGE_DIRECTORY = /\.(app|bundle|framework|plugin|kext|photoslibrary|photolibrary|imovielibrary|fcpbundle|tvlibrary|musiclibrary|xcodeproj|xcworkspace)$/i;
+
+/** Most folders a single open or drop may scan before settling for less. */
+export const MEDIA_SCAN_DIRECTORY_LIMIT = 256;
+
 export function getAllValidExtensions() {
   const exts = [] as string[];
   return exts.concat(videos, audios, images, subtitles);

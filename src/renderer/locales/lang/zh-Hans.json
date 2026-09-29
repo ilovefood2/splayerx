@@ -466,6 +466,7 @@
     },
     "translate": {
       "languageDescription": "将根据您选择的常用字幕语言，提供对应字幕结果。此功能需上传匿名信息，但不会记录任何用户隐私数据。",
+      "languageSelectionDescription": "视频有多个字幕时，优先自动选择以下语言的字幕。",
       "languagePriority": "选择目标语言",
       "none": "无",
       "primary": "首要语言",

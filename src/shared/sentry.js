@@ -1,25 +1,8 @@
 import * as Sentry from '@sentry/electron/renderer';
-import { init as initVue, vueIntegration } from '@sentry/vue';
-import { beforeSend } from './sentry-options';
 
-let initialized = false;
-
-export function initializeVueSentry(app) {
-  if (initialized || process.env.NODE_ENV === 'development') return;
-  initialized = true;
-  Sentry.init({
-    app,
-    attachProps: true,
-    integrations: defaultIntegrations => [
-      ...defaultIntegrations,
-      vueIntegration({
-        app,
-        attachProps: true,
-      }),
-    ],
-    beforeSend,
-  }, initVue);
-}
+// Crash reporting is disabled: reports went to the upstream SPlayer project's
+// Sentry account. Sentry is never initialized, so the capture and breadcrumb
+// calls made through this module send nothing.
 
 if (typeof window !== 'undefined') window.Sentry = Sentry;
 

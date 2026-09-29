@@ -359,7 +359,8 @@
       },
       {
         "id": "subtitle.uploadSelectedSubtitle",
-        "label": "msg.subtitle.uploadSelectedSubtitle"
+        "label": "msg.subtitle.uploadSelectedSubtitle",
+        "enabled": false
       }
     ]
   },

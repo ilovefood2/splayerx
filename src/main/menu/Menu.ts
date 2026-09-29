@@ -1186,9 +1186,9 @@ export default class Menubar {
     }, undefined, true);
 
     [feedback, homepage, shortCuts].forEach(i => helpMenu.append(i));
-
-    const uploadInfo = this.createMenuItem('msg.help.uploadInfo', undefined, undefined, true);
-    helpMenu.append(uploadInfo);
+    // "Submit Bug Reports" was removed: it uploaded preferences (including the
+    // AI translation API key), the playing file's path, crash dumps and the IP
+    // address to the upstream SPlayer support server.
 
     const helpMenuItem = new MenuItem({ label: this.$t('msg.help.name'), submenu: helpMenu, role: 'help' });
     return helpMenuItem;

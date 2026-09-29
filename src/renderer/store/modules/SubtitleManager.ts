@@ -40,6 +40,7 @@ import {
 } from '@/services/subtitle/ai';
 import { generateHints, calculatedName } from '@/libs/utils';
 import { log } from '@/libs/Log';
+import { SHARE_DATA_WITH_SERVERS } from '@/../shared/privacy';
 import { IStoredSubtitleItem, SelectedSubtitle } from '@/interfaces/ISubtitleStorage';
 import {
   retrieveSubtitlePreference, DatabaseGenerator,
@@ -422,14 +423,6 @@ interface IAddSubtitleOptions {
   generator: IEntityGenerator,
   mediaHash: string,
 }
-function privacyConfirm(): Promise<boolean> {
-  const $bus = rendererEventBus;
-  $bus.$emit('privacy-confirm');
-  return new Promise((resolve) => {
-    $bus.$once('subtitle-refresh-continue', resolve);
-  });
-}
-
 function deleteModifiedConfirm(): Promise<boolean> {
   const $bus = rendererEventBus;
   $bus.$emit('delete-modified-confirm', true);
@@ -579,12 +572,13 @@ async function ensureTranscribeModel(
     || !env.modelDir) return env;
   if (transcribingMediaHash === mediaHash) return undefined; // already downloading
   transcribingMediaHash = mediaHash;
-  transcribeAbort = new AbortController();
+  const downloadAbort = new AbortController();
+  transcribeAbort = downloadAbort;
   showAIProgress(progressText('errorFile.aiProgress.downloading', { percent: 0 }));
   try {
     await downloadModel({
       modelDir: env.modelDir,
-      signal: transcribeAbort.signal,
+      signal: downloadAbort.signal,
       onProgress: ({ received, total }) => {
         const percent = total > 0 ? Math.round((received / total) * 100) : 0;
         updateAIProgress(progressText('errorFile.aiProgress.downloading', { percent }));
@@ -593,6 +587,10 @@ async function ensureTranscribeModel(
   } catch (error) {
     endAIProgress();
     transcribingMediaHash = '';
+    if (transcribeAbort === downloadAbort) transcribeAbort = undefined;
+    // Cancelled (the video changed or the app is closing): stop here. Falling
+    // back to the smaller model would start a long transcription nobody wants.
+    if (downloadAbort.signal.aborted) return undefined;
     // If turbo is already installed, stay usable offline rather than failing
     // the entire transcription because the high-accuracy upgrade could not be
     // downloaded.
@@ -605,6 +603,7 @@ async function ensureTranscribeModel(
     return undefined;
   }
   transcribingMediaHash = ''; // real transcription re-claims it in the caller
+  if (transcribeAbort === downloadAbort) transcribeAbort = undefined;
   return reprobe();
 }
 let alterDelayTimeoutId: NodeJS.Timer;
@@ -766,7 +765,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     secondarySelectionComplete = false;
     commit(m.setIsRefreshing, true);
     dispatch(a.startAISelection);
-    const onlineNeeded = privacyAgreement ? true : await privacyConfirm();
+    // Never ask for consent to upload: sharing is disabled (see privacy.ts).
+    const onlineNeeded = !!privacyAgreement;
     const onlinePromise = onlineNeeded
       ? dispatch(a.refreshOnlineSubtitles, { mediaHash, bubble: true })
       : Promise.resolve();
@@ -793,6 +793,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     { getters, dispatch },
     { mediaHash, bubble }: { mediaHash: string, bubble: boolean },
   ) {
+    // Searching uploads the file name and a media fingerprint.
+    if (!SHARE_DATA_WITH_SERVERS) return undefined;
     const {
       originSrc,
       primaryLanguage, secondaryLanguage,
@@ -1202,6 +1204,11 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
   async [a.transcribeAndTranslate]({ state, getters, dispatch }, { targetCode }) {
     const { originSrc } = getters;
     if (!originSrc) return undefined;
+    // `originSrc` is read once, here. The model downloads below can take
+    // minutes; if the video changes meanwhile, never transcribe this file into
+    // the next video's subtitle track.
+    const startMediaHash = state.mediaHash;
+    const videoChanged = () => state.mediaHash !== startMediaHash;
     const bundled: BundledPaths = remote.app.isPackaged ? {
       binDir: join(process.resourcesPath, 'bin'),
       whisperDir: join(process.resourcesPath, 'whisper'),
@@ -1236,8 +1243,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         log.warn('SubtitleManager', 'AI transcribe: ReazonSpeech runtime unavailable');
         return undefined;
       }
-      if (transcribingMediaHash === state.mediaHash) return undefined;
-      const downloadMediaHash = state.mediaHash;
+      if (transcribingMediaHash === startMediaHash) return undefined;
+      const downloadMediaHash = startMediaHash;
       transcribingMediaHash = downloadMediaHash;
       const downloadAbort = new AbortController();
       transcribeAbort = downloadAbort;
@@ -1262,7 +1269,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         if (transcribeAbort === downloadAbort) transcribeAbort = undefined;
       }
     } else {
-      whisperEnv = await ensureTranscribeModel(baseEnv, probe, state.mediaHash);
+      whisperEnv = await ensureTranscribeModel(baseEnv, probe, startMediaHash);
       if (!whisperEnv) return undefined;
       if (!whisperEnv.ok) {
         addBubble(AI_TRANSLATE_NO_WHISPER, { missing: whisperEnv.missing.join(', ') });
@@ -1271,8 +1278,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
       }
     }
 
-    if (transcribingMediaHash === state.mediaHash) return undefined;
-    const mediaHash = state.mediaHash;
+    if (videoChanged() || transcribingMediaHash === startMediaHash) return undefined;
+    const mediaHash = startMediaHash;
     transcribingMediaHash = mediaHash;
     showAIProgress(progressText('errorFile.aiProgress.transcribing', { percent: 0 }));
     const transcriptionAbort = new AbortController();
@@ -1281,6 +1288,13 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     let added: ISubtitleControlListItem | undefined;
     let key = '';
     let trackCreationFailed = false;
+    // Without a track the cues have nowhere to go, and whisper would otherwise
+    // keep the CPU busy to the end of the video under a stale progress bubble.
+    const abandonTranscription = () => {
+      trackCreationFailed = true;
+      transcriptionAbort.abort();
+      endAIProgress();
+    };
     const transcribeOptions = {
       tmpDir: remote.app.getPath('temp'),
       duration: getters.duration,
@@ -1315,7 +1329,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
           if (signal.aborted || state.mediaHash !== mediaHash) return;
           added = entity;
           if (!entity) {
-            trackCreationFailed = true;
+            abandonTranscription();
             return;
           }
           key = makeAITranslationKey(referenceHash, targetCode);
@@ -1323,8 +1337,8 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
             'errorFile.aiProgress.translating', { done, total },
           ));
         } catch (error) {
-          trackCreationFailed = true;
           log.warn('SubtitleManager', error);
+          abandonTranscription();
         }
       },
     };
@@ -1612,7 +1626,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         actions.push(
           dispatch(`${primarySubtitleId}/${subActions.updatePlayedTime}`, times)
             .then((playedTime: number) => {
-              if (playedTime >= getters.duration * 0.6) {
+              if (SHARE_DATA_WITH_SERVERS && playedTime >= getters.duration * 0.6) {
                 addBubble(SUBTITLE_UPLOAD, { id: `${SUBTITLE_UPLOAD}-${bubbleId}` });
                 dispatch(`${primarySubtitleId}/${subActions.upload}`).then((result: boolean) => {
                   const bubbleType = result ? UPLOAD_SUCCESS : UPLOAD_FAILED;
@@ -1626,7 +1640,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
         actions.push(
           dispatch(`${secondarySubtitleId}/${subActions.updatePlayedTime}`, times)
             .then((playedTime: number) => {
-              if (playedTime >= getters.duration * 0.6) {
+              if (SHARE_DATA_WITH_SERVERS && playedTime >= getters.duration * 0.6) {
                 addBubble(SUBTITLE_UPLOAD, { id: `${SUBTITLE_UPLOAD}-${bubbleId}` });
                 dispatch(`${secondarySubtitleId}/${subActions.upload}`).then((result: boolean) => {
                   const bubbleType = result ? UPLOAD_SUCCESS : UPLOAD_FAILED;
@@ -1640,6 +1654,7 @@ const actions: ActionTree<ISubtitleManagerState, {}> = {
     return Promise.all(actions);
   },
   async [a.manualUploadAllSubtitles]({ state, dispatch, rootGetters }) {
+    if (!SHARE_DATA_WITH_SERVERS) return addBubble(CANNOT_UPLOAD);
     if (navigator.onLine) {
       const { primarySubtitleId, secondarySubtitleId } = state;
       const isAllImages = [primarySubtitleId, secondarySubtitleId]

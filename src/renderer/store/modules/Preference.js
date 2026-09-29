@@ -3,6 +3,7 @@ import { remote } from 'electron';
 import fs from 'fs';
 import asyncStorage from '@/helpers/asyncStorage';
 import syncStorage from '@/helpers/syncStorage';
+import { SHARE_DATA_WITH_SERVERS } from '@/../shared/privacy';
 
 const state = {
   nsfwProcessDone: false,
@@ -37,7 +38,8 @@ const getters = {
   preferenceData: state => state,
   incognitoMode: state => state.incognitoMode,
   reverseScrolling: state => state.reverseScrolling,
-  privacyAgreement: state => state.privacyAgreement,
+  // Consent is moot while sharing is disabled; everything reads it as declined.
+  privacyAgreement: state => SHARE_DATA_WITH_SERVERS && state.privacyAgreement,
   disableQuickEdit: state => state.disableQuickEdit,
   displayLanguage: (state) => {
     let { displayLanguage } = state;

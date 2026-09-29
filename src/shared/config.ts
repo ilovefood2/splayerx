@@ -1,7 +1,6 @@
 import Locale from './common/localize';
 import { getClientUUID, getEnvironmentName, getPlatformInfo } from './utils';
-
-const configcat = process.type === 'browser' ? require('configcat-node') : require('configcat-js');
+import { SHARE_DATA_WITH_SERVERS } from './privacy';
 
 function getMainVersion(): string {
   const version = getPlatformInfo().version;
@@ -13,10 +12,20 @@ const configCatApiKey = process.env.NODE_ENV === 'development'
   ? 'WizXCIVndyJUn4cCRD3qvQ/8uwWLI_KhUmuOrOaDDsaxQ'
   : 'WizXCIVndyJUn4cCRD3qvQ/M9CQx_MXgEeuIc8uO4Aowg';
 
-const client = configcat.createClientWithLazyLoad(configCatApiKey, {
-  baseUrl: 'https://config.splayer.top',
-  cacheTimeToLiveSeconds: 600,
-});
+// Remote feature flags are fetched with the client ID, app version and display
+// language attached, so the client exists only if data sharing is enabled.
+// Otherwise every flag takes its built-in default.
+let client: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+function configClient() {
+  if (!client) {
+    const configcat = process.type === 'browser' ? require('configcat-node') : require('configcat-js'); // eslint-disable-line global-require
+    client = configcat.createClientWithLazyLoad(configCatApiKey, {
+      baseUrl: 'https://config.splayer.top',
+      cacheTimeToLiveSeconds: 600,
+    });
+  }
+  return client;
+}
 
 const locale = new Locale();
 async function getUserObject() {
@@ -32,10 +41,11 @@ async function getUserObject() {
 }
 
 export async function getConfig<T>(configKey: string, defaultValue?: T): Promise<T> {
+  if (!SHARE_DATA_WITH_SERVERS) return defaultValue as T;
   const userObject = await getUserObject();
   return new Promise((resolve) => {
     setTimeout(() => resolve(defaultValue), 10000);
-    client.getValue(configKey, defaultValue, (value: T) => {
+    configClient().getValue(configKey, defaultValue, (value: T) => {
       resolve(value);
     }, userObject);
   });
@@ -53,8 +63,9 @@ export async function getJsonConfig(configKey: string, defaultValue: Json): Prom
 }
 
 export async function forceRefresh() {
+  if (!SHARE_DATA_WITH_SERVERS) return undefined;
   return new Promise((resolve) => {
-    client.forceRefresh(() => resolve());
+    configClient().forceRefresh(() => resolve());
   });
 }
 

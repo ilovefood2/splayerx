@@ -1,18 +1,15 @@
 <template>
   <div class="privicy tabcontent">
     <div class="settingItem">
-      <BaseCheckBox v-model="privacyAgreement">
-        {{ $t('preferences.translate.translateConfirm') }}
-      </BaseCheckBox>
-      <div
-        :style="{opacity: privacyAgreement ? 1 : 0.3}"
-        class="settingItem__attached"
-      >
+      <!-- The "upload anonymous data" opt-in is gone: SPlayer no longer sends
+           media information anywhere (see shared/privacy.ts). These languages
+           still choose which subtitle is selected automatically. -->
+      <div class="settingItem__attached">
         <div class="settingItem__title">
           {{ $t('preferences.translate.languagePriority') }}
         </div>
         <div class="settingItem__description">
-          {{ $t('preferences.translate.languageDescription') }}
+          {{ $t('preferences.translate.languageSelectionDescription') }}
         </div>
         <table>
           <tbody>
@@ -25,7 +22,7 @@
                 <div
                   :class="showFirstSelection ?
                     'dropdown__toggle--list' : 'dropdown__toggle--display'"
-                  :style="{ cursor: privacyAgreement ? 'pointer' : 'default' }"
+                  style="cursor: pointer"
                   @mouseup.stop="openFirstDropdown"
                 >
                   <div class="dropdown__displayItem">
@@ -62,7 +59,7 @@
                 <div
                   :class="showSecondSelection ?
                     'dropdown__toggle--list' : 'dropdown__toggle--display'"
-                  :style="{ cursor: privacyAgreement ? 'pointer' : 'default' }"
+                  style="cursor: pointer"
                   @mouseup.stop="openSecondDropdown"
                 >
                   <div class="dropdown__displayItem">
@@ -367,32 +364,6 @@ export default {
         });
       },
     },
-    privacyAgreement: {
-      get() {
-        return this.$store.getters.privacyAgreement;
-      },
-      set(val) {
-        if (val) {
-          this.$store.dispatch('agreeOnPrivacyPolicy').then(() => {
-            electron.ipcRenderer.send('preference-to-main', this.preferenceData);
-          });
-        } else {
-          this.$store.dispatch('disagreeOnPrivacyPolicy').then(() => {
-            electron.ipcRenderer.send('preference-to-main', this.preferenceData);
-          });
-        }
-      },
-    },
-    enableQuickEdit: {
-      get() {
-        return !this.$store.getters.disableQuickEdit;
-      },
-      set(val) {
-        this.$store.dispatch('quickEditStatus', !val).then(() => {
-          electron.ipcRenderer.send('preference-to-main', this.preferenceData);
-        });
-      },
-    },
     usesManagedModel() {
       return this.aiTranslateProvider === 'local'
         || (this.aiTranslateProvider === 'auto' && !this.aiTranslateApiKey);
@@ -531,11 +502,6 @@ export default {
       // disabled AND invalidates any probe still in flight.
       this.detectProvider();
     },
-    privacyAgreement(val) {
-      if (!val) {
-        this.showFirstSelection = this.showSecondSelection = false;
-      }
-    },
     mouseDown(val, oldVal) {
       if (!val && oldVal && !this.isMoved) {
         this.showFirstSelection = this.showSecondSelection = false;
@@ -612,23 +578,19 @@ export default {
       }
     },
     openFirstDropdown() {
-      if (this.privacyAgreement) {
-        if (this.showFirstSelection) {
-          this.showFirstSelection = false;
-        } else {
-          this.showFirstSelection = true;
-          this.showSecondSelection = false;
-        }
+      if (this.showFirstSelection) {
+        this.showFirstSelection = false;
+      } else {
+        this.showFirstSelection = true;
+        this.showSecondSelection = false;
       }
     },
     openSecondDropdown() {
-      if (this.privacyAgreement) {
-        if (this.showSecondSelection) {
-          this.showSecondSelection = false;
-        } else {
-          this.showSecondSelection = true;
-          this.showFirstSelection = false;
-        }
+      if (this.showSecondSelection) {
+        this.showSecondSelection = false;
+      } else {
+        this.showSecondSelection = true;
+        this.showFirstSelection = false;
       }
     },
   },

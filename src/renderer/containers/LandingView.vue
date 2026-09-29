@@ -136,6 +136,7 @@ import PlaylistItem from '@/components/LandingView/PlaylistItem.vue';
 import VideoItem from '@/components/LandingView/VideoItem.vue';
 import { log } from '@/libs/Log';
 import Sagi from '@/libs/sagi';
+import { SHARE_DATA_WITH_SERVERS } from '@/../shared/privacy';
 import { Browsing as browsingActions } from '@/store/actionTypes';
 import { windowRectService } from '../services/window/WindowRectService';
 
@@ -320,12 +321,16 @@ export default {
     this.$electron.ipcRenderer.send('callMainWindowMethod', 'setMinimumSize', [720, 405]);
     this.$electron.ipcRenderer.send('callMainWindowMethod', 'setAspectRatio', [720 / 405]);
 
-    Sagi.healthCheck().then((res) => {
-      if (process.env.NODE_ENV !== 'production') {
-        this.sagiHealthStatus = res.status;
-        log.info('LandingView.vue', `launching: ${app.name} ${app.getVersion()}`);
-      }
-    });
+    // Every request to SPlayer's service carries a client ID and the public IP
+    // address, so it is not contacted at all while data sharing is disabled.
+    if (SHARE_DATA_WITH_SERVERS) {
+      Sagi.healthCheck().then((res) => {
+        if (process.env.NODE_ENV !== 'production') {
+          this.sagiHealthStatus = res.status;
+          log.info('LandingView.vue', `launching: ${app.name} ${app.getVersion()}`);
+        }
+      }).catch(() => {});
+    }
     window.addEventListener('keyup', this.keyboardHandler);
     this.$electron.ipcRenderer.on('quit', () => {
       this.quit = true;

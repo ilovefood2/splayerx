@@ -1,12 +1,8 @@
-// Be sure to call Sentry function as early as possible in the main process
-import Sentry, { initializeVueSentry } from '../shared/sentry'; // eslint-disable-line import/order
 
 import path from 'path';
-import os from 'os';
 import fs, { promises as fsPromises } from 'fs';
-import Parse from 'parse';
 import electron, {
-  ipcRenderer, webFrame, webUtils, OpenDialogReturnValue,
+  ipcRenderer, webUtils, OpenDialogReturnValue,
 } from 'electron';
 import { createApp } from 'vue';
 import { createI18n } from 'vue-i18n';
@@ -38,6 +34,7 @@ import { log } from '@/libs/Log';
 import asyncStorage from '@/helpers/asyncStorage';
 import { getVolumeWheelAdjustment, isHorizontalWheel } from '@/helpers/volumeWheel';
 import { videodata } from '@/store/video';
+import { SHARE_DATA_WITH_SERVERS } from '../shared/privacy';
 import { addBubble } from '@/helpers/notificationControl';
 import { getAITranslator, makeAITranslationKey } from '@/services/subtitle/ai';
 import { EVENT_BUS_COLLECTIONS as bus, MAX_VOLUME, MAX_AMPLIFY_VOLUME } from '@/constants';
@@ -48,13 +45,12 @@ import { downloadDB } from '@/helpers/downloadDB';
 import BrowsingChannelMenu from './services/browsing/BrowsingChannelMenu';
 import MenuService from './services/menu/MenuService';
 import {
-  isSubtitle, getSystemLocale, getClientUUID, getEnvironmentName, getIP,
+  isSubtitle, getSystemLocale, getEnvironmentName,
 } from '../shared/utils';
 import { ISubtitleControlListItem, Type, ModifiedSubtitle } from './interfaces/ISubtitle';
 import {
   CAST_NO_DEVICE, CAST_NOT_LOCAL, CAST_UNSUPPORTED, CAST_FAILED,
   SNAPSHOT_FAILED, SNAPSHOT_SUCCESS, LOAD_SUBVIDEO_FAILED,
-  BUG_UPLOAD_FAILED, BUG_UPLOAD_SUCCESS, BUG_UPLOADING,
   LOSSLESS_STREAMING_START, LOSSLESS_STREAMING_STOP,
 } from './helpers/notificationcodes';
 
@@ -87,6 +83,8 @@ const app = createApp({
       maxVolume: 100,
       volumeMutating: false,
       deletingCurrentVideo: false,
+      /** The file the television is playing, so its position can be resumed. */
+      castSource: '',
     };
   },
   computed: {
@@ -225,7 +223,7 @@ const app = createApp({
       this.menuService.updateMenuItemEnabled('subtitle.decreasePrimarySubtitleDelay', !!this.primarySubtitleId);
       this.menuService.updateMenuItemEnabled('subtitle.increaseSecondarySubtitleDelay', !!this.secondarySubtitleId);
       this.menuService.updateMenuItemEnabled('subtitle.decreaseSecondarySubtitleDelay', !!this.secondarySubtitleId);
-      this.menuService.updateMenuItemEnabled('subtitle.uploadSelectedSubtitle', !!this.canTryToUploadCurrentSubtitle);
+      this.menuService.updateMenuItemEnabled('subtitle.uploadSelectedSubtitle', SHARE_DATA_WITH_SERVERS && !!this.canTryToUploadCurrentSubtitle);
     },
     primarySubtitleId(id: string) {
       if (this.currentRouteName !== 'playing-view') return;
@@ -258,14 +256,23 @@ const app = createApp({
       }
       this.updatePlaybackMenuLabel();
     },
-    casting() {
+    casting(val: boolean, oldVal: boolean) {
       this.updatePlaybackMenuLabel();
+      if (!oldVal || val) return;
+      const source = this.castSource;
+      this.castSource = '';
+      // The television kept playing while the local video sat paused where
+      // casting began. Continue from the receiver's position, but only for the
+      // same file: casting also ends when another file is opened.
+      if (source && source === this.originSrc && Number.isFinite(videodata.time)) {
+        this.$bus.$emit('seek', videodata.time);
+      }
     },
     castPaused() {
       this.updatePlaybackMenuLabel();
     },
     canTryToUploadCurrentSubtitle(val) {
-      this.menuService.updateMenuItemEnabled('subtitle.uploadSelectedSubtitle', val);
+      this.menuService.updateMenuItemEnabled('subtitle.uploadSelectedSubtitle', SHARE_DATA_WITH_SERVERS && val);
     },
     $route(to) {
       this.menuService.updateMenuItemEnabled('file.losslessStreaming.selectCurrent', to.name === 'playing-view' && !!this.originSrc);
@@ -338,7 +345,6 @@ const app = createApp({
       }
     });
     asyncStorage.get('preferences').then((data) => {
-      if (data.privacyAgreement === undefined) this.$bus.$emit('privacy-confirm');
       if (!data.primaryLanguage) {
         const { app } = this.$electron.remote;
         let locale = process.platform === 'win32' ? app.getLocale() : osLocale.sync();
@@ -416,9 +422,6 @@ const app = createApp({
     this.$bus.$on('open-channel-menu', (item: { channel: string, info: channelDetails }) => {
       this.openChannelMenu = true;
       this.selectedMenuItem = item.info;
-    });
-    getClientUUID().then((clientId: string) => {
-      this.$ga && this.$ga.set('userId', clientId);
     });
     this.$bus.$on('wheel-event', this.wheelEventHandler);
 
@@ -759,7 +762,7 @@ const app = createApp({
         this.menuService.updateMenuItemEnabled('subtitle.decreasePrimarySubtitleDelay', !!this.primarySubtitleId);
         this.menuService.updateMenuItemEnabled('subtitle.increaseSecondarySubtitleDelay', !!this.secondarySubtitleId);
         this.menuService.updateMenuItemEnabled('subtitle.decreaseSecondarySubtitleDelay', !!this.secondarySubtitleId);
-        this.menuService.updateMenuItemEnabled('subtitle.uploadSelectedSubtitle', !!this.canTryToUploadCurrentSubtitle);
+        this.menuService.updateMenuItemEnabled('subtitle.uploadSelectedSubtitle', SHARE_DATA_WITH_SERVERS && !!this.canTryToUploadCurrentSubtitle);
 
         this.audioTrackList.forEach((item: Electron.MenuItem, index: number) => {
           if (item.enabled === true) {
@@ -1110,91 +1113,6 @@ const app = createApp({
       this.menuService.on('browsing.window.backToLandingView', () => {
         this.$router.push({ name: 'landing-view' });
       });
-      this.menuService.on('help.uploadInfo', async () => {
-        addBubble(BUG_UPLOADING, { id: 'bug-uploading' });
-        Parse.serverURL = 'https://support.splayer.work/parse';
-        Parse.initialize('chiron_support');
-        const app = electron.remote.app;
-        const Report = Parse.Object.extend('SPlayerBugReport');
-        let report = new Report();
-        let location = app.getPath('crashDumps');
-        if (!location) location = path.join(app.getPath('temp'), `${app.name} Crashes`);
-        const crashReportPath = path.join(location, 'completed');
-        const dumpfiles: Parse.File[] = [];
-        if (!process.mas && fs.existsSync(crashReportPath)) {
-          const files = await fsPromises.readdir(crashReportPath);
-          files.forEach(filename => {
-            try {
-              const data = fs.readFileSync(path.join(crashReportPath, filename), 'base64');
-              const parsefile = new Parse.File(filename, { base64: data });
-              dumpfiles.push(parsefile);
-              fs.unlinkSync(path.join(crashReportPath, filename));
-            } catch (err) {
-              log.error('Crash Report Files Error', err);
-            }
-          });
-        }
-        report.set('appInfo', {
-          version: app.getVersion(),
-          ip: await getIP(),
-          electronVersion: process.versions.electron,
-          electronHash: process.versions.electron,
-        });
-        report.set('userInfo', {
-          uuid: await getClientUUID(),
-          preferences: this.preferenceData,
-          account: this.userInfo,
-        });
-        report.set('systemInfo', {
-          os: {
-            arch: os.arch(),
-            type: os.type(),
-            platform: os.platform(),
-          },
-          mem: {
-            total: os.totalmem(),
-            free: os.freemem(),
-          },
-          cpu: {
-            cpus: os.cpus(),
-          },
-          gpu: {
-            gpuInfo: await app.getGPUInfo('complete'),
-            featureStatus: app.getGPUFeatureStatus(),
-          },
-          process: {
-            metrics: app.getAppMetrics(),
-            webFrameResourceUsage: webFrame.getResourceUsage(),
-          }
-        });
-        if (!process.mas) {
-          report.set('crashReport', {
-            dumpfiles,
-          });
-        }
-        if (this.currentRouteName === 'playing-view') {
-          report.set('videoInfo', {
-            video: this.originSrc,
-            mediaHash: this.mediaHash,
-            primarySubtitle: this.list.find((val: ISubtitleControlListItem) => val.id === this.primarySubtitleId),
-            secondarySubtitle: this.list.find((val: ISubtitleControlListItem) => val.id === this.secondarySubtitleId),
-            subtitleList: this.list,
-          });
-        }
-        try {
-          await report.save();
-          report = await report.save();
-          Sentry.withScope((scope) => {
-            scope.setExtra('report_id', report.id);
-            Sentry.captureMessage('splayer-bug-report');
-          });
-          this.$store.dispatch('removeMessages', 'bug-uploading');
-          addBubble(BUG_UPLOAD_SUCCESS);
-        } catch (error) {
-          this.$store.dispatch('removeMessages', 'bug-uploading');
-          addBubble(BUG_UPLOAD_FAILED);
-        }
-      });
       // advanced menu actions
       this.menuService.on('advanced.enter', () => {
         if (!this.isEditable) {
@@ -1512,6 +1430,7 @@ const app = createApp({
       }
       // The television owns playback now. Keep the local element paused while
       // its controls and timeline continue driving the receiver.
+      this.castSource = src;
       this.$store.commit(videoMutations.CASTING_UPDATE, true);
       this.$store.commit(videoMutations.CAST_PAUSED_UPDATE, false);
       this.$store.dispatch(videoActions.PAUSE_VIDEO);
@@ -1588,7 +1507,6 @@ app.use(InputPlugin, {
 });
 app.mixin(helpers);
 hookVue(app);
-initializeVueSentry(app);
 
 analytics.set('dimension1', electron.remote.app.getVersion());
 analytics.set('dimension2', getEnvironmentName());

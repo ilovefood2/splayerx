@@ -16,8 +16,6 @@ import org.w3c.dom.NodeList;
 
 import java.io.InputStream;
 import java.net.URI;
-import java.net.URLDecoder;
-import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -131,11 +129,9 @@ public final class WebDavClient {
             value = value.substring(0, value.length() - 1);
         }
         int slash = value.lastIndexOf('/');
-        String name = slash >= 0 ? value.substring(slash + 1) : value;
-        try {
-            return URLDecoder.decode(name, StandardCharsets.UTF_8.name());
-        } catch (UnsupportedEncodingException impossible) {
-            return name;
-        }
+        // URI.getPath() has already percent-decoded this. Decoding it again
+        // turned "A+B.mp4" into "A B.mp4" and made a literal '%' throw, which
+        // failed the whole listing on servers that send no displayname.
+        return slash >= 0 ? value.substring(slash + 1) : value;
     }
 }

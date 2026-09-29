@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import sinon from 'sinon';
-import helpers from '@/helpers';
+import helpers, { OPEN_FOLDER_SCAN_DIRECTORY_LIMIT } from '@/helpers';
 
 describe('index.js', () => {
   describe('timecodeFromSeconds method works fine', () => {
@@ -150,6 +150,35 @@ describe('index.js', () => {
   });
 
   describe('openFolder', () => {
+    it('stops reading a huge tree instead of walking a whole network share', async () => {
+      const sandbox = sinon.createSandbox();
+      const share = path.join(path.sep, 'Volumes', 'Share');
+      // Every folder holds two more: effectively unbounded.
+      const readdir = sandbox.stub(fs.promises, 'readdir').callsFake(currentDirectory => (
+        Promise.resolve(currentDirectory === share
+          ? [{ name: 'top.mp4', isDirectory: () => false }, { name: 'a', isDirectory: () => true }]
+          : [
+            { name: 'x', isDirectory: () => true },
+            { name: 'y', isDirectory: () => true },
+            { name: 'clip.mp4', isDirectory: () => false },
+          ])
+      ));
+      const createPlayList = sandbox.stub().resolves();
+
+      try {
+        await helpers.methods.openFolder.call({
+          createPlayList,
+          $bus: { $emit: sinon.spy() },
+        }, share);
+
+        expect(readdir.callCount).to.be.at.most(OPEN_FOLDER_SCAN_DIRECTORY_LIMIT);
+        sinon.assert.calledOnce(createPlayList);
+        expect(createPlayList.firstCall.args).to.include(path.join(share, 'top.mp4'));
+      } finally {
+        sandbox.restore();
+      }
+    });
+
     it('recursively collects nested images and videos in playback order', async () => {
       const sandbox = sinon.createSandbox();
       const directory = path.join(path.sep, 'library');

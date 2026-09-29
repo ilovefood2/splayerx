@@ -314,6 +314,8 @@ public final class MainActivity extends Activity {
         backButton.setVisibility(View.VISIBLE);
         refreshButton.setVisibility(View.VISIBLE);
         entryList.removeAllViews();
+        // A previous failure left the status red; loading is not an error.
+        status.setTextColor(getColor(R.color.text_secondary));
         status.setText(R.string.loading);
         final String requestUri = uri;
         networkBrowser.browse(location, uri, forceRefresh, new NetworkBrowser.Callback() {

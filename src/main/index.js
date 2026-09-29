@@ -20,12 +20,14 @@ import {
   isVideo, isSubtitle, isImage,
   saveToken, getEnvironmentName,
   getIP, crossThreadCache, calcCurrentChannel, isAudio,
+  MEDIA_SCAN_DIRECTORY_LIMIT, PACKAGE_DIRECTORY,
 } from '../shared/utils';
 import { mouse } from './helpers/mouse';
 import MenuService from './menu/MenuService';
 import registerMediaTasks from './helpers/mediaTasksPlugin';
 import { registerScrollTouchBridge } from './helpers/scrollTouchBridge';
 import { registerPreferenceWindowControls } from './helpers/preferenceWindowControls';
+import { getAllValidVideo, searchSubsInDir } from './helpers/openFiles';
 import {
   isEventFromWindow,
   isUsableWindow,
@@ -395,76 +397,6 @@ function createMaskView() {
 
 function markNeedToRestore() {
   fs.closeSync(fs.openSync(path.join(app.getPath('userData'), 'NEED_TO_RESTORE_MARK'), 'w'));
-}
-
-function searchSubsInDir(dir) {
-  const dirFiles = fs.readdirSync(dir);
-  return dirFiles
-    .filter(subtitleFilename => isSubtitle(subtitleFilename))
-    .map(subtitleFilename => (join(dir, subtitleFilename)));
-}
-function searchForLocalVideo(subSrc) {
-  const videoDir = dirname(subSrc);
-  const videoBasename = basename(subSrc, extname(subSrc)).toLowerCase();
-  const videoFilename = basename(subSrc).toLowerCase();
-  const dirFiles = fs.readdirSync(videoDir);
-  return dirFiles
-    .filter((subtitleFilename) => {
-      const lowerCasedName = subtitleFilename.toLowerCase();
-      return (
-        isVideo(lowerCasedName) // TODO: audio
-        && lowerCasedName.slice(0, lowerCasedName.lastIndexOf('.')) === videoBasename
-        && lowerCasedName !== videoFilename && !isSubtitle(lowerCasedName)
-      );
-    })
-    .map(subtitleFilename => (join(videoDir, subtitleFilename)));
-}
-function getAllValidVideo(onlySubtitle, files) {
-  try {
-    const videoFiles = [];
-
-    for (let i = 0; i < files.length; i += 1) {
-      // The extension already tells us that this is a file. Avoid a blocking
-      // metadata round trip for known media paths, which can stall Electron's
-      // main process when the path is on a slow or reconnecting network mount.
-      if (isSubtitle(files[i]) || isVideo(files[i])
-        || isAudio(files[i]) || isImage(files[i])) continue;
-      if (fs.statSync(files[i]).isDirectory()) {
-        const dirPath = files[i];
-        const dirFiles = fs.readdirSync(dirPath).map(file => path.join(dirPath, file));
-        files.push(...dirFiles);
-      }
-    }
-    if (!process.mas) {
-      files.forEach((tempFilePath) => {
-        const baseName = path.basename(tempFilePath);
-        if (baseName.startsWith('.')) return;
-        const isKnownMedia = isSubtitle(tempFilePath)
-          || isVideo(tempFilePath) || isAudio(tempFilePath) || isImage(tempFilePath);
-        if (!isKnownMedia && fs.statSync(tempFilePath).isDirectory()) return;
-        if (isSubtitle((tempFilePath))) {
-          const tempVideo = searchForLocalVideo(tempFilePath);
-          videoFiles.push(...tempVideo);
-        } else if (isVideo(tempFilePath) || isAudio(tempFilePath) || isImage(tempFilePath)) {
-          videoFiles.push(tempFilePath);
-        }
-      });
-    } else {
-      files.forEach((tempFilePath) => {
-        const baseName = path.basename(tempFilePath);
-        if (baseName.startsWith('.')) return;
-        const isKnownMedia = isSubtitle(tempFilePath)
-          || isVideo(tempFilePath) || isAudio(tempFilePath) || isImage(tempFilePath);
-        if (!isKnownMedia && fs.statSync(tempFilePath).isDirectory()) return;
-        if (isVideo(tempFilePath) || isAudio(tempFilePath) || isImage(tempFilePath)) {
-          videoFiles.push(tempFilePath);
-        }
-      });
-    }
-    return uniq(videoFiles);
-  } catch (ex) {
-    return [];
-  }
 }
 
 function createOpenRequest(videoFiles = [], subtitleFiles = []) {

@@ -474,6 +474,7 @@
     },
     "translate": {
       "languageDescription": "Upload anonymous data to fetch subtitle results in the following language,  no privacy information will be included.",
+      "languageSelectionDescription": "When a video has several subtitles, ones in these languages are selected automatically.",
       "languagePriority": "Language Preference",
       "none": "None",
       "primary": "Primary",

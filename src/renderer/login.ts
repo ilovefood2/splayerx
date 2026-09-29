@@ -63,11 +63,4 @@ app.config.globalProperties.logSave = logSave;
 app.use(i18n);
 app.use(router);
 hookVue(app);
-if (process.env.NODE_ENV !== 'development') {
-  Sentry.init({
-    app,
-    dsn: 'https://6a94feb674b54686a6d88d7278727b7c@sentry.io/1449341',
-    attachProps: true,
-  });
-}
 app.mount('#app');

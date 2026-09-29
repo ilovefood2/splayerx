@@ -14,6 +14,8 @@ import {
   isAudio,
   isImage,
   isValidFile,
+  MEDIA_SCAN_DIRECTORY_LIMIT,
+  PACKAGE_DIRECTORY,
 } from '@/../shared/utils';
 import {
   EMPTY_FOLDER, OPEN_FAILED, ADD_NO_VIDEO,
@@ -27,16 +29,11 @@ import { addBubble } from './notificationControl';
 
 const clock = FakeTimers.createClock();
 
-// Directories macOS presents to users as single files (apps, photo libraries,
-// bundles). They are never a media folder, and descending into them floods the
-// queue with icons and thumbnails.
-const PACKAGE_DIRECTORY = /\.(app|bundle|framework|plugin|kext|photoslibrary|photolibrary|imovielibrary|fcpbundle|tvlibrary|musiclibrary|xcodeproj|xcworkspace)$/i;
-
 // How many directories the implicit "what plays next" scan may read before it
 // gives up on nesting. Real media folders are small (a show with seasons is a
 // few dozen); a video opened from the home folder or a share root would
 // otherwise walk the whole tree — measured at 181k directories / 160 s.
-export const SIMILAR_MEDIA_SCAN_DIRECTORY_LIMIT = 256;
+export const SIMILAR_MEDIA_SCAN_DIRECTORY_LIMIT = MEDIA_SCAN_DIRECTORY_LIMIT;
 
 async function expandInputPath(inputPath, assumeDirectory, recurse, budget) {
   if (path.basename(inputPath).startsWith('.')) return [];
@@ -79,10 +76,20 @@ async function expandInputPath(inputPath, assumeDirectory, recurse, budget) {
   return groups.flat();
 }
 
+// A folder the user opened on purpose may legitimately be a large library, so
+// it gets a far bigger allowance than the implicit scan above. It is still
+// bounded: opening a share root used to read the entire share over the network
+// before anything played, and then queue every file on it.
+export const OPEN_FOLDER_SCAN_DIRECTORY_LIMIT = 2048;
+
 async function expandInputPaths(inputPaths, { assumeDirectories = false, recurse = false } = {}) {
+  const budget = { directories: OPEN_FOLDER_SCAN_DIRECTORY_LIMIT, exceeded: false };
   const pathGroups = await Promise.all(
-    inputPaths.map(inputPath => expandInputPath(inputPath, assumeDirectories, recurse)),
+    inputPaths.map(inputPath => expandInputPath(inputPath, assumeDirectories, recurse, budget)),
   );
+  if (budget.exceeded) {
+    log.warn('helpers/index.js', `Folder scan stopped after ${OPEN_FOLDER_SCAN_DIRECTORY_LIMIT} folders`);
+  }
   return pathGroups.flat();
 }
 

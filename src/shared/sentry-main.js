@@ -1,12 +1,7 @@
 import * as Sentry from '@sentry/electron/main';
-import { beforeSend, sentryDsn } from './sentry-options';
 
-if (process.env.NODE_ENV !== 'development') {
-  Sentry.init({
-    release: process.env.SENTRY_RELEASE,
-    dsn: sentryDsn,
-    beforeSend,
-  });
-}
+// Crash reporting is disabled. The DSN belonged to the upstream SPlayer
+// project, so every main-process error (with file paths) went to a third
+// party. Without init() the SDK's capture calls are no-ops.
 
 export default Sentry;
