@@ -118,6 +118,19 @@ describe('store/modules/Video', () => {
       .to.equal(url);
   });
 
+  it('increases boosted volume up to 1000% and respects the normal-volume cap', () => {
+    const context = playbackContext();
+    context.state.volume = 995;
+    Video.actions[videoActions.INCREASE_VOLUME](context);
+    expect(context.state.volume).to.equal(1000);
+    Video.actions[videoActions.INCREASE_VOLUME](context);
+    expect(context.state.volume).to.equal(1000);
+
+    context.state.volume = 95;
+    Video.actions[videoActions.INCREASE_VOLUME](context, { max: 100, step: 10 });
+    expect(context.state.volume).to.equal(100);
+  });
+
   it('assigns a normal media source before calculating its hash', async () => {
     const state = { src: '' };
     const commits = [];

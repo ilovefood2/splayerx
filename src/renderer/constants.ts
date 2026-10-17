@@ -4,7 +4,7 @@ import { join } from 'path';
 const app = electron.app || electron.remote.app;
 
 export const MAX_VOLUME = 100;
-export const MAX_AMPLIFY_VOLUME = 500;
+export const MAX_AMPLIFY_VOLUME = 1000;
 export const DEFAULT_VIDEO_EVENTS = [
   'abort',
   'canplay',

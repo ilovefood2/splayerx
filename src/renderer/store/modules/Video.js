@@ -2,6 +2,7 @@ import { ipcRenderer } from 'electron';
 
 import romanize from 'romanize';
 import isEqual from 'lodash/isEqual';
+import { MAX_AMPLIFY_VOLUME } from '@/constants';
 import { mediaQuickHash } from '@/libs/utils';
 import { isImage } from '@/../shared/utils';
 import { Video as videoMutations } from '../mutationTypes';
@@ -271,7 +272,7 @@ const actions = {
   [videoActions.INCREASE_VOLUME]({ dispatch, commit, state }, payload) {
     if (state.muted) dispatch(videoActions.TOGGLE_MUTED);
     const finalDelta = (payload && payload.step) || 5;
-    const max = (payload && payload.max) || 500;
+    const max = (payload && payload.max) || MAX_AMPLIFY_VOLUME;
     const finalVolume = state.volume + finalDelta;
     commit(videoMutations.VOLUME_UPDATE, finalVolume > max ? max : finalVolume);
   },
