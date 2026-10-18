@@ -8,6 +8,7 @@ import Playlist from '@/store/modules/Playlist';
 import TheVideoController from '@/containers/TheVideoController.vue';
 import PlayButton from '@/components/PlayingView/PlayButton.vue';
 import { videodata } from '@/store/video';
+import { fadeInDirective } from '@/directives/fadeIn';
 
 describe('Component - TheVideoController Unit Test', () => {
   let wrapper;
@@ -52,6 +53,7 @@ describe('Component - TheVideoController Unit Test', () => {
       },
       global: {
         plugins: [store],
+        directives: { 'fade-in': fadeInDirective },
         // The control bar renders $t() titles; without i18n the render throws and
         // mounted() never sees its $refs.
         mocks: { $t: key => key },
@@ -82,6 +84,32 @@ describe('Component - TheVideoController Unit Test', () => {
 
   it('Sanity - should component be properly mounted', () => {
     expect(wrapper.findComponent(TheVideoController).exists()).to.equal(true);
+  });
+
+  it('shows the current filename with the controls and updates when the file changes', async () => {
+    store.state.Video.src = '/Volumes/Shows/Season 1/Episode 01.mp4';
+    await wrapper.setData({ invokeAllWidgets: true });
+
+    const title = wrapper.find('.playing-file-name');
+    expect(title.text()).to.equal('Episode 01.mp4');
+    expect(title.classes()).to.include('fade-in');
+
+    store.state.Video.src = '/Volumes/Shows/Season 1/第二集.mkv';
+    await wrapper.vm.$nextTick();
+    expect(title.text()).to.equal('第二集.mkv');
+
+    await wrapper.setData({
+      invokeAllWidgets: false, mouseStopped: true, mouseLeftWindow: true,
+      videoChanged: false, attachedShown: false,
+    });
+    expect(title.classes()).to.include('fade-out');
+  });
+
+  it('displays a streamed filename without URL credentials or query parameters', () => {
+    const name = TheVideoController.computed.currentFileName.call({
+      originSrc: 'https://user:password@example.test/Shows/Episode%2001.mp4?token=secret#t=30',
+    });
+    expect(name).to.equal('Episode 01.mp4');
   });
 
   it('lets the parent controller hide every bottom-right control together', async () => {

@@ -11,6 +11,13 @@
     @click.left="handleMouseupLeft"
     class="the-video-controller"
   >
+    <div
+      v-if="currentFileName && !isEditable && !isProfessional"
+      v-fade-in="showAllWidgets"
+      class="playing-file-name"
+    >
+      {{ currentFileName }}
+    </div>
     <notification-bubble
       ref="nextVideoUI"
       v-if="!isEditable"
@@ -193,6 +200,7 @@
   </div>
 </template>
 <script lang="ts">
+import { basename } from 'path';
 import {
   mapState, mapGetters, mapActions,
   createNamespacedHelpers,
@@ -353,6 +361,17 @@ export default {
     },
     controllerPaused() {
       return this.casting ? this.castPaused : this.paused;
+    },
+    currentFileName() {
+      const source = this.originSrc || '';
+      if (/^https?:\/\//i.test(source)) {
+        try {
+          return decodeURIComponent(basename(new URL(source).pathname));
+        } catch (error) {
+          return basename(source.split(/[?#]/)[0]);
+        }
+      }
+      return basename(source);
     },
     hasVisualMedia() {
       return this.intrinsicWidth > 0 && this.intrinsicHeight > 0;
@@ -1095,6 +1114,26 @@ export default {
   border-radius: 4px;
   opacity: 1;
   z-index: auto;
+}
+.playing-file-name {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  z-index: 10;
+  box-sizing: border-box;
+  max-width: calc(100% - 224px);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  font-size: clamp(11px, 1.8vw, 14px);
+  line-height: 16px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 .sub-control-wrapper {
   position: absolute;
