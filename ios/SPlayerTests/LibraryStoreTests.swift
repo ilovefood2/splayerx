@@ -49,6 +49,30 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: library.root.appendingPathComponent("one.mp4").path))
     }
 
+    @MainActor func testImportsThroughAliasedContainerAppearInTheirFolders() async throws {
+        let container = temporary.appendingPathComponent("real-container")
+        let alias = temporary.appendingPathComponent("container-alias")
+        let root = alias.appendingPathComponent("Documents/Videos")
+        try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: container)
+        let metadata = temporary.appendingPathComponent("playlists.json")
+        let library = LibraryStore(root: root, metadata: metadata)
+        let source = temporary.appendingPathComponent("Import Source")
+        try video("clip.mp4", root: source)
+        try video("Trip/Day One/nested.mov", root: source)
+
+        await library.importVideos([source.appendingPathComponent("clip.mp4"), source.appendingPathComponent("Trip")])
+        XCTAssertEqual(library.notice, "Imported 2 videos.")
+        XCTAssertEqual(library.children(of: "").map(\.path), ["Trip", "clip.mp4"])
+        XCTAssertEqual(library.children(of: "Trip/Day One").map(\.path), ["Trip/Day One/nested.mov"])
+        XCTAssertEqual(try Data(contentsOf: library.fileURL("clip.mp4")), Data("test video bytes".utf8))
+
+        try library.createPlaylist("Imported", paths: library.videos().map(\.path))
+        let reopened = LibraryStore(root: root, metadata: metadata)
+        XCTAssertEqual(reopened.children(of: "").map(\.path), ["Trip", "clip.mp4"])
+        XCTAssertEqual(reopened.playlists.first?.paths, ["clip.mp4", "Trip/Day One/nested.mov"])
+    }
+
     @MainActor func testFolderMoveAndDeleteUpdateOnlyMatchingPlaylistReferences() throws {
         let library = store()
         try video("Trip/Day 1/clip.mp4", root: library.root)

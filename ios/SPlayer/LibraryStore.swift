@@ -61,6 +61,8 @@ enum LibraryFiles {
     }
 
     static func scan(root: URL) throws -> [VideoEntry] {
+        // iOS enumerates /var container URLs as /private/var URLs; normalize before deriving paths.
+        let root = root.standardizedFileURL.resolvingSymlinksInPath()
         var scanError: Error?
         guard let items = FileManager.default.enumerator(
             at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey],
@@ -71,7 +73,7 @@ enum LibraryFiles {
             let values = try item.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey])
             if values.isSymbolicLink == true { items.skipDescendants(); continue }
             if values.isDirectory == true || (values.isRegularFile == true && extensions.contains(item.pathExtension.lowercased())) {
-                let path = String(item.path.dropFirst(root.path.count + 1))
+                let path = item.pathComponents.dropFirst(root.pathComponents.count).joined(separator: "/")
                 entries.append(VideoEntry(path: path, isFolder: values.isDirectory == true))
             }
         }

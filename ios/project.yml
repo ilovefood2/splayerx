@@ -8,8 +8,8 @@ settings:
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "1,2"
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "4.11.130"
-    CURRENT_PROJECT_VERSION: "130"
+    MARKETING_VERSION: "4.11.131"
+    CURRENT_PROJECT_VERSION: "131"
 targets:
   SPlayer:
     type: application
