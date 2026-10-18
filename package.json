@@ -2,7 +2,7 @@
   "name": "splayer",
   "productName": "splayer",
   "homepage": "https://splayer.org",
-  "version": "4.11.129",
+  "version": "4.11.130",
   "author": "tomasen <tomasen@gmail.com>",
   "description": "a media player",
   "license": "GPL-3.0-or-later",
@@ -17,6 +17,9 @@
   "scripts": {
     "build": "node ./scripts/build.js",
     "build:google-tv": "scripts/build-google-tv.sh",
+    "build:ios": "scripts/build-ios.sh",
+    "test:ios": "scripts/build-ios.sh test",
+    "install:ios": "scripts/build-ios.sh install",
     "build:appx": "cross-env ENVIRONMENT_NAME=APPX ./scripts/build-win.bat appx",
     "build:mas": "scripts/build-mac.sh mas",
     "build:mas-dev": "scripts/build-mac.sh mas-dev",

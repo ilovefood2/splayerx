@@ -1,4 +1,7 @@
 # SPlayer
+
+Native mobile builds: [iPhone and iPad](ios/README.md) · [Google TV](google-tv/README.md).
+
 [![Dependencies Status](https://david-dm.org/chiflix/splayerx/develop/status.svg)](https://david-dm.org/chiflix/splayerx/develop/)
 [![devDependencies Status](https://david-dm.org/chiflix/splayerx/develop/dev-status.svg)](https://david-dm.org/chiflix/splayerx/develop?type=dev)
 [![Build Status](https://travis-ci.org/chiflix/splayerx.svg?branch=develop)](https://travis-ci.org/chiflix/splayerx?branch=develop)

@@ -18,3 +18,6 @@ electron-builder.json
 google-tv/.gradle/
 google-tv/local.properties
 google-tv/app/build/
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+ios/.build/
