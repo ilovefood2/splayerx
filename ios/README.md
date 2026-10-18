@@ -1,53 +1,69 @@
-# SPlayer for iPhone and iPad
+# xplayer
 
-Native SwiftUI / AVKit application, requiring iOS 17 or newer. The desktop and
-Google TV applications keep their existing runtimes.
+An offline video library for iPhone and iPad, with nested folders and saved
+playlists. Requires iOS 17 or later. Native SwiftUI / AVKit, with no third-party
+runtime dependencies, ads, accounts, or analytics.
 
-## Videos and folders
+- Import MP4, M4V, and MOV videos or entire folder trees through Files.
+- Create, move, rename, and delete folders; combine videos into playlists.
+- Reorder playlists and play them in sequence using native playback controls.
+- Read privacy, support, and license documents offline in About.
 
-- In Library, tap **+ → Import Videos** or **Import Folder**. The Files picker
-  supports on-device, iCloud Drive, and installed file providers. Folder imports
-  copy videos recursively and preserve nested folders; original files stay intact.
-- Create folders with **+ → New Folder**. Long-press a video or folder to move it,
-  add it to a playlist, or delete it. Folders can also be renamed.
-- Videos are local copies, so they work offline after import. Imports need enough
-  free device storage and should finish before leaving the app. Duplicate names
-  receive a numbered suffix; existing files are never overwritten.
-- Finder file sharing and **Files → On My iPhone → SPlayer → Videos** expose the
-  same folder tree. Pull to refresh after external changes. Moving or renaming
-  inside SPlayer updates playlist references; external moves/renames show missing
-  entries, which can be removed and added again.
-- Supported containers: MP4, M4V, MOV, with codecs supported by the device's AVKit
-  player (typically H.264 or HEVC). MKV/AVI and desktop FFmpeg codecs are not part
-  of this native version. Unsupported imports and playback failures are reported.
+The device's Apple codec support applies. MKV/AVI, DRM-protected files, website
+downloads, and desktop FFmpeg codecs are not included.
 
-## Playlists
+## Source and license
 
-Create named playlists in the Playlists tab. Add videos from any folder, use Edit
-to reorder or remove entries, and tap Play All for automatic sequential playback.
-The player provides native scrubbing, audio/subtitle selection when embedded,
-and previous/next controls. Closing the player stops playback. Playlist edits
-are saved atomically and survive application restarts. Deleting a playlist does
-not delete its videos.
+The native application is independently implemented and MIT-licensed. See
+[LICENSE](LICENSE), [PROVENANCE.md](PROVENANCE.md),
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and [AppIcon.md](AppIcon.md).
+The upstream SPlayer desktop project retains its original GPL license. This
+application is not an official SPlayer release.
 
-## Build, test, and install
+## Build and test
 
-Requires Xcode with an iOS SDK. The Xcode project is checked in; XcodeGen is needed
-only after editing `project.yml` (`cd ios && xcodegen generate`). The build scripts
-take the version from the repository's `package.json`.
+Requires Xcode, an iOS SDK, Python 3, and an installed simulator runtime.
+The checked-in Xcode project builds directly. XcodeGen is only needed after
+editing `project.yml` (`xcodegen generate`). No Node dependencies are installed;
+`package.json` holds the version and optional npm command aliases.
 
 ```sh
-SPLAYER_IOS_SIMULATOR='<simulator UUID>' npm run test:ios
-SPLAYER_IOS_TEAM='<Apple team ID>' npm run build:ios
-SPLAYER_IOS_TEAM='<Apple team ID>' SPLAYER_IOS_DEVICE='<paired iPhone UUID>' npm run install:ios
+python3 scripts/verify-release.py
+XPLAYER_SIMULATOR_ID='<simulator UUID>' scripts/build.sh test
+scripts/build.sh build  # unsigned device build when no team is supplied
+XPLAYER_TEAM_ID='<team ID>' XPLAYER_DEVICE_ID='<iPhone UDID>' scripts/build.sh install
+XPLAYER_TEAM_ID='<enrolled team ID>' scripts/build.sh archive
+XPLAYER_TEAM_ID='<enrolled team ID>' scripts/build.sh export
 ```
 
-The device must be paired, reachable, and have Developer Mode enabled; Xcode must
-have an Apple account able to provision the app. No signing credentials or
-personal device identifiers are stored in the project. The signed build is at
-`build/ios/Build/Products/Release-iphoneos/SPlayer.app`. Development installations
-remain usable only while their provisioning profile is valid.
+Build output goes into `build/`. Set `XPLAYER_BUILD_DIR` to isolate concurrent
+simulator/device builds. App Store export needs a paid developer membership,
+distribution signing, and a correctly configured App Store Connect record.
+The export command only creates a local IPA; it does not upload or submit it.
 
-Tests cover recursive imports, duplicate names, playlist persistence/order,
-folder move/delete references, failed-write rollback, corrupt metadata, path
-traversal, symlinks, recursive self-import, and folder/playlist UI persistence.
+## Privacy and support website
+
+The app's bundled Markdown documents are the source of the public website:
+
+```sh
+python3 scripts/build-site.py
+python3 scripts/verify-release.py --check-urls
+```
+
+Serve `docs/` with GitHub Pages. The intended URLs are:
+
+- https://ilovefood2.github.io/xplayer/privacy.html
+- https://ilovefood2.github.io/xplayer/support.html
+
+These URLs must be live and checked before submission. Store metadata, review
+notes, and remaining account-dependent steps are in `metadata/`.
+
+## Moving from the development SPlayer build
+
+The new bundle ID is `com.ilovefood2.xplayer`; iOS gives it a separate container.
+Keep the old application until its files have been copied and verified. The
+local migration helper in `scripts/migrate-device-library.py` copies the old
+Documents and Application Support directories through an ignored local backup,
+requires an empty destination, and never deletes the old app or its files.
+
+Personal media and migration backups must never be committed or published.

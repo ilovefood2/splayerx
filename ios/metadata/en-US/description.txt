@@ -1,0 +1,16 @@
+Keep your own videos organized and ready to watch with xplayer.
+
+IMPORT YOUR LIBRARY
+Choose videos or entire folders from Files, including supported file providers. Folder imports preserve nested folders and create local copies for offline playback.
+
+ORGANIZE BY FOLDER
+Create folders, move videos, and rename folders. You can also transfer files with Finder or the Files app.
+
+BUILD YOUR PLAYLISTS
+Combine videos from different folders into named playlists. Reorder or remove entries and play videos in sequence with previous and next controls.
+
+PRIVATE BY DESIGN
+No account, ads, or tracking SDKs. Your videos and playlists are stored locally and are not uploaded to the developer.
+
+SUPPORTED FORMATS
+MP4, M4V, and MOV containers using codecs supported by your device's Apple media player, typically H.264 or HEVC. MKV, AVI, DRM-protected media, and arbitrary desktop codecs are not supported. You provide your own video files; the app does not include a streaming catalog or download videos from websites.

@@ -1,6 +1,11 @@
 # SPlayer
 
-Native mobile builds: [iPhone and iPad](ios/README.md) · [Google TV](google-tv/README.md).
+Native mobile builds: [xplayer for iPhone and iPad](ios/README.md) · [Google TV](google-tv/README.md).
+
+The independently implemented native `ios/` application is separately licensed
+under [MIT](ios/LICENSE), with its [source provenance](ios/PROVENANCE.md) recorded.
+The SPlayer desktop project and upstream-derived code retain their existing GPL
+license and copyright notices.
 
 [![Dependencies Status](https://david-dm.org/chiflix/splayerx/develop/status.svg)](https://david-dm.org/chiflix/splayerx/develop/)
 [![devDependencies Status](https://david-dm.org/chiflix/splayerx/develop/dev-status.svg)](https://david-dm.org/chiflix/splayerx/develop?type=dev)

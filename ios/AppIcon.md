@@ -1,6 +1,6 @@
 # iOS icon
 
-`SPlayer/Assets.xcassets/AppIcon.appiconset/AppIcon.png` was generated for this
+`XPlayer/Assets.xcassets/AppIcon.appiconset/AppIcon.png` was generated for this
 iOS application on 2026-10-18 using the built-in ImageGen tool. It replaces the
 icon previously copied from the upstream SPlayer project. No upstream artwork
 or reference image was supplied. The generated artwork was resized to the

@@ -1,0 +1,11 @@
+.DS_Store
+build/
+.build/
+*.xcuserstate
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.mobileprovision
+*.p12
+.env
+node_modules/
+package-lock.json

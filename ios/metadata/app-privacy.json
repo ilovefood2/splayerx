@@ -1,0 +1,17 @@
+{
+  "app": "xplayer",
+  "bundleIdentifier": "com.ilovefood2.xplayer",
+  "dataCollectedByApp": false,
+  "tracking": false,
+  "thirdPartySDKsBundled": [],
+  "requiredReasonAPIs": {
+    "NSPrivacyAccessedAPICategoryFileTimestamp": [
+      "C617.1",
+      "3B52.1"
+    ]
+  },
+  "explanation": "File metadata is used for local library safety and user-selected file imports. Media, filenames, folder paths, and playlists are not transmitted to the developer. Optional support links open external GitHub-hosted pages; the app sends no logs or attachments. Optional support email opens the system mail app without attaching media or library data.",
+  "privacyPolicyURL": "https://ilovefood2.github.io/xplayer/privacy.html",
+  "supportURL": "https://ilovefood2.github.io/xplayer/support.html",
+  "supportEmail": "a@ikel.ca"
+}
