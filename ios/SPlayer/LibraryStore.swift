@@ -61,23 +61,26 @@ enum LibraryFiles {
     }
 
     static func scan(root: URL) throws -> [VideoEntry] {
-        // iOS enumerates /var container URLs as /private/var URLs; normalize before deriving paths.
-        let root = root.standardizedFileURL.resolvingSymlinksInPath()
-        var scanError: Error?
-        guard let items = FileManager.default.enumerator(
-            at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles], errorHandler: { _, error in scanError = error; return false }
-        ) else { throw LibraryError(message: "The video library could not be read.") }
         var entries: [VideoEntry] = []
-        for case let item as URL in items {
-            let values = try item.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey])
-            if values.isSymbolicLink == true { items.skipDescendants(); continue }
-            if values.isDirectory == true || (values.isRegularFile == true && extensions.contains(item.pathExtension.lowercased())) {
-                let path = item.pathComponents.dropFirst(root.pathComponents.count).joined(separator: "/")
-                entries.append(VideoEntry(path: path, isFolder: values.isDirectory == true))
+        var pending = [(url: root, path: "")]
+        while let folder = pending.popLast() {
+            let items = try FileManager.default.contentsOfDirectory(
+                at: folder.url, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+            for item in items {
+                let values = try item.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey])
+                if values.isSymbolicLink == true { continue }
+                // Build relative paths from child names; iOS can rewrite absolute container URL prefixes.
+                let path = folder.path.isEmpty ? item.lastPathComponent : folder.path + "/" + item.lastPathComponent
+                if values.isDirectory == true {
+                    entries.append(VideoEntry(path: path, isFolder: true))
+                    pending.append((url: item, path: path))
+                } else if values.isRegularFile == true && extensions.contains(item.pathExtension.lowercased()) {
+                    entries.append(VideoEntry(path: path, isFolder: false))
+                }
             }
         }
-        if let scanError { throw scanError }
         return entries.sorted {
             if $0.isFolder != $1.isFolder { return $0.isFolder }
             return $0.path.localizedStandardCompare($1.path) == .orderedAscending
