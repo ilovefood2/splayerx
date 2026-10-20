@@ -1,7 +1,6 @@
 package org.splayer.tv.ui;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
@@ -27,6 +26,7 @@ public final class TvUi {
     public static Button button(Context context, String text) {
         Button button = new Button(context);
         button.setText(text);
+        button.setId(View.generateViewId());
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         button.setTextColor(Color.WHITE);
         button.setAllCaps(false);
@@ -34,7 +34,6 @@ public final class TvUi {
         button.setPadding(dp(context, 18), dp(context, 10), dp(context, 18), dp(context, 10));
         button.setMinHeight(dp(context, 56));
         button.setBackground(buttonBackground(context));
-        button.setOnFocusChangeListener(TvUi::animateFocus);
         return button;
     }
 
@@ -51,6 +50,10 @@ public final class TvUi {
         states.addState(
                 new int[]{android.R.attr.state_focused},
                 rounded(context, R.color.surface_focus, R.color.primary, 3)
+        );
+        states.addState(
+                new int[]{android.R.attr.state_selected},
+                rounded(context, R.color.surface_selected, R.color.primary, 1)
         );
         states.addState(
                 new int[]{android.R.attr.state_pressed},
@@ -78,11 +81,4 @@ public final class TvUi {
         return drawable;
     }
 
-    private static void animateFocus(View view, boolean focused) {
-        view.animate()
-                .scaleX(focused ? 1.04f : 1f)
-                .scaleY(focused ? 1.04f : 1f)
-                .setDuration(120)
-                .start();
-    }
 }

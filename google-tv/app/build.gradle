@@ -14,7 +14,7 @@ android {
         applicationId "org.splayer.tv"
         minSdk 23
         targetSdk 35
-        versionCode 41180
+        versionCode 41181
         versionName desktopPackage.version
 
         testInstrumentationRunner "android.test.InstrumentationTestRunner"
@@ -60,4 +60,5 @@ dependencies {
     implementation "org.slf4j:slf4j-android:1.7.36"
 
     testImplementation "junit:junit:4.13.2"
+    testImplementation "com.squareup.okhttp3:mockwebserver:4.12.0"
 }

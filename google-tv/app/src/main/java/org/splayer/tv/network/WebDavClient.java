@@ -34,8 +34,27 @@ public final class WebDavClient {
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(18, TimeUnit.SECONDS)
             .build();
+    private static final OkHttpClient DELETE_CLIENT = CLIENT.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .retryOnConnectionFailure(false)
+            .build();
 
     private WebDavClient() {
+    }
+
+    static void deleteFile(NetworkLocation location, String uri) throws Exception {
+        Request.Builder request = new Request.Builder().url(uri).delete();
+        if (!location.getUsername().isEmpty() || !location.getPassword().isEmpty()) {
+            request.header("Authorization", Credentials.basic(
+                    location.getUsername(), location.getPassword(), StandardCharsets.UTF_8));
+        }
+        try (Response response = DELETE_CLIENT.newCall(request.build()).execute()) {
+            int code = response.code();
+            if (code != 200 && code != 204 && code != 404) {
+                throw new IllegalStateException("Server did not confirm deletion: HTTP " + code);
+            }
+        }
     }
 
     public static List<NetworkEntry> list(NetworkLocation location, String uri) throws Exception {
@@ -96,6 +115,7 @@ public final class WebDavClient {
             String href = firstText(response, "href");
             if (href.isEmpty()) continue;
             URI resolved = base.resolve(href);
+            if (!RemoteFiles.isDirectChild(directoryUri, resolved.toString())) continue;
             String resolvedPath = resolved.getPath();
             if (ensureTrailingSlash(resolvedPath).equals(basePath)) continue;
             boolean directory = response.getElementsByTagNameNS("*", "collection").getLength() > 0;

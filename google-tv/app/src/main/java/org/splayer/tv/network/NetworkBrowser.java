@@ -20,6 +20,10 @@ public final class NetworkBrowser {
         void onError(Throwable error);
     }
 
+    public interface DeleteCallback {
+        void onComplete(RemoteFiles.DeleteResult result);
+    }
+
     private static final long CACHE_DURATION_MS = 30_000;
     private static final int MAX_CACHE_ENTRIES = 16;
 
@@ -36,6 +40,7 @@ public final class NetworkBrowser {
         }
     };
     private final Map<String, List<Callback>> pending = new LinkedHashMap<>();
+    private volatile boolean closed;
 
     public void browse(
             NetworkLocation location,
@@ -44,7 +49,13 @@ public final class NetworkBrowser {
             Callback callback
     ) {
         String key = location.cacheKey(uri);
+        final List<Callback> request;
         synchronized (this) {
+            if (closed) return;
+            if (forceRefresh) {
+                cache.remove(key);
+                pending.remove(key);
+            }
             CacheValue cached = cache.get(key);
             if (!forceRefresh && cached != null && !cached.isExpired()) {
                 List<NetworkEntry> snapshot = new ArrayList<>(cached.entries);
@@ -56,9 +67,9 @@ public final class NetworkBrowser {
                 callbacks.add(callback);
                 return;
             }
-            callbacks = new ArrayList<>();
-            callbacks.add(callback);
-            pending.put(key, callbacks);
+            request = new ArrayList<>();
+            request.add(callback);
+            pending.put(key, request);
         }
 
         executor.execute(() -> {
@@ -69,16 +80,17 @@ public final class NetworkBrowser {
                 } else {
                     entries = WebDavClient.list(location, uri);
                 }
-                complete(key, entries, null);
-            } catch (Throwable error) {
-                complete(key, null, error);
+                complete(key, request, entries, null);
+            } catch (Exception error) {
+                complete(key, request, null, error);
             }
         });
     }
 
-    private void complete(String key, List<NetworkEntry> entries, Throwable error) {
+    private void complete(String key, List<Callback> request, List<NetworkEntry> entries, Throwable error) {
         List<Callback> callbacks;
         synchronized (this) {
+            if (closed || pending.get(key) != request) return;
             callbacks = pending.remove(key);
             if (error == null && entries != null) {
                 cache.put(key, new CacheValue(entries));
@@ -87,6 +99,7 @@ public final class NetworkBrowser {
         if (callbacks == null) return;
         List<NetworkEntry> snapshot = entries == null ? null : new ArrayList<>(entries);
         mainHandler.post(() -> {
+            if (closed) return;
             for (Callback callback : callbacks) {
                 if (error == null) callback.onSuccess(new ArrayList<>(snapshot));
                 else callback.onError(error);
@@ -96,9 +109,27 @@ public final class NetworkBrowser {
 
     public synchronized void clear() {
         cache.clear();
+        pending.clear();
+    }
+
+    public void deleteFiles(NetworkLocation location, List<NetworkEntry> entries, DeleteCallback callback) {
+        List<NetworkEntry> snapshot = new ArrayList<>(entries);
+        if (snapshot.isEmpty()) throw new IllegalArgumentException("No files selected");
+        // Validate before scheduling, so an unsafe batch cannot partially delete files.
+        for (NetworkEntry entry : snapshot) RemoteFiles.requireSafeFile(location, entry);
+        clear();
+        executor.execute(() -> {
+            RemoteFiles.DeleteResult result = RemoteFiles.deleteAll(location, snapshot);
+            clear();
+            mainHandler.post(() -> {
+                if (!closed) callback.onComplete(result);
+            });
+        });
     }
 
     public void shutdown() {
+        closed = true;
+        clear();
         executor.shutdownNow();
     }
 

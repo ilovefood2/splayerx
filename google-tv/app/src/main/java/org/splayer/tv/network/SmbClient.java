@@ -54,11 +54,19 @@ public final class SmbClient {
                     }
                 }
             }
-        }
+        } finally { context.close(); }
         entries.sort(Comparator
                 .comparing(NetworkEntry::isDirectory).reversed()
                 .thenComparing(NetworkEntry::getName, String.CASE_INSENSITIVE_ORDER));
         return entries;
+    }
+
+    static void deleteFile(CIFSContext context, String uri) throws Exception {
+        try (SmbFile file = new SmbFile(uri, context)) {
+            if (!file.exists()) return;
+            if (!file.isFile()) throw new IllegalArgumentException("Folders cannot be deleted");
+            file.delete();
+        }
     }
 
     private static String trimTrailingSlash(String value) {

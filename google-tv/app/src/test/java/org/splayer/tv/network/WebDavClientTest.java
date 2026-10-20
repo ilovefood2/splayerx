@@ -12,6 +12,19 @@ import static org.junit.Assert.assertTrue;
 
 public class WebDavClientTest {
     @Test
+    public void ignoresForeignParentAndNestedEntriesFromAListing() throws Exception {
+        String xml = "<d:multistatus xmlns:d=\"DAV:\">"
+                + "<d:response><d:href>https://other.local/dav/stolen.mp4</d:href></d:response>"
+                + "<d:response><d:href>/elsewhere/file.mp4</d:href></d:response>"
+                + "<d:response><d:href>/dav/nested/file.mp4</d:href></d:response>"
+                + "<d:response><d:href>/dav/good.mp4</d:href></d:response>"
+                + "</d:multistatus>";
+        List<NetworkEntry> entries = WebDavClient.parseListing("https://nas.local/dav/",
+                new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+        assertEquals(1, entries.size());
+        assertEquals("good.mp4", entries.get(0).getName());
+    }
+    @Test
     public void parsesFoldersAndPlayableFilesFromOnePropfindResponse() throws Exception {
         String xml = "<?xml version=\"1.0\"?>"
                 + "<d:multistatus xmlns:d=\"DAV:\">"

@@ -16,6 +16,24 @@ is already running, and cached for 30 seconds. Refresh bypasses the cache.
 Credentials are optional and stay in the application's private preferences on
 the TV. They are never sent anywhere except the selected network server.
 
+## Remote controls and deleting files
+
+The saved location is focused at launch. Open it with OK. Favorites are hidden
+while browsing to give the file list more room; Back returns to the parent folder.
+Hold OK on a favorite to edit its address/login or remove the shortcut.
+
+Choose **Select files**, or hold OK on a video, to enter selection mode. OK
+toggles a file, **Select all** selects the current folder's video files, and
+**Delete (n)** asks for confirmation. Back cancels selection. Folders cannot be
+selected for deletion. A failed batch reports each failed filename and keeps
+those files selected for retry.
+
+During playback, OK opens controls with the filename, playback position,
+play/pause, 10-second seeking, and **Delete file**. The read handle is closed
+before deleting the playing file. After success the folder is refreshed.
+Every deletion confirmation starts on **Cancel**. Deletion is permanent and
+requires write permission on the SMB share or HTTP/WebDAV server.
+
 ## Build and install
 
 Requirements:
