@@ -150,6 +150,9 @@ export default {
     winAngle(val: number) {
       this.changeWindowRotate(val);
     },
+    isFullScreen(fullScreen: boolean) {
+      if (!fullScreen) this.windowRectControl();
+    },
     async playListId(val: number, oldVal: number) {
       if (this.incognitoMode && Number.isFinite(oldVal)) {
         const playlistItem = await playInfoStorageService.getPlaylistRecord(oldVal);
@@ -483,7 +486,7 @@ export default {
       });
       this.changeWindowRotate(this.winAngle);
       this.applyMediaAppearance();
-      // Keep the user-selected window dimensions when the media source changes.
+      this.windowRectControl();
 
       if (mediaInfo && mediaInfo.audioTrackId) this.lastAudioTrackId = mediaInfo.audioTrackId;
       this.gainNode = this.audioCtx.createGain();
@@ -610,6 +613,7 @@ export default {
       this[`${type}AudioTrack`](track);
     },
     windowRectControl() {
+      if (this.isFullScreen || !Number.isFinite(this.ratio) || this.ratio <= 0) return;
       let videoSize;
       const [winWidth, winHeight] = this.winSize;
       const oldRatio = winWidth / winHeight;

@@ -46,6 +46,7 @@ describe('playback intent during delayed network loads', () => {
       updateMetaInfo: vi.fn(),
       changeWindowRotate: vi.fn(),
       applyMediaAppearance: vi.fn(),
+      windowRectControl: vi.fn(),
       $emit: vi.fn(),
     };
     return { context, target };
