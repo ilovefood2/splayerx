@@ -1,4 +1,35 @@
 const fs = require('fs');
+const path = require('path');
+const { v5, parse } = require('uuid');
+
+// Give macOS Local Network privacy an app-specific identity before code signing.
+exports.patchMacExecutableUuid = (file, appId) => {
+  if (typeof appId !== 'string' || !appId) throw new Error('Missing app identifier');
+  const binary = fs.readFileSync(file);
+  // shortcut: packaged arm64/x64 binaries are thin; add fat-header support for universal builds.
+  if (binary.length < 32 || binary.readUInt32LE(0) !== 0xfeedfacf) {
+    throw new Error('Expected a thin 64-bit Mach-O executable');
+  }
+  const end = 32 + binary.readUInt32LE(20);
+  if (end > binary.length) throw new Error('Truncated Mach-O load commands');
+  const count = binary.readUInt32LE(16);
+  let position = 32;
+  for (let index = 0; index < count; index += 1) {
+    if (position + 8 > end) throw new Error('Truncated Mach-O load command');
+    const command = binary.readUInt32LE(position);
+    const size = binary.readUInt32LE(position + 4);
+    if (size < 8 || position + size > end) throw new Error('Invalid Mach-O load command size');
+    if (command === 0x1b) {
+      if (size !== 24) throw new Error('Invalid Mach-O UUID command');
+      const identity = v5(`${appId}:${binary.readUInt32LE(4)}`, v5.DNS);
+      Buffer.from(parse(identity)).copy(binary, position + 8);
+      fs.writeFileSync(file, binary);
+      return identity;
+    }
+    position += size;
+  }
+  throw new Error('Mach-O executable has no UUID command');
+};
 
 const languages = [
   'am',
@@ -64,6 +95,10 @@ exports.default = (context) => {
   const APP_OUT_DIR = context.appOutDir;
   const PLATFORM = context.packager.platform.name;
   if (PLATFORM === 'mac') {
+    exports.patchMacExecutableUuid(
+      path.join(APP_OUT_DIR, `${APP_NAME}.app`, 'Contents', 'MacOS', APP_NAME),
+      context.packager.appInfo.id,
+    );
     languages.forEach((item) => {
       fs.writeFile(`${APP_OUT_DIR}/${APP_NAME}.app/Contents/Resources/${item}.lproj`, '', (err) => {
         if (err) throw err;
