@@ -293,7 +293,7 @@ export function isCastReachable(host: string, port = 8009, timeout = 700): Promi
 }
 
 /**
- * Devices seen now, plus any device remembered during this app run that still
+ * Devices seen now, plus any remembered device that still
  * answers on :8009.
  *
  * This deliberately stays within the Electron process. Invoking macOS's
@@ -303,19 +303,21 @@ export function isCastReachable(host: string, port = 8009, timeout = 700): Promi
 export async function discoverWithKnown(
   known: CastDeviceInfo[] = [],
   timeout?: number,
+  onRemembered?: (devices: CastDeviceInfo[]) => void,
 ): Promise<CastDeviceInfo[]> {
-  const live = await discoverCastDevices(timeout);
+  // Recheck saved TVs while browsing, so the picker need not wait for mDNS.
+  const remembered = Promise.all(known.map(async device => (
+    await isCastReachable(device.ip || device.host, device.port) ? device : undefined
+  ))).then((results) => {
+    const devices = results.filter((device): device is CastDeviceInfo => !!device);
+    if (onRemembered) onRemembered(devices);
+    return devices;
+  });
+  const [live, reachable] = await Promise.all([discoverCastDevices(timeout), remembered]);
   const byId = new Map<string, CastDeviceInfo>();
   live.forEach(device => byId.set(device.id, device));
-
-  // A device discovered earlier in this run can stay castable after it goes
-  // quiet on mDNS, as long as its Cast port is still reachable.
-  const extras = known.filter(device => !byId.has(device.id) && !!(device.ip || device.host));
-  const reachable = await Promise.all(
-    extras.map(device => isCastReachable((device.ip || device.host) as string, device.port)),
-  );
-  extras.forEach((device, i) => {
-    if (reachable[i]) byId.set(device.id, device);
+  reachable.forEach((device) => {
+    if (!byId.has(device.id)) byId.set(device.id, device);
   });
   return Array.from(byId.values());
 }

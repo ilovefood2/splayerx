@@ -241,6 +241,8 @@ export class CastService extends EventEmitter {
 
   private refreshing?: Promise<CastDeviceInfo[]>;
 
+  private listing?: Promise<CastDeviceInfo[]>;
+
   private statusTimer?: NodeJS.Timeout;
 
   private statusBusy = false;
@@ -258,8 +260,12 @@ export class CastService extends EventEmitter {
 
   /** One scan at a time; callers share the in-flight one. */
   private refresh(timeout?: number): Promise<CastDeviceInfo[]> {
-    if (this.refreshing) return this.refreshing;
+    if (this.refreshing) return this.listing || this.refreshing;
     const cachePath = join(app.getPath('userData'), 'cast-devices.json');
+    let showRemembered: (devices: CastDeviceInfo[]) => void;
+    const rememberedReady = new Promise<CastDeviceInfo[]>((resolve) => {
+      showRemembered = resolve;
+    });
     this.refreshing = (async () => {
       let remembered = this.knownDevices;
       if (!remembered.length) {
@@ -275,7 +281,12 @@ export class CastService extends EventEmitter {
           }
         } catch (error) { /* no readable cache yet */ }
       }
-      return discoverWithKnown(remembered, timeout);
+      return discoverWithKnown(remembered, timeout, (devices) => {
+        if (devices.length) {
+          this.knownDevices = devices;
+          showRemembered(devices);
+        }
+      });
     })()
       .then(async (devices) => {
         this.knownDevices = devices;
@@ -285,21 +296,24 @@ export class CastService extends EventEmitter {
           } catch (error) { /* discovery also works with a read-only profile */ }
         }
         this.refreshing = undefined;
+        this.listing = undefined;
         return devices;
       })
       .catch(() => {
         this.refreshing = undefined;
+        this.listing = undefined;
         return this.knownDevices;
       });
-    return this.refreshing;
+    this.listing = Promise.race([rememberedReady, this.refreshing]);
+    return this.listing;
   }
 
   /**
-   * Devices to offer the user, without making them wait after the first scan.
+   * Offer reachable saved TVs as soon as they answer, including after a restart.
    *
    * A scan has to sit out the whole mDNS window -- seconds -- so blocking on one
    * per click means the picker takes seconds to appear every single time. Answer
-   * from what we already know and refresh behind the scenes. Discovery begins
+   * from what we already know and finish the scan behind the scenes. Discovery begins
    * only when the user opens the picker; an idle player must not keep a network
    * scanner or subprocess lifecycle alive.
    */

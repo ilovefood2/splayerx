@@ -125,7 +125,11 @@ describe('Chromecast multicast discovery', () => {
     connection.connect = vi.fn(() => connection.emit(reachable ? 'connect' : 'timeout'));
     vi.spyOn(net, 'Socket').mockImplementation(function SocketMock() { return connection; });
     const device = { id: INSTANCE, name: 'Test TV', host: HOST, ip: '10.0.0.62', port: 8009 };
-    const discovery = discoverWithKnown([device], 100);
+    const onRemembered = vi.fn();
+    const discovery = discoverWithKnown([device], 100, onRemembered);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onRemembered).toHaveBeenCalledWith(reachable ? [device] : []);
+    expect(connection.connect).toHaveBeenCalledWith(8009, '10.0.0.62');
     sockets.forEach(socket => socket.start());
     await vi.advanceTimersByTimeAsync(100);
 

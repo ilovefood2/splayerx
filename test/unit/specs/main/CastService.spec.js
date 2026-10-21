@@ -41,7 +41,7 @@ describe('CastService discovery lifecycle', () => {
     expect(discoverWithKnown).not.toHaveBeenCalled();
     await expect(service.listDevices(250)).resolves.toEqual(devices);
     expect(discoverWithKnown).toHaveBeenCalledOnce();
-    expect(discoverWithKnown).toHaveBeenCalledWith([], 250);
+    expect(discoverWithKnown).toHaveBeenCalledWith([], 250, expect.any(Function));
   });
 
   it('returns cached devices immediately and refreshes only after a picker request', async () => {
@@ -58,7 +58,7 @@ describe('CastService discovery lifecycle', () => {
     await expect(service.listDevices()).resolves.toEqual(initial);
 
     expect(discoverWithKnown).toHaveBeenCalledTimes(2);
-    expect(discoverWithKnown).toHaveBeenLastCalledWith(initial, undefined);
+    expect(discoverWithKnown).toHaveBeenLastCalledWith(initial, undefined, expect.any(Function));
   });
 
   it('rechecks remembered TVs after restarting instead of forgetting quiet devices', async () => {
@@ -71,7 +71,7 @@ describe('CastService discovery lifecycle', () => {
     fs.promises.readFile.mockResolvedValue(saved);
 
     await expect(new CastService().listDevices()).resolves.toEqual([device]);
-    expect(discoverWithKnown).toHaveBeenLastCalledWith([device], undefined);
+    expect(discoverWithKnown).toHaveBeenLastCalledWith([device], undefined, expect.any(Function));
 
     // The discovery layer checks reachability; never return a dead cached TV.
     discoverWithKnown.mockResolvedValue([]);
@@ -87,7 +87,52 @@ describe('CastService discovery lifecycle', () => {
     const service = new CastService();
     await Promise.all([service.listDevices(), service.listDevices()]);
     expect(discoverWithKnown).toHaveBeenCalledOnce();
-    expect(discoverWithKnown).toHaveBeenCalledWith([], undefined);
+    expect(discoverWithKnown).toHaveBeenCalledWith([], undefined, expect.any(Function));
+  });
+
+  it('shows reachable saved TVs before the full scan finishes and keeps later discoveries', async () => {
+    const saved = { id: 'saved', name: 'Saved TV', host: 'saved.local', port: 8009 };
+    const added = { id: 'added', name: 'New TV', host: 'added.local', port: 8009 };
+    fs.promises.readFile.mockResolvedValue(JSON.stringify([saved]));
+    let finishScan;
+    let offerRemembered;
+    discoverWithKnown.mockImplementationOnce((known, timeout, callback) => {
+      offerRemembered = callback;
+      return new Promise((resolve) => { finishScan = resolve; });
+    });
+    const service = new CastService();
+    const first = service.listDevices();
+    const overlapping = service.listDevices();
+    await vi.waitFor(() => expect(offerRemembered).toBeTypeOf('function'));
+    offerRemembered([saved]);
+    await expect(first).resolves.toEqual([saved]);
+    await expect(overlapping).resolves.toEqual([saved]);
+    await expect(service.listDevices()).resolves.toEqual([saved]);
+    expect(discoverWithKnown).toHaveBeenCalledOnce();
+
+    finishScan([saved, added]);
+    await vi.waitFor(() => expect(fs.promises.writeFile).toHaveBeenCalledWith(
+      expect.stringContaining('cast-devices.json'), JSON.stringify([saved, added]),
+    ));
+    discoverWithKnown.mockResolvedValue([saved, added]);
+    await expect(service.listDevices()).resolves.toEqual([saved, added]);
+  });
+
+  it('waits for the full search when saved TVs are offline', async () => {
+    const offline = { id: 'offline', name: 'Offline TV', host: 'offline.local', port: 8009 };
+    fs.promises.readFile.mockResolvedValue(JSON.stringify([offline]));
+    let finishScan;
+    discoverWithKnown.mockImplementationOnce((known, timeout, callback) => {
+      callback([]);
+      return new Promise((resolve) => { finishScan = resolve; });
+    });
+    const listing = new CastService().listDevices();
+    let settled = false;
+    listing.then(() => { settled = true; });
+    await vi.waitFor(() => expect(finishScan).toBeTypeOf('function'));
+    expect(settled).toBe(false);
+    finishScan([]);
+    await expect(listing).resolves.toEqual([]);
   });
 });
 
