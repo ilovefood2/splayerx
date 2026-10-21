@@ -15,6 +15,7 @@ import http from 'http';
 import fs from 'fs';
 import os from 'os';
 import { EventEmitter } from 'events';
+import { app } from 'electron';
 import { pipeline } from 'stream';
 import { extname, basename, join } from 'path';
 import { CastDevice, CastMedia } from './CastDevice';
@@ -258,9 +259,31 @@ export class CastService extends EventEmitter {
   /** One scan at a time; callers share the in-flight one. */
   private refresh(timeout?: number): Promise<CastDeviceInfo[]> {
     if (this.refreshing) return this.refreshing;
-    this.refreshing = discoverWithKnown(this.knownDevices, timeout)
-      .then((devices) => {
+    const cachePath = join(app.getPath('userData'), 'cast-devices.json');
+    this.refreshing = (async () => {
+      let remembered = this.knownDevices;
+      if (!remembered.length) {
+        try {
+          const cached = JSON.parse(await fs.promises.readFile(cachePath, 'utf8'));
+          if (Array.isArray(cached)) {
+            remembered = cached.filter(device => device
+              && typeof device.id === 'string' && typeof device.name === 'string'
+              && typeof device.host === 'string' && device.host
+              && (device.ip === undefined || typeof device.ip === 'string')
+              && Number.isInteger(device.port) && device.port > 0 && device.port <= 65535)
+              .slice(0, 64);
+          }
+        } catch (error) { /* no readable cache yet */ }
+      }
+      return discoverWithKnown(remembered, timeout);
+    })()
+      .then(async (devices) => {
         this.knownDevices = devices;
+        if (devices.length) {
+          try {
+            await fs.promises.writeFile(cachePath, JSON.stringify(devices));
+          } catch (error) { /* discovery also works with a read-only profile */ }
+        }
         this.refreshing = undefined;
         return devices;
       })

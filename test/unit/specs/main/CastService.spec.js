@@ -22,7 +22,11 @@ import {
 describe('CastService discovery lifecycle', () => {
   beforeEach(() => {
     discoverWithKnown.mockReset();
+    vi.spyOn(fs.promises, 'readFile').mockRejectedValue(new Error('No cache'));
+    vi.spyOn(fs.promises, 'writeFile').mockResolvedValue();
   });
+
+  afterEach(() => vi.restoreAllMocks());
 
   it('does not start discovery until the user opens the cast picker', async () => {
     const service = new CastService();
@@ -55,6 +59,35 @@ describe('CastService discovery lifecycle', () => {
 
     expect(discoverWithKnown).toHaveBeenCalledTimes(2);
     expect(discoverWithKnown).toHaveBeenLastCalledWith(initial, undefined);
+  });
+
+  it('rechecks remembered TVs after restarting instead of forgetting quiet devices', async () => {
+    const device = {
+      id: 'tv._googlecast._tcp.local', name: 'TV', host: 'tv.local', ip: '10.0.0.62', port: 8009,
+    };
+    discoverWithKnown.mockResolvedValue([device]);
+    await new CastService().listDevices();
+    const saved = fs.promises.writeFile.mock.calls[0][1];
+    fs.promises.readFile.mockResolvedValue(saved);
+
+    await expect(new CastService().listDevices()).resolves.toEqual([device]);
+    expect(discoverWithKnown).toHaveBeenLastCalledWith([device], undefined);
+
+    // The discovery layer checks reachability; never return a dead cached TV.
+    discoverWithKnown.mockResolvedValue([]);
+    await expect(new CastService().listDevices()).resolves.toEqual([]);
+    expect(fs.promises.writeFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores malformed remembered devices and shares overlapping searches', async () => {
+    fs.promises.readFile.mockResolvedValue(JSON.stringify([null, {}, {
+      id: 'bad', name: 'Bad', host: 'bad.local', port: -1,
+    }]));
+    discoverWithKnown.mockResolvedValue([]);
+    const service = new CastService();
+    await Promise.all([service.listDevices(), service.listDevices()]);
+    expect(discoverWithKnown).toHaveBeenCalledOnce();
+    expect(discoverWithKnown).toHaveBeenCalledWith([], undefined);
   });
 });
 

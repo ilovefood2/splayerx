@@ -9,6 +9,7 @@
 
 import dgram from 'dgram';
 import net from 'net';
+import os from 'os';
 
 const MDNS_ADDRESS = '224.0.0.251';
 const MDNS_PORT = 5353;
@@ -138,6 +139,14 @@ function parseRecords(buf: Buffer): Record[] {
  */
 export function discoverCastDevices(timeout = 4000): Promise<CastDeviceInfo[]> {
   return new Promise((resolve) => {
+    const addresses = Array.from(new Set(Object.values(os.networkInterfaces())
+      .flatMap(entries => (entries || [])
+        .filter(entry => entry.family === 'IPv4' && !entry.internal)
+        .map(entry => entry.address))));
+    if (!addresses.length) {
+      resolve([]);
+      return;
+    }
     // Records for one device arrive across packets and in any order, so collect
     // everything and only decide what is a Chromecast at the end. Attaching
     // details as they arrive drops any SRV that lands before its PTR.
@@ -145,9 +154,21 @@ export function discoverCastDevices(timeout = 4000): Promise<CastDeviceInfo[]> {
     const srvByInstance = new Map<string, { host: string, port: number }>();
     const nameByInstance = new Map<string, string>();
     const ipByHost = new Map<string, string>();
-    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    // Each socket keeps its own outgoing interface, including when a VPN or VM
+    // changes the default route while the Wi-Fi LAN is still reachable.
+    const sockets = addresses.map(() => dgram.createSocket({ type: 'udp4', reuseAddr: true }));
+    const open = new Set(sockets);
+    const ready = new Set<dgram.Socket>();
+    const timers: NodeJS.Timeout[] = [];
     let done = false;
-    const asked = new Set<string>();
+    const asked = new Map<string, Buffer>();
+
+    const send = (socket: dgram.Socket, packet: Buffer) => {
+      if (done) return;
+      try {
+        socket.send(packet, 0, packet.length, MDNS_PORT, MDNS_ADDRESS, () => {});
+      } catch (e) { /* interface went away mid-scan */ }
+    };
 
     /**
      * Browsing only yields PTRs. Some devices volunteer SRV/TXT alongside them,
@@ -157,17 +178,18 @@ export function discoverCastDevices(timeout = 4000): Promise<CastDeviceInfo[]> {
     const askFor = (name: string, type: number) => {
       const key = `${type}:${name}`;
       if (done || asked.has(key)) return;
-      asked.add(key);
       const packet = buildQuery(name, type);
-      try {
-        socket.send(packet, 0, packet.length, MDNS_PORT, MDNS_ADDRESS);
-      } catch (e) { /* interface went away mid-scan */ }
+      asked.set(key, packet);
+      ready.forEach(socket => send(socket, packet));
     };
 
     const finish = () => {
       if (done) return;
       done = true;
-      try { socket.close(); } catch (e) { /* already closed */ }
+      timers.forEach(timer => clearTimeout(timer));
+      sockets.forEach((socket) => {
+        try { socket.close(); } catch (e) { /* already closed */ }
+      });
       const devices: CastDeviceInfo[] = [];
       castInstances.forEach((id) => {
         const srv = srvByInstance.get(id);
@@ -184,8 +206,7 @@ export function discoverCastDevices(timeout = 4000): Promise<CastDeviceInfo[]> {
       resolve(devices);
     };
 
-    socket.on('error', finish);
-    socket.on('message', (msg: Buffer) => {
+    const onMessage = (msg: Buffer) => {
       let records: Record[];
       try {
         records = parseRecords(msg);
@@ -210,30 +231,38 @@ export function discoverCastDevices(timeout = 4000): Promise<CastDeviceInfo[]> {
           ipByHost.set(record.name, record.ip);
         }
       });
-    });
-
-    socket.bind(MDNS_PORT, () => {
-      try {
-        socket.addMembership(MDNS_ADDRESS);
-      } catch (e) {
-        // no multicast route (e.g. no network): report nothing rather than throw
-        finish();
-        return;
-      }
-      const query = buildQuery(SERVICE, TYPE_PTR);
-      const ask = () => {
-        if (done) return;
-        try {
-          socket.send(query, 0, query.length, MDNS_PORT, MDNS_ADDRESS);
-        } catch (e) { /* interface went away mid-scan */ }
+    };
+    const query = buildQuery(SERVICE, TYPE_PTR);
+    const ask = (socket: dgram.Socket) => {
+      send(socket, query);
+      // Retry lost SRV/TXT/address replies as well as the initial PTR query.
+      asked.forEach(packet => send(socket, packet));
+    };
+    sockets.forEach((socket, index) => {
+      const failed = () => {
+        ready.delete(socket);
+        open.delete(socket);
+        try { socket.close(); } catch (e) { /* already closed */ }
+        if (!open.size) finish();
       };
-      // Ask more than once: a device that already answered recently may suppress
-      // its reply, and a single UDP query can simply be lost.
-      ask();
-      [400, 1200, 2500].filter(t => t < timeout).forEach(t => setTimeout(ask, t));
+      socket.on('error', failed);
+      socket.on('message', onMessage);
+      socket.bind(MDNS_PORT, () => {
+        if (done || !open.has(socket)) return;
+        try {
+          socket.addMembership(MDNS_ADDRESS, addresses[index]);
+          socket.setMulticastInterface(addresses[index]);
+          ready.add(socket);
+          ask(socket);
+        } catch (e) {
+          failed();
+        }
+      });
     });
-
-    setTimeout(finish, timeout);
+    [400, 1200, 2500].filter(t => t < timeout).forEach((t) => {
+      timers.push(setTimeout(() => ready.forEach(ask), t));
+    });
+    timers.push(setTimeout(finish, timeout));
   });
 }
 

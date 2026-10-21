@@ -52,6 +52,10 @@ const win = {
 };
 const mac = {
   category: 'public.app-category.entertainment',
+  extendInfo: {
+    NSLocalNetworkUsageDescription: 'SPlayer finds Chromecast TVs and streams media to devices on your local network.',
+    NSBonjourServices: ['_googlecast._tcp'],
+  },
   target: 'dmg',
   hardenedRuntime: true,
   asarUnpack: ['node_modules/**/*.node'],
