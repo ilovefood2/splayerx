@@ -118,17 +118,23 @@
       >
       <output class="brightness-value">{{ brightnessPercent }}%</output>
     </div>
-    <div
+    <button
       v-if="!isImage"
       v-show="!isEditable && !isProfessional"
       v-fade-in="showAllWidgets"
-      :title="$t('msg.playback.castTo')"
-      @mouseup.left.stop="$electron.remote.app.emit('cast-request')"
+      type="button"
+      :title="$t(casting ? 'msg.playback.castStop' : 'msg.playback.castTo')"
+      :aria-label="$t(casting ? 'msg.playback.castStop' : 'msg.playback.castTo')"
+      @mousedown.stop
+      @mouseup.stop
+      @click.stop="$electron.remote.app.emit('cast-request')"
+      @dblclick.stop
       :class="{ active: casting }"
       class="no-drag cast-top"
     >
       <Icon type="cast" />
-    </div>
+      <span v-if="casting">{{ $t('msg.playback.castStop') }}</span>
+    </button>
     <transition name="fade">
       <div
         v-show="!isEditable && !isProfessional"
@@ -1379,15 +1385,33 @@ export default {
 }
 .cast-top {
   position: absolute;
+  top: 25px;
+  right: 25px;
   z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  border: 0;
+  color: #fff;
+  background: transparent;
   cursor: pointer;
   opacity: 0.9;
   &:hover { opacity: 1; }
   &:active { transform: scale(0.92); }
-  &.active { opacity: 1; }
+  &.active {
+    display: flex;
+    gap: 6px;
+    width: auto;
+    height: auto;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.65);
+    font-size: 12px;
+    line-height: 20px;
+    white-space: nowrap;
+    opacity: 1;
+  }
   svg {
     width: 100%;
     height: 100%;
@@ -1396,7 +1420,12 @@ export default {
     // contrast on bright backgrounds without dimming it on dark ones.
     filter: drop-shadow(0 0 2.5px rgba(0, 0, 0, 0.55));
   }
-  &.active svg { filter: drop-shadow(0 0 4px #4da3ff); }
+  &.active svg {
+    width: 24px;
+    height: 20px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 4px #4da3ff);
+  }
 }
 @media
   screen and (max-aspect-ratio: 1/1) and (max-width: 288px),

@@ -153,6 +153,25 @@ describe('Component - TheVideoController Unit Test', () => {
     expect(wrapper.findComponent(PlayButton).props('paused')).to.equal(true);
   });
 
+  it('offers an accessible stop-casting button during a session', async () => {
+    const request = sandbox.spy(wrapper.vm.$electron.remote.app, 'emit');
+    const playback = sandbox.spy(wrapper.vm.$bus, '$emit');
+    store.state.Video.casting = true;
+    await wrapper.vm.$nextTick();
+
+    const button = wrapper.get('button.cast-top');
+    expect(button.attributes('aria-label')).to.equal('msg.playback.castStop');
+    expect(button.text()).to.contain('msg.playback.castStop');
+    await button.trigger('click');
+    sinon.assert.calledWithExactly(request, 'cast-request');
+    expect(playback.calledWith('toggle-playback')).to.equal(false);
+
+    store.state.Video.casting = false;
+    await wrapper.vm.$nextTick();
+    expect(button.attributes('aria-label')).to.equal('msg.playback.castTo');
+    expect(button.find('span').exists()).to.equal(false);
+  });
+
   it('keeps the central play button available for image slides', async () => {
     const emit = sandbox.spy(wrapper.vm.$bus, '$emit');
     store.state.Video.src = '/library/cover.jpg';

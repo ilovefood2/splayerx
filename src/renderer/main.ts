@@ -710,6 +710,10 @@ const app = createApp({
         'playback.playOrPause',
         paused ? 'msg.playback.play' : 'msg.playback.pause',
       );
+      this.menuService.updateMenuItemLabel(
+        'playback.castTo',
+        this.casting ? 'msg.playback.castStop' : 'msg.playback.castTo',
+      );
     },
     async restoreFocusedWindowMenu() {
       this.menuService.updateRouteName(this.currentRouteName);
@@ -1393,6 +1397,10 @@ const app = createApp({
      * subtitle cues (translated so far) go along as a WebVTT track.
      */
     async castToDevice() {
+      if (this.casting) {
+        ipcRenderer.send('cast-stop');
+        return;
+      }
       const src = this.originSrc;
       if (!src || /^https?:/.test(src)) {
         addBubble(CAST_NOT_LOCAL);

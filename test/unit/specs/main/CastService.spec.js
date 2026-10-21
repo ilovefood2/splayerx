@@ -207,6 +207,28 @@ describe('Chromecast file server', () => {
     expect(response.body.equals(content)).to.equal(true);
   });
 
+  it('stops the receiver, closes the media server and publishes the final position', async () => {
+    const device = { stop: vi.fn() };
+    const status = vi.fn();
+    const closed = new Promise(resolve => service.server.once('close', resolve));
+    service.device = device;
+    service.lastStatus = {
+      casting: true, currentTime: 23, duration: 60, paused: false,
+    };
+    service.on('status', status);
+
+    service.stop();
+    await closed;
+
+    expect(device.stop).toHaveBeenCalledOnce();
+    expect(service.casting).toBe(false);
+    expect(service.server).toBeUndefined();
+    expect(service.filePath).toBe('');
+    expect(status).toHaveBeenCalledWith({
+      casting: false, currentTime: 23, duration: 60, paused: true,
+    });
+  });
+
   it('serves a suffix range from the end of the file, not the start', async () => {
     const response = await get(port, { Range: 'bytes=-10' });
     expect(response.statusCode).to.equal(206);

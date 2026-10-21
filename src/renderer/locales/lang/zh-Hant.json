@@ -226,6 +226,7 @@
       "generate3*3": "3 x 3 格",
       "generate4*4": "4 x 4 格",
       "castTo": "投放到電視…",
+      "castStop": "取消投屏",
       "castCancel": "取消"
     },
     "splayerx": {

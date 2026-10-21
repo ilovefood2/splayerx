@@ -226,6 +226,7 @@
       "generate3*3": "Generate 3 x 3",
       "generate4*4": "Generate 4 x 4",
       "castTo": "Cast to TV…",
+      "castStop": "Stop Casting",
       "castCancel": "Cancel"
     },
     "splayerx": {
