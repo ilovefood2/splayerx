@@ -54,14 +54,14 @@ describe('RecentPlayService', () => {
       const getAllStub = sinon.stub(info, 'getAllValueByIndex');
       const mediaItems = [];
       const mediaItem1 = ['path/to/video', 1200, 'shortCut1'];
-      const mediaItem2 = ['path/to/video2', 100, 'shortCut2'];
+      const mediaItem2 = ['path/to/video', 100, 'shortCut2'];
 
+      mediaItems.push({ ...factoryMediaItem(...mediaItem2), source: 'playlist' });
       mediaItems.push(factoryMediaItem(...mediaItem1));
-      mediaItems.push(factoryMediaItem(...mediaItem2));
 
-      getAllStub.withArgs('media-item', 'source', '').returns(mediaItems);
+      getAllStub.withArgs('media-item', 'path', path).returns(mediaItems);
       await recentPlayService.getRecord();
-      expect(getAllStub.calledWith('media-item', 'source', '')).to.be.true;
+      expect(getAllStub.calledWith('media-item', 'path', path)).to.be.true;
       expect(recentPlayService.lastPlayedTime).to.equal(1200);
       expect(recentPlayService.imageSrc).to.equal('shortCut1');
     });

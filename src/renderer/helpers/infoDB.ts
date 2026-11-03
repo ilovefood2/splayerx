@@ -235,17 +235,7 @@ export class InfoDB {
    */
   async getAllValueByIndex(schema: string, indexName: string, value: any) {
     const db = await this.getDB();
-    const res: PlaylistItem[] | MediaItem[] = [];
-    let cursor = await db
-      .transaction(schema)
-      .store
-      .index(indexName)
-      .openCursor(undefined, 'next');
-    while (cursor) {
-      if (cursor.value[indexName] === value) res.push(cursor.value);
-      cursor = await cursor.continue();
-    }
-    return res;
+    return db.getAllFromIndex(schema, indexName, value);
   }
 
   /**
