@@ -119,7 +119,7 @@
       <output class="brightness-value">{{ brightnessPercent }}%</output>
     </div>
     <button
-      v-if="!isImage"
+      v-if="!isImage || casting"
       v-show="!isEditable && !isProfessional"
       v-fade-in="showAllWidgets"
       type="button"
@@ -852,7 +852,7 @@ export default {
       }
     },
     shouldAdvanceToNextVideo() {
-      return !this.singleCycle && !this.isProfessional
+      return !this.casting && !this.singleCycle && !this.isProfessional
         && !videodata.paused && videodata.time + 1 >= this.duration;
     },
     UIDisplayManager() {

@@ -2,8 +2,18 @@ import { nextTick } from 'vue';
 import { mount, shallowMount } from '@vue/test-utils';
 import sinon from 'sinon';
 import BaseVideoPlayer from '@/components/PlayingView/BaseVideoPlayer.vue';
+import { videodata } from '@/store/video';
 
 describe('Component - BaseVideoPlayer', () => {
+  it('does not replace the receiver clock with local paused-video time updates', () => {
+    const previous = videodata.time;
+    videodata.time = 42;
+    BaseVideoPlayer.methods.currentTimeUpdate.call({
+      casting: true, $refs: { video: { currentTime: 0 } },
+    });
+    expect(videodata.time).to.equal(42);
+    videodata.time = previous;
+  });
   const propsData = {
     src: 'file:///',
     crossOrigin: 'anonymous',
@@ -80,13 +90,14 @@ describe('Component - BaseVideoPlayer', () => {
   it('forwards a media element error to the parent player', () => {
     const emit = sinon.spy();
     const error = { code: 4, message: 'unsupported media' };
+    const video = { error };
 
     BaseVideoPlayer.methods.handleError.call({
-      $refs: { video: { error } },
+      $refs: { video },
       $emit: emit,
     });
 
-    sinon.assert.calledWithExactly(emit, 'error', error);
+    sinon.assert.calledWithExactly(emit, 'error', error, video);
   });
 
   describe('Props', () => {

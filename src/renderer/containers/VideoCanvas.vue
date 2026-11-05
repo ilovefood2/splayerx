@@ -97,6 +97,7 @@ export default {
       winAngleBeforeFullScreen: 0, // winAngel before full screen
       winSizeBeforeFullScreen: [], // winSize before full screen
       switchingLock: false,
+      castMediaReady: false,
       folderAutoplayFallbackFired: false,
       imageAutoplayTimer: 0,
       imageAutoplayDeadline: 0,
@@ -143,6 +144,7 @@ export default {
         this.clearImageAutoplayTimer();
         this.pause();
         videodata.paused = true;
+        if (this.casting && this.castMediaReady) this.updateCastPaused(true);
       } else if (!this.imageAutoplayPausedByUser && !this.imageAutoplayTimer) {
         this.startImageAutoplay();
       }
@@ -176,6 +178,7 @@ export default {
     },
     originSrc(val: string, oldVal: string) {
       this.clearImageAutoplayTimer();
+      this.castMediaReady = false;
       this.mediaZoom = 1;
       this.mediaPanX = 0;
       this.mediaPanY = 0;
@@ -210,7 +213,7 @@ export default {
         });
         videodata.paused = true;
       } else {
-        this.play();
+        this[this.casting ? 'pause' : 'play']();
       }
       this.updatePlayinglistRate({
         oldDir: path.dirname(oldVal), newDir: path.dirname(val), playingList: this.playingList,
@@ -264,20 +267,10 @@ export default {
     this.$bus.$on('toggle-muted', () => {
       this.toggleMute();
     });
-    this.$bus.$on('toggle-playback', debounce(() => {
-      if (this.isImage) {
-        if (this.paused) this.resumeImageAutoplay();
-        else this.pauseImageAutoplay();
-        return;
-      }
-      if (this.casting) {
-        this.$electron.ipcRenderer.send(this.castPaused ? 'cast-play' : 'cast-pause');
-        this.updateCastPaused(!this.castPaused);
-        return;
-      }
-      this[this.paused ? 'play' : 'pause']();
-      // this.$ga.event('app', 'toggle-playback');
-    }, 50, { leading: true }));
+    this.$bus.$on('toggle-playback', debounce(this.togglePlayback, 50, { leading: true }));
+    this.$bus.$on('cast-media-loading', this.onCastMediaLoading);
+    this.$bus.$on('cast-media-ready', this.onCastMediaReady);
+    this.$bus.$on('cast-media-stopped', this.onCastMediaStopped);
     this.$bus.$on('next-video', async () => {
       if (this.switchingLock) return;
       if (this.isFolderList) {
@@ -300,7 +293,7 @@ export default {
     });
     this.$bus.$on('previous-video', this.playPreviousVideo);
     this.$bus.$on('seek', (e: number) => {
-      if (this.casting) this.$electron.ipcRenderer.send('cast-seek', e);
+      if (this.casting && !this.isImage) this.$electron.ipcRenderer.send('cast-seek', e);
       // update vuex currentTime to use some where
       this.seekTime = [e];
       this.updateVideoCurrentTime(e);
@@ -348,6 +341,53 @@ export default {
       removeAllAudioTrack: videoActions.REMOVE_ALL_AUDIO_TRACK,
       updatePlayinglistRate: videoActions.UPDATE_PLAYINGLIST_RATE,
     }),
+    togglePlayback() {
+      if (this.isImage) {
+        if (this.casting ? this.castPaused : this.paused) this.resumeImageAutoplay();
+        else this.pauseImageAutoplay();
+        return;
+      }
+      if (this.casting) {
+        this.$electron.ipcRenderer.send(this.castPaused ? 'cast-play' : 'cast-pause');
+        this.updateCastPaused(!this.castPaused);
+        return;
+      }
+      this[this.paused ? 'play' : 'pause']();
+    },
+    onCastMediaLoading(source: string) {
+      if (source !== this.originSrc) return;
+      this.castMediaReady = false;
+      this.clearImageAutoplayTimer();
+    },
+    onCastMediaReady(source: string) {
+      if (source !== this.originSrc) return;
+      this.castMediaReady = true;
+      this.switchingLock = false;
+      if (!this.isImage) return;
+      if (this.castPaused) this.imageAutoplayPausedByUser = true;
+      if (!this.imageElement && this.failedMediaSrc !== source) return;
+      if (this.imageAutoplayPausedByUser || !this.canAutoplayImage()) this.updateCastPaused(true);
+      else this.startImageAutoplay();
+    },
+    onCastMediaStopped({ resume }: { resume: boolean }) {
+      this.castMediaReady = false;
+      this.switchingLock = false;
+      if (resume && this.failedMediaSrc && this.failedMediaSrc === this.originSrc) {
+        this.advancePastFailedMediaIfPossible();
+        if (this.mediaErrorAdvanced) return;
+      }
+      if (!this.isImage) {
+        this[resume ? 'play' : 'pause']();
+        return;
+      }
+      this.clearImageAutoplayTimer(true);
+      this.imageAutoplayPausedByUser = !resume;
+      if (resume && this.imageElement && this.canAutoplayImage()) this.startImageAutoplay();
+      else {
+        this.pause();
+        videodata.paused = true;
+      }
+    },
     async playPreviousVideo() {
       if (this.switchingLock) return;
       if (this.isFolderList) {
@@ -369,13 +409,15 @@ export default {
     },
     onImageLoaded(event: Event) {
       const target = event.target as HTMLImageElement;
-      if (!target.naturalWidth || !target.naturalHeight) return;
+      if (!this.isImage || this.$refs.imageCanvas !== target
+        || !target.naturalWidth || !target.naturalHeight) return;
       this.imageElement = target;
       this.switchingLock = false;
-      this.imageAutoplayPausedByUser = false;
+      this.failedMediaSrc = '';
+      this.mediaErrorAdvanced = false;
       this.videoExisted = true;
       this.seekTime = [0];
-      const shouldAutoplay = this.canAutoplayImage();
+      const shouldAutoplay = this.canAutoplayImage() && !this.imageAutoplayPausedByUser;
       this.videoConfigInitialize({
         paused: !shouldAutoplay,
         duration: NaN,
@@ -393,10 +435,12 @@ export default {
       this.windowRectControl();
       this.$emit('media-ready', this.originSrc);
       this.enableVideoInfoStore = true;
-      if (shouldAutoplay) this.scheduleImageAutoplay();
+      if (this.casting && this.castMediaReady) this.updateCastPaused(!shouldAutoplay);
+      if (shouldAutoplay && !this.imageAutoplayTimer) this.scheduleImageAutoplay();
     },
     canAutoplayImage() {
       return this.isImage && !this.loop
+        && (!this.casting || this.castMediaReady)
         && Array.isArray(this.playingList) && this.playingList.length > 1;
     },
     clearImageAutoplayTimer(preserveRemaining = false) {
@@ -416,6 +460,7 @@ export default {
       if (!this.canAutoplayImage() || this.imageAutoplayPausedByUser) return;
       this.play();
       videodata.paused = false;
+      if (this.casting) this.updateCastPaused(false);
       this.scheduleImageAutoplay();
     },
     pauseImageAutoplay() {
@@ -423,10 +468,12 @@ export default {
       this.clearImageAutoplayTimer(true);
       this.pause();
       videodata.paused = true;
+      if (this.casting) this.updateCastPaused(true);
     },
     resumeImageAutoplay() {
-      if (!this.canAutoplayImage()) return;
+      if (!this.canAutoplayImage() && !(this.casting && !this.castMediaReady)) return;
       this.imageAutoplayPausedByUser = false;
+      if (this.casting) this.updateCastPaused(false);
       this.startImageAutoplay();
     },
     scheduleImageAutoplay() {
@@ -448,6 +495,7 @@ export default {
     },
     async onMetaLoaded(event: Event) { // eslint-disable-line complexity
       const target = event.target as HTMLVideoElement;
+      if (!this.$refs.videoCanvas || this.$refs.videoCanvas.videoElement() !== target) return;
       this.videoElement = target;
       if (!this.audioCtx) this.audioCtx = new AudioContext();
 
@@ -456,12 +504,12 @@ export default {
         : null;
       if (!this.$refs.videoCanvas || this.$refs.videoCanvas.videoElement() !== target) return;
       let currentTime = 0;
-      if (mediaInfo && mediaInfo.lastPlayedTime
+      if (!this.casting && mediaInfo && mediaInfo.lastPlayedTime
         && target.duration - mediaInfo.lastPlayedTime > 10) {
         currentTime = mediaInfo.lastPlayedTime;
       }
       this.videoElement.currentTime = currentTime;
-      this.$bus.$emit('seek', currentTime);
+      this.seekTime = [currentTime];
 
       this.videoConfigInitialize({
         volume: this.volume * 100,
@@ -531,7 +579,7 @@ export default {
       await this.openFolderVideo(previousVideo, list);
     },
     handleVideoTimeupdate(event: Event) {
-      if (this.loop || !this.isFolderList
+      if (this.casting || this.loop || !this.isFolderList
         || this.switchingLock || this.folderAutoplayFallbackFired) return;
       const video = event.target as HTMLVideoElement;
       if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
@@ -539,7 +587,7 @@ export default {
       this.$bus.$emit('next-video');
     },
     handleVideoEnded() {
-      if (!this.loop) this.$bus.$emit('next-video');
+      if (!this.casting && !this.loop) this.$bus.$emit('next-video');
     },
     async getCurrentFolderVideos() {
       let list = Array.isArray(this.playingList) ? this.playingList.filter(Boolean) : [];
@@ -792,19 +840,25 @@ export default {
         this.$electron.remote.app.quit();
       }
     },
-    handleImageError() {
+    handleImageError(event: Event) {
+      if (!this.isImage || event.target !== this.$refs.imageCanvas) return;
       log.warn('image element onerror', this.originSrc);
       this.handleMediaPlaybackError();
     },
-    handleMediaPlaybackError() {
+    handleMediaPlaybackError(_error?: MediaError, target?: HTMLVideoElement) {
+      if (target && (!this.$refs.videoCanvas || this.$refs.videoCanvas.videoElement() !== target)) {
+        return;
+      }
       if (this.failedMediaSrc !== this.originSrc) {
         this.failedMediaSrc = this.originSrc;
         this.mediaErrorAdvanced = false;
       }
       this.advancePastFailedMediaIfPossible();
+      if (this.casting && this.isImage && this.castMediaReady
+        && !this.imageElement && !this.imageAutoplayTimer) this.startImageAutoplay();
     },
     advancePastFailedMediaIfPossible(list = this.playingList) {
-      if (!this.failedMediaSrc || this.failedMediaSrc !== this.originSrc
+      if (this.casting || !this.failedMediaSrc || this.failedMediaSrc !== this.originSrc
         || this.mediaErrorAdvanced || !Array.isArray(list) || list.length <= 1) return;
       this.mediaErrorAdvanced = true;
       this.switchingLock = false;

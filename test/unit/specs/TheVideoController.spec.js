@@ -172,6 +172,13 @@ describe('Component - TheVideoController Unit Test', () => {
     expect(button.find('span').exists()).to.equal(false);
   });
 
+  it('keeps Stop Casting available when the playlist advances to an image', async () => {
+    store.state.Video.src = '/library/next.jpg';
+    store.state.Video.casting = true;
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('button.cast-top').attributes('aria-label')).to.equal('msg.playback.castStop');
+  });
+
   it('keeps the central play button available for image slides', async () => {
     const emit = sandbox.spy(wrapper.vm.$bus, '$emit');
     store.state.Video.src = '/library/cover.jpg';
@@ -210,6 +217,14 @@ describe('Component - TheVideoController Unit Test', () => {
     });
 
     expect(shouldAdvance).to.equal(true);
+  });
+
+  it('leaves cast advancement to the receiver end event', () => {
+    videodata.paused = false;
+    videodata.time = 10;
+    expect(TheVideoController.methods.shouldAdvanceToNextVideo.call({
+      casting: true, singleCycle: false, isProfessional: false, duration: 10,
+    })).to.equal(false);
   });
 
   describe('minimum window size', () => {

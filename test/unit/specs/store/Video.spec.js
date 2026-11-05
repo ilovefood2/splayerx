@@ -19,6 +19,18 @@ describe('store/modules/Video', () => {
     };
   }
 
+  it.each(['/videos/next.mp4', '/videos/next.jpg'])('keeps the incoming local media paused during casting: %s', async (src) => {
+    const context = playbackContext();
+    context.state.casting = true;
+    await Video.actions.SRC_SET(context, { src, id: 2, mediaHash: 'next-hash' });
+    expect(context.state.src).to.equal(src);
+    expect(context.state.paused).to.equal(true);
+
+    context.state.casting = false;
+    await Video.actions.SRC_SET(context, { src: '/videos/local.mp4', id: 3, mediaHash: 'local-hash' });
+    expect(context.state.paused).to.equal(false);
+  });
+
   it('discards a prepared source when a newer video has been selected', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     let finishPreparation;

@@ -81,4 +81,16 @@ describe('playback intent during delayed network loads', () => {
     expect(context.videoConfigInitialize).not.toHaveBeenCalled();
     expect(target.play).not.toHaveBeenCalled();
   });
+
+  it('initializes only the local timeline for a new cast file, without seeking the old TV media', async () => {
+    vi.spyOn(playInfoStorageService, 'getMediaItem').mockResolvedValue({ lastPlayedTime: 40 });
+    const { context, target } = metadataContext();
+    context.casting = true;
+    context.paused = true;
+    await VideoCanvas.methods.onMetaLoaded.call(context, { target });
+    expect(target.currentTime).to.equal(0);
+    expect(context.seekTime).toEqual([0]);
+    expect(context.$bus.$emit).not.toHaveBeenCalledWith('seek', expect.anything());
+    expect(target.play).not.toHaveBeenCalled();
+  });
 });

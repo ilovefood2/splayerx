@@ -2,6 +2,21 @@ import { describe, expect, it, vi } from 'vitest';
 import VideoCanvas from '@/containers/VideoCanvas.vue';
 
 describe('VideoCanvas single-file loop', () => {
+  it('ignores local end events and near-end fallback while the TV owns playback', () => {
+    const context = {
+      casting: true,
+      loop: false,
+      isFolderList: true,
+      switchingLock: false,
+      folderAutoplayFallbackFired: false,
+      $bus: { $emit: vi.fn() },
+    };
+    VideoCanvas.methods.handleVideoTimeupdate.call(context, {
+      target: { duration: 60, currentTime: 60 },
+    });
+    VideoCanvas.methods.handleVideoEnded.call(context);
+    expect(context.$bus.$emit).not.toHaveBeenCalled();
+  });
   it('does not let the folder autoplay fallback advance a looping video', () => {
     const emit = vi.fn();
     const context = {

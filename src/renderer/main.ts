@@ -15,6 +15,7 @@ import router from '@/router';
 import store from '@/store';
 import messages from '@/locales';
 import { windowRectService } from '@/services/window/WindowRectService';
+import { castPlayback } from '@/helpers/castPlayback';
 import helpers from '@/helpers';
 import { hookVue } from '@/kerning';
 import { installRendererGlobals } from '@/bootstrap';
@@ -49,7 +50,6 @@ import {
 } from '../shared/utils';
 import { ISubtitleControlListItem, Type, ModifiedSubtitle } from './interfaces/ISubtitle';
 import {
-  CAST_NO_DEVICE, CAST_NOT_LOCAL, CAST_UNSUPPORTED, CAST_FAILED,
   SNAPSHOT_FAILED, SNAPSHOT_SUCCESS, LOAD_SUBVIDEO_FAILED,
   LOSSLESS_STREAMING_START, LOSSLESS_STREAMING_STOP,
 } from './helpers/notificationcodes';
@@ -68,6 +68,7 @@ store.$i18n = i18n.global;
 const { mapGetters: inputMapGetters } = createNamespacedHelpers('InputPlugin');
 /* eslint-disable no-new */
 const app = createApp({
+  mixins: [castPlayback],
   components: { App },
   data() {
     return {
@@ -83,8 +84,6 @@ const app = createApp({
       maxVolume: 100,
       volumeMutating: false,
       deletingCurrentVideo: false,
-      /** The file the television is playing, so its position can be resumed. */
-      castSource: '',
     };
   },
   computed: {
@@ -256,17 +255,8 @@ const app = createApp({
       }
       this.updatePlaybackMenuLabel();
     },
-    casting(val: boolean, oldVal: boolean) {
+    casting() {
       this.updatePlaybackMenuLabel();
-      if (!oldVal || val) return;
-      const source = this.castSource;
-      this.castSource = '';
-      // The television kept playing while the local video sat paused where
-      // casting began. Continue from the receiver's position, but only for the
-      // same file: casting also ends when another file is opened.
-      if (source && source === this.originSrc && Number.isFinite(videodata.time)) {
-        this.$bus.$emit('seek', videodata.time);
-      }
     },
     castPaused() {
       this.updatePlaybackMenuLabel();
@@ -735,17 +725,6 @@ const app = createApp({
           'window.sidebar',
           this.showSidebar ? 'msg.window.closeSidebar' : 'msg.window.openSidebar',
         );
-      }
-    },
-    onCastStatus(e: Event, status: {
-      casting: boolean, paused: boolean, currentTime: number,
-    }) {
-      this.$store.commit(videoMutations.CASTING_UPDATE, !!status.casting);
-      this.$store.commit(videoMutations.CAST_PAUSED_UPDATE, !!status.paused);
-      if (Number.isFinite(status.currentTime)) {
-        videodata.time = status.currentTime;
-        this.$store.commit(videoMutations.CURRENT_TIME_UPDATE, status.currentTime);
-        this.$bus.$emit('cast-tick');
       }
     },
     async initializeMenuSettings() {
@@ -1366,7 +1345,7 @@ const app = createApp({
           return;
         }
 
-        if (this.casting) ipcRenderer.send('cast-stop');
+        if (this.casting) this.stopCasting();
         await this.$store.dispatch('RemoveItemFromPlayingList', videoPath);
         await this.removeDeletedVideoFromHistory(videoPath, deletedVideoId);
 
@@ -1387,61 +1366,6 @@ const app = createApp({
       } finally {
         this.deletingCurrentVideo = false;
       }
-    },
-    // eslint-disable-next-line complexity
-    /**
-     * Cast the playing file to a Chromecast.
-     *
-     * The device fetches the file from us over the LAN, so this only works for
-     * local files, and only for containers the receiver can decode. The AI
-     * subtitle cues (translated so far) go along as a WebVTT track.
-     */
-    async castToDevice() {
-      if (this.casting) {
-        ipcRenderer.send('cast-stop');
-        return;
-      }
-      const src = this.originSrc;
-      if (!src || /^https?:/.test(src)) {
-        addBubble(CAST_NOT_LOCAL);
-        return;
-      }
-      const devices = await ipcRenderer.invoke('cast-list-devices');
-      if (!devices || !devices.length) {
-        addBubble(CAST_NO_DEVICE);
-        return;
-      }
-      const { remote } = this.$electron;
-      const names = devices.map((d: { name: string }) => d.name);
-      const cancelId = names.length;
-      const { response } = await remote.dialog.showMessageBox({
-        type: 'question',
-        message: this.$t('msg.playback.castTo'),
-        buttons: names.concat([this.$t('msg.playback.castCancel')]),
-        cancelId,
-        defaultId: 0,
-      });
-      if (response === cancelId) return;
-      const result = await ipcRenderer.invoke('cast-start', {
-        device: devices[response],
-        filePath: src,
-        cues: this.aiSubtitleCues(),
-        currentTime: videodata.time,
-        volume: this.muted ? 0 : Math.min(1, this.volume),
-      });
-      if (!result.ok) {
-        // Replaced by a newer cast (or stopped) while it was being prepared.
-        if (result.reason === 'cast-superseded') return;
-        addBubble(result.reason && result.reason.indexOf('unsupported-container') === 0
-          ? CAST_UNSUPPORTED : CAST_FAILED);
-        return;
-      }
-      // The television owns playback now. Keep the local element paused while
-      // its controls and timeline continue driving the receiver.
-      this.castSource = src;
-      this.$store.commit(videoMutations.CASTING_UPDATE, true);
-      this.$store.commit(videoMutations.CAST_PAUSED_UPDATE, false);
-      this.$store.dispatch(videoActions.PAUSE_VIDEO);
     },
     /** Whatever the AI translator has produced for the current track, if any. */
     aiSubtitleCues() {

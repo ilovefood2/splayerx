@@ -8,7 +8,7 @@ describe('VideoCanvas media controls', () => {
     vi.unstubAllGlobals();
   });
 
-  it.each([false, true])('closes the old audio graph when changing files (image: %s)', (isImage) => {
+  it.each([[false, false], [false, true], [true, false], [true, true]])('closes the old audio graph when changing files (image: %s, casting: %s)', (isImage, casting) => {
     const oldAudio = { close: vi.fn().mockResolvedValue() };
     const newAudio = { close: vi.fn().mockResolvedValue() };
     const createAudio = vi.fn(function AudioMock() {
@@ -19,12 +19,14 @@ describe('VideoCanvas media controls', () => {
       audioCtx: oldAudio,
       gainNode: {},
       isImage,
+      casting,
       playingList: [],
       playinglistRate: [],
       clearImageAutoplayTimer: vi.fn(),
       videoConfigInitialize: vi.fn(),
       updatePlayinglistRate: vi.fn(),
       play: vi.fn(),
+      pause: vi.fn(),
     };
 
     VideoCanvas.watch.originSrc.call(context, '/library/new.mp4', '/library/old.mp4');
@@ -33,6 +35,8 @@ describe('VideoCanvas media controls', () => {
     expect(context.gainNode).toBeNull();
     expect(context.audioCtx).toBe(isImage ? null : newAudio);
     expect(createAudio).toHaveBeenCalledTimes(isImage ? 0 : 1);
+    expect(context.play).toHaveBeenCalledTimes(!isImage && !casting ? 1 : 0);
+    expect(context.pause).toHaveBeenCalledTimes(!isImage && casting ? 1 : 0);
   });
 
   it.each([[1920, 1080], [1080, 1920]])('fits the window after loading %ix%i video metadata', async (width, height) => {

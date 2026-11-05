@@ -129,6 +129,9 @@ let isBrowsingWindowMax = false;
 let availableChannels = [];
 let tray = null;
 let castOwnerWindow = null;
+let castOwnerRequest = 0;
+let castOwnerSource = '';
+let lastCastStatus;
 let pipTimer = 0;
 let needToRestore = false;
 let isVip = true; // set no limits
@@ -2347,34 +2350,66 @@ app.on('cast-request', () => {
 ipcMain.handle('cast-list-devices', async () => castService.listDevices());
 
 castService.on('status', (status) => {
-  const targetWindow = isUsableMainWindow(castOwnerWindow)
-    ? castOwnerWindow : getActiveMainWindow();
-  if (targetWindow) targetWindow.webContents.send('cast-status', status);
-  if (!status.casting) castOwnerWindow = null;
+  if (!isUsableMainWindow(castOwnerWindow) || status.requestId !== castOwnerRequest
+    || status.source !== castOwnerSource) return;
+  lastCastStatus = status;
+  castOwnerWindow.webContents.send('cast-status', status);
+  if (!status.casting) {
+    castOwnerWindow = null;
+    castOwnerSource = '';
+  }
 });
 
 ipcMain.handle('cast-start', async (e, {
-  device, filePath, cues, currentTime, volume,
+  device, filePath, cues, currentTime, volume, requestId,
 }) => {
-  const ownerWindow = getSenderMainWindow(e.sender);
+  const ownerWindow = BrowserWindow.fromWebContents(e.sender);
+  if (!isUsableMainWindow(ownerWindow) || !Number.isSafeInteger(requestId) || requestId < 1) {
+    return { ok: false, reason: 'invalid-cast-request' };
+  }
+  if (isUsableMainWindow(castOwnerWindow) && castOwnerWindow !== ownerWindow) {
+    castOwnerWindow.webContents.send('cast-status', {
+      ...lastCastStatus,
+      casting: false,
+      source: castOwnerSource,
+      requestId: castOwnerRequest,
+    });
+  }
   castOwnerWindow = ownerWindow;
+  castOwnerRequest = requestId;
+  castOwnerSource = filePath;
   try {
     await castService.cast(
       device, filePath, cues || [], currentTime || 0,
       typeof volume === 'number' ? volume : 1,
+      requestId,
     );
     return { ok: true };
   } catch (error) {
     // A superseded cast was replaced by a newer one, which owns the window now.
-    if (error.message !== CAST_SUPERSEDED && castOwnerWindow === ownerWindow) {
+    if (error.message !== CAST_SUPERSEDED && castOwnerWindow === ownerWindow
+      && castOwnerRequest === requestId && castOwnerSource === filePath) {
       castOwnerWindow = null;
+      castOwnerSource = '';
     }
     return { ok: false, reason: error.message };
   }
 });
 
-ipcMain.on('cast-stop', () => castService.stop());
-ipcMain.on('cast-pause', () => castService.pause());
-ipcMain.on('cast-play', () => castService.play());
-ipcMain.on('cast-seek', (e, seconds) => castService.seek(seconds));
-ipcMain.on('cast-volume', (e, level) => castService.setVolume(level));
+ipcMain.on('cast-stop', (e, request) => {
+  if (!isEventFromWindow(e, castOwnerWindow)) return;
+  if (request && request.requestId !== castOwnerRequest) return;
+  castService.stop();
+});
+ipcMain.on('cast-pause', (e) => {
+  if (isEventFromWindow(e, castOwnerWindow)) castService.pause();
+});
+ipcMain.on('cast-play', (e) => {
+  if (isEventFromWindow(e, castOwnerWindow)) castService.play();
+});
+ipcMain.on('cast-seek', (e, seconds) => {
+  if (isEventFromWindow(e, castOwnerWindow)) castService.seek(seconds);
+});
+ipcMain.on('cast-volume', (e, level) => {
+  if (isEventFromWindow(e, castOwnerWindow)) castService.setVolume(level);
+});

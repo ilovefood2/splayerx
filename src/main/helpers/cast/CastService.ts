@@ -18,10 +18,11 @@ import { EventEmitter } from 'events';
 import { app } from 'electron';
 import { pipeline } from 'stream';
 import { extname, basename, join } from 'path';
-import { CastDevice, CastMedia } from './CastDevice';
+import { CastDevice, CastMedia, CastPlaybackStatus } from './CastDevice';
 import { discoverWithKnown, CastDeviceInfo } from './CastDiscovery';
 import { runMediaBinary } from '../ffmpeg';
 import { parseByteRange } from '../PlaybackServer';
+import { images } from '../../../../config/fileAssociations';
 
 /** Containers the Default Media Receiver will accept. */
 const CONTENT_TYPES: { [ext: string]: string } = {
@@ -31,6 +32,9 @@ const CONTENT_TYPES: { [ext: string]: string } = {
   mkv: 'video/x-matroska',
   ts: 'video/mp2t',
   mov: 'video/mp4',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
 };
 
 export interface CastCue { start: number, end: number, text: string }
@@ -106,6 +110,24 @@ async function removeCastDirectory(directory: string): Promise<void> {
 }
 
 async function prepareCastSource(filePath: string, signal?: AbortSignal): Promise<CastSource> {
+  const extension = extname(filePath).slice(1).toLowerCase();
+  if (images.includes(extension)) {
+    const directType = contentTypeOf(filePath);
+    if (directType) return { filePath, contentType: directType, extension: extname(filePath) };
+    const directory = await fs.promises.mkdtemp(join(os.tmpdir(), 'splayer-cast-'));
+    const outputPath = join(directory, 'image.png');
+    try {
+      await runMediaBinary('ffmpeg', [
+        '-y', '-v', 'error', '-i', filePath, '-frames:v', '1', outputPath,
+      ], { signal });
+      return {
+        filePath: outputPath, contentType: 'image/png', extension: '.png', cleanupDir: directory,
+      };
+    } catch (error) {
+      await removeCastDirectory(directory);
+      throw error;
+    }
+  }
   const originalContentType = contentTypeOf(filePath);
   if (!originalContentType) {
     throw new Error(`unsupported-container:${extname(filePath).slice(1) || '?'}`);
@@ -221,12 +243,24 @@ export interface CastStatus {
   currentTime: number;
   duration: number;
   paused: boolean;
+  ended: boolean;
+  source: string;
+  requestId: number;
+  failed?: boolean;
 }
 
 export class CastService extends EventEmitter {
   private server?: http.Server;
 
   private device?: CastDevice;
+
+  private deviceTarget = '';
+
+  private deviceReady = false;
+
+  private source = '';
+
+  private requestId = 0;
 
   private filePath = '';
 
@@ -249,13 +283,16 @@ export class CastService extends EventEmitter {
 
   private castCleanupDir?: string;
 
-  /** Bumped by every cast() and stop(); an older cast() sees it and bows out. */
+  /** A replacement or user stop invalidates older asynchronous preparation. */
   private castGeneration = 0;
+
+  private mediaGeneration = 0;
 
   private castAbort?: AbortController;
 
   private lastStatus: CastStatus = {
     casting: false, currentTime: 0, duration: 0, paused: true,
+    ended: false, source: '', requestId: 0,
   };
 
   /** One scan at a time; callers share the in-flight one. */
@@ -341,8 +378,8 @@ export class CastService extends EventEmitter {
   }
 
   private onRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-    const url = req.url || '';
-    if (url.indexOf('/subtitle.vtt') === 0) {
+    const url = (req.url || '').split('?')[0];
+    if (url === `/subtitle-${this.mediaGeneration}.vtt` && this.filePath && this.vtt) {
       res.writeHead(200, {
         'Content-Type': 'text/vtt; charset=utf-8',
         'Access-Control-Allow-Origin': '*', // the receiver fetches this cross-origin
@@ -351,7 +388,8 @@ export class CastService extends EventEmitter {
       res.end(this.vtt);
       return;
     }
-    if (url.indexOf('/video') !== 0 || !this.filePath || !this.fileSize) {
+    if (url !== `/video-${this.mediaGeneration}${extname(this.filePath)}`
+      || !this.filePath || !this.fileSize) {
       res.writeHead(404);
       res.end();
       return;
@@ -403,103 +441,116 @@ export class CastService extends EventEmitter {
     cues: CastCue[] = [],
     currentTime = 0,
     volume = 1,
+    requestId = 0,
   ): Promise<void> {
-    const ip = lanIpFor(target.ip || target.host);
-    if (!ip) throw new Error('no-lan-address');
-
     const generation = this.supersedeCast();
     const abort = new AbortController();
     this.castAbort = abort;
+    this.source = filePath;
+    this.requestId = requestId;
+    this.lastStatus = {
+      source: filePath, requestId, casting: false, currentTime,
+      duration: 0, paused: true, ended: false,
+    };
     const superseded = () => generation !== this.castGeneration;
-    this.stopDevice();
-    this.releaseCastSource();
-    let source: CastSource;
+    const targetKey = `${target.ip || target.host}:${target.port}`;
+    const existing = this.deviceReady && this.deviceTarget === targetKey ? this.device : undefined;
+    this.stopStatusPolling();
+    if (!existing) this.stopDevice();
+    this.deviceReady = false;
+    let source: CastSource | undefined;
+    let device: CastDevice | undefined;
     try {
+      if (existing) existing.pause();
+      const ip = lanIpFor(target.ip || target.host);
+      if (!ip) throw new Error('no-lan-address');
       source = await prepareCastSource(filePath, abort.signal);
-    } catch (error) {
-      throw superseded() ? new Error(CAST_SUPERSEDED) : error;
-    }
-    if (superseded()) {
-      // Preparing can take minutes. If another cast started meanwhile, this
-      // copy was never handed to the service, so no one else will delete it.
-      if (source.cleanupDir) removeCastDirectory(source.cleanupDir);
-      throw new Error(CAST_SUPERSEDED);
-    }
-    this.castAbort = undefined;
-    this.castCleanupDir = source.cleanupDir;
-    this.vtt = cues.length ? cuesToVtt(cues) : '';
-    let port: number;
-    try {
-      // Stat once, asynchronously: the TV makes many range requests, and a
-      // synchronous stat per request blocks the main process for a full SMB
-      // round trip each time when casting from a network drive.
-      const { size } = await fs.promises.stat(source.filePath);
-      // A newer cast already released (and deleted) this source.
       if (superseded()) throw new Error(CAST_SUPERSEDED);
+      const { size } = await fs.promises.stat(source.filePath);
+      if (superseded()) throw new Error(CAST_SUPERSEDED);
+      const port = await this.serve();
+      if (superseded()) throw new Error(CAST_SUPERSEDED);
+      if (existing && this.device !== existing) throw new Error('cast connection closed');
+      // Keep the paused receiver's old URL valid until its replacement is prepared.
+      this.releaseCastSource();
+      this.mediaGeneration = generation;
+      this.castCleanupDir = source.cleanupDir;
       this.fileSize = size;
       this.filePath = source.filePath;
-      port = await this.serve();
-      if (superseded()) throw new Error(CAST_SUPERSEDED);
-    } catch (error) {
-      if (!superseded()) this.releaseCastSource();
-      throw superseded() ? new Error(CAST_SUPERSEDED) : error;
-    }
-    const base = `http://${ip}:${port}`;
+      this.vtt = cues.length ? cuesToVtt(cues) : '';
+      const base = `http://${ip}:${port}`;
 
-    const device = new CastDevice(target.ip || target.host, target.port);
-    this.device = device;
-    // CastDevice reports socket failures through both its promise and its
-    // EventEmitter. Keep the latter from becoming an uncaught process error.
-    device.on('error', () => {});
-    device.on('close', () => {
-      if (this.device !== device) return;
-      this.device = undefined;
-      this.releaseCastSource();
-      this.stopStatusPolling();
-      this.publishStatus({
-        casting: false,
-        currentTime: this.lastStatus.currentTime,
-        duration: this.lastStatus.duration,
-        paused: true,
-      });
-    });
-    const media: CastMedia = {
-      url: `${base}/video${source.extension}`,
-      contentType: source.contentType,
-      title: basename(filePath),
-      currentTime,
-    };
-    if (this.vtt) {
-      media.subtitleUrl = `${base}/subtitle.vtt`;
-      media.subtitleLanguage = 'zh-CN';
-    }
-    try {
-      await device.connect();
-      if (superseded()) throw new Error(CAST_SUPERSEDED);
+      device = existing || new CastDevice(target.ip || target.host, target.port);
+      this.device = device;
+      this.deviceTarget = targetKey;
+      if (!existing) {
+        const connectedDevice = device;
+        connectedDevice.on('error', () => {});
+        connectedDevice.on('media-status', (status: CastPlaybackStatus) => {
+          this.updatePlaybackStatus(connectedDevice, this.mediaGeneration, status);
+        });
+        connectedDevice.on('close', () => {
+          if (this.device !== connectedDevice) return;
+          if (this.castAbort) this.castAbort.abort();
+          this.device = undefined;
+          this.deviceReady = false;
+          this.releaseCastSource();
+          this.stopStatusPolling();
+          this.publishStatus({
+            casting: false, currentTime: this.lastStatus.currentTime,
+            duration: this.lastStatus.duration, paused: true,
+          });
+        });
+        await device.connect();
+        if (superseded()) throw new Error(CAST_SUPERSEDED);
+        if (this.device !== device) throw new Error('cast connection closed');
+      }
+      const image = source.contentType.indexOf('image/') === 0;
+      const media: CastMedia = {
+        url: `${base}/video-${generation}${source.extension}`,
+        contentType: source.contentType,
+        title: basename(filePath),
+        currentTime: image ? 0 : currentTime,
+      };
+      if (this.vtt && !image) {
+        media.subtitleUrl = `${base}/subtitle-${generation}.vtt`;
+        media.subtitleLanguage = 'zh-CN';
+      }
       await device.load(media);
       if (superseded()) throw new Error(CAST_SUPERSEDED);
+      if (this.device !== device) throw new Error('cast connection closed');
       device.setVolume(Math.max(0, Math.min(1, volume)));
+      this.deviceReady = true;
+      this.castAbort = undefined;
+      this.publishStatus({
+        casting: true, currentTime: media.currentTime || 0, duration: 0, paused: false,
+      });
+      if (!superseded()) this.startStatusPolling();
     } catch (error) {
+      if (source && source.cleanupDir) removeCastDirectory(source.cleanupDir);
       if (superseded()) {
-        // The newer cast (or stop) owns the service state now. Only make sure
-        // this receiver does not start playing the old file behind its back.
-        if (this.device === device) this.device = undefined;
-        device.stop();
+        // A replacement owns the state now; never stop its receiver or publish its failure.
+        if (device && this.device !== device) device.stop();
         throw new Error(CAST_SUPERSEDED);
       }
+      this.castAbort = undefined;
       this.stopDevice();
       this.releaseCastSource();
+      this.publishStatus({
+        casting: false, currentTime, duration: 0, paused: true,
+        ...(this.lastStatus.failed ? { failed: true } : {}),
+      });
       throw error;
     }
-    this.publishStatus({
-      casting: true, currentTime, duration: 0, paused: false,
-    });
-    this.startStatusPolling();
   }
 
-  private publishStatus(status: CastStatus): void {
-    this.lastStatus = status;
-    this.emit('status', status);
+  private publishStatus(
+    status: Omit<CastStatus, 'source' | 'requestId' | 'ended'> & { ended?: boolean },
+  ): void {
+    this.lastStatus = Object.assign({ ended: false }, status, {
+      source: this.source, requestId: this.requestId,
+    });
+    this.emit('status', this.lastStatus);
   }
 
   private startStatusPolling(): void {
@@ -507,20 +558,28 @@ export class CastService extends EventEmitter {
     const poll = async () => {
       if (!this.device || this.statusBusy) return;
       const device = this.device;
+      const generation = this.castGeneration;
       this.statusBusy = true;
       try {
         const status = await device.getStatus();
-        if (this.device === device && status) {
-          this.publishStatus(Object.assign({ casting: true }, status));
-        }
+        this.updatePlaybackStatus(device, generation, status);
       } catch (error) {
         // A transient status timeout must not tear down an otherwise live cast.
       } finally {
-        this.statusBusy = false;
+        if (generation === this.castGeneration) this.statusBusy = false;
       }
     };
     poll();
     this.statusTimer = setInterval(poll, 1000);
+  }
+
+  private updatePlaybackStatus(
+    device: CastDevice, generation: number, status?: CastPlaybackStatus,
+  ): void {
+    if (this.device !== device || generation !== this.castGeneration
+      || this.mediaGeneration !== generation || !status) return;
+    if (status.failed) this.stop(true);
+    else this.publishStatus(Object.assign({ casting: true }, status));
   }
 
   private stopStatusPolling(): void {
@@ -532,21 +591,21 @@ export class CastService extends EventEmitter {
   }
 
   public play(): void {
-    if (!this.device) return;
+    if (!this.device || !this.deviceReady) return;
     this.device.play();
-    this.publishStatus(Object.assign({}, this.lastStatus, { casting: true, paused: false }));
+    this.publishStatus(Object.assign({}, this.lastStatus, { casting: true, paused: false, ended: false }));
   }
 
   public pause(): void {
-    if (!this.device) return;
+    if (!this.device || !this.deviceReady) return;
     this.device.pause();
-    this.publishStatus(Object.assign({}, this.lastStatus, { casting: true, paused: true }));
+    this.publishStatus(Object.assign({}, this.lastStatus, { casting: true, paused: true, ended: false }));
   }
 
   public seek(seconds: number): void {
-    if (!this.device) return;
+    if (!this.device || !this.deviceReady) return;
     this.device.seek(seconds);
-    this.publishStatus(Object.assign({}, this.lastStatus, { casting: true, currentTime: seconds }));
+    this.publishStatus(Object.assign({}, this.lastStatus, { casting: true, currentTime: seconds, ended: false }));
   }
 
   public setVolume(level: number): void {
@@ -554,6 +613,8 @@ export class CastService extends EventEmitter {
   }
 
   private stopDevice(): void {
+    this.deviceReady = false;
+    this.deviceTarget = '';
     if (this.device) {
       const device = this.device;
       this.device = undefined;
@@ -568,6 +629,8 @@ export class CastService extends EventEmitter {
     // Stop serving the old file; its transcoded copy is about to be deleted.
     this.filePath = '';
     this.fileSize = 0;
+    this.vtt = '';
+    this.mediaGeneration = 0;
     if (directory) removeCastDirectory(directory);
   }
 
@@ -582,8 +645,11 @@ export class CastService extends EventEmitter {
   }
 
   /** Stop casting and release the port. */
-  public stop(): void {
-    this.supersedeCast();
+  public stop(failed = false): void {
+    if (failed) {
+      if (this.castAbort) this.castAbort.abort();
+      this.castAbort = undefined;
+    } else this.supersedeCast();
     this.stopDevice();
     this.releaseCastSource();
     if (this.server) {
@@ -596,6 +662,7 @@ export class CastService extends EventEmitter {
       currentTime: this.lastStatus.currentTime,
       duration: this.lastStatus.duration,
       paused: true,
+      ...(failed ? { failed: true } : {}),
     });
   }
 

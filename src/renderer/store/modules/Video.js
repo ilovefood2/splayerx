@@ -239,7 +239,7 @@ const actions = {
     commit(videoMutations.CURRENT_SRC_UPDATE, playbackSrc);
     commit(videoMutations.MEDIA_HASH_UPDATE, mediaHash || '');
     commit(videoMutations.ID_UPDATE, id);
-    commit(videoMutations.PAUSED_UPDATE, !src);
+    commit(videoMutations.PAUSED_UPDATE, !src || !!state.casting);
     commit(videoMutations.SRC_UPDATE, src);
     if (!src) return undefined;
     dispatch(subtitleActions.INITIALIZE_VIDEO_SUBTITLE_MAP, { videoSrc: src });

@@ -148,7 +148,7 @@ export default {
     };
   },
   computed: {
-    ...mapGetters(['audioTrackList']),
+    ...mapGetters(['audioTrackList', 'casting']),
     isDarwin() {
       return process.platform === 'darwin';
     },
@@ -316,6 +316,7 @@ export default {
       return this.$refs.video;
     },
     currentTimeUpdate() {
+      if (this.casting) return;
       const time = this.$refs.video.currentTime
         + (this.isCompatibilityStream() ? this.compatibilityOffset : 0);
       videodata.time = Number.isFinite(this.duration) ? Math.min(this.duration, time) : time;
@@ -503,7 +504,7 @@ export default {
       if (!this.$refs.video || !this.$refs.video.error) return;
       const { code, message } = this.$refs.video.error;
       log.warn('video element onerror', `${code}:${message}`);
-      this.$emit('error', this.$refs.video.error);
+      this.$emit('error', this.$refs.video.error, this.$refs.video);
     },
   },
 };

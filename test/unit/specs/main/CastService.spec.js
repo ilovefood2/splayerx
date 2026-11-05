@@ -15,6 +15,7 @@ import http from 'http';
 import os from 'os';
 import path from 'path';
 import { runMediaBinary } from '../../../../src/main/helpers/ffmpeg';
+import { CastDevice } from '../../../../src/main/helpers/cast/CastDevice';
 import {
   CAST_SUPERSEDED, CastService, canDirectCast, lanIpFor,
 } from '../../../../src/main/helpers/cast/CastService';
@@ -164,9 +165,9 @@ describe('Chromecast media compatibility', () => {
   });
 });
 
-function get(port, headers = {}) {
+function get(port, headers = {}, route = '/video-0.mp4') {
   return new Promise((resolve) => {
-    http.get(`http://127.0.0.1:${port}/video.mp4`, { headers }, (response) => {
+    http.get(`http://127.0.0.1:${port}${route}`, { headers }, (response) => {
       const chunks = [];
       response.on('data', chunk => chunks.push(chunk));
       response.on('end', () => resolve({
@@ -226,6 +227,7 @@ describe('Chromecast file server', () => {
     expect(service.filePath).toBe('');
     expect(status).toHaveBeenCalledWith({
       casting: false, currentTime: 23, duration: 60, paused: true,
+      ended: false, source: '', requestId: 0,
     });
   });
 
@@ -275,6 +277,204 @@ describe('Chromecast LAN address', () => {
     const interfaces = { lo0: [loopback], en0: [wifi], bridge100: [bridge] };
     expect(lanIpFor('LivingRoom.local', interfaces)).to.equal('192.168.1.20');
     expect(lanIpFor(undefined, { lo0: [loopback] })).to.equal(undefined);
+  });
+});
+
+describe('Chromecast media handoff', () => {
+  const target = { id: 'tv', name: 'TV', host: '192.168.1.20', port: 8009 };
+  let directory;
+  let first;
+  let second;
+  let photo;
+  let service;
+  let connect;
+  let load;
+  let stop;
+  let getStatus;
+  let statuses;
+
+  beforeEach(() => {
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'splayer-cast-handoff-test-'));
+    first = path.join(directory, 'first.mp4');
+    second = path.join(directory, 'second.mp4');
+    photo = path.join(directory, 'photo.png');
+    [first, second, photo].forEach(file => fs.writeFileSync(file, path.basename(file)));
+    vi.spyOn(os, 'networkInterfaces').mockReturnValue({
+      en0: [{ family: 'IPv4', internal: false, address: '192.168.1.5', netmask: '255.255.255.0' }],
+    });
+    connect = vi.spyOn(CastDevice.prototype, 'connect').mockResolvedValue();
+    load = vi.spyOn(CastDevice.prototype, 'load').mockResolvedValue();
+    stop = vi.spyOn(CastDevice.prototype, 'stop').mockImplementation(() => {});
+    getStatus = vi.spyOn(CastDevice.prototype, 'getStatus').mockResolvedValue();
+    runMediaBinary.mockImplementation(async (binary, args) => {
+      if (binary === 'ffprobe') return { stdout: JSON.stringify({ streams: [{ codec_type: 'video', codec_name: 'h264' }] }) };
+      fs.writeFileSync(args[args.length - 1], 'normalized photo');
+      return { stdout: '' };
+    });
+    service = new CastService();
+    statuses = [];
+    service.on('status', status => statuses.push(status));
+  });
+
+  afterEach(async () => {
+    service.stop();
+    vi.restoreAllMocks();
+    runMediaBinary.mockReset();
+    await fs.promises.rm(directory, { recursive: true, force: true });
+  });
+
+  it('reuses a ready TV for video → image → video and scopes every status', async () => {
+    await service.cast(target, first, [], 12, 0.5, 11);
+    const receiver = service.device;
+    await service.cast(target, photo, [], 99, 0.5, 12);
+    await service.cast(target, second, [], 0, 0.5, 13);
+
+    expect(connect).toHaveBeenCalledOnce();
+    expect(stop).not.toHaveBeenCalled();
+    expect(service.device).toBe(receiver);
+    expect(load.mock.calls.map(([media]) => media.contentType)).toEqual(['video/mp4', 'image/png', 'video/mp4']);
+    expect(load.mock.calls[1][0].currentTime).toBe(0);
+    expect(new Set(load.mock.calls.map(([media]) => media.url)).size).toBe(3);
+    expect(statuses.map(status => [status.source, status.requestId, status.casting, status.ended])).toEqual([
+      [first, 11, true, false], [photo, 12, true, false], [second, 13, true, false],
+    ]);
+  });
+
+  it('does not serve the new file to a request for the previous generation', async () => {
+    await service.cast(target, first, [], 0, 1, 21);
+    const oldPath = new URL(load.mock.calls[0][0].url).pathname;
+    await service.cast(target, photo, [], 0, 1, 22);
+    const newPath = new URL(load.mock.calls[1][0].url).pathname;
+    expect((await get(service.port, {}, oldPath)).statusCode).toBe(404);
+    const current = await get(service.port, {}, newPath);
+    expect(current.statusCode).toBe(200);
+    expect(current.headers['content-type']).toBe('image/png');
+    expect(current.body.toString()).toBe('photo.png');
+  });
+
+  it('keeps serving the previous file during preparation and retires it only when the next is ready', async () => {
+    await service.cast(target, first, [], 0, 1, 23);
+    const receiver = service.device;
+    const oldPath = new URL(load.mock.calls[0][0].url).pathname;
+    let finishProbe;
+    runMediaBinary.mockImplementationOnce(() => new Promise((resolve) => { finishProbe = resolve; }));
+    const replacement = service.cast(target, second, [], 0, 1, 24);
+    await vi.waitFor(() => expect(finishProbe).toBeTypeOf('function'));
+    expect((await get(service.port, {}, oldPath)).body.toString()).toBe('first.mp4');
+    const pausedStatusCount = statuses.length;
+    const play = vi.spyOn(receiver, 'play');
+    const pause = vi.spyOn(receiver, 'pause');
+    const seek = vi.spyOn(receiver, 'seek');
+    service.play(); service.pause(); service.seek(99);
+    expect(play).not.toHaveBeenCalled();
+    expect(pause).not.toHaveBeenCalled();
+    expect(seek).not.toHaveBeenCalled();
+    expect(statuses).toHaveLength(pausedStatusCount);
+    receiver.emit('media-status', { currentTime: 999, duration: 999, paused: true, ended: true, failed: false });
+    expect(statuses).toHaveLength(pausedStatusCount);
+    finishProbe({ stdout: JSON.stringify({ streams: [{ codec_type: 'video', codec_name: 'h264' }] }) });
+    await replacement;
+    expect((await get(service.port, {}, oldPath)).statusCode).toBe(404);
+    expect(service.device).toBe(receiver);
+  });
+
+  it('normalizes other shared image formats and removes the temporary copy on stop', async () => {
+    const image = path.join(directory, 'photo.gif');
+    fs.writeFileSync(image, 'image');
+    await service.cast(target, image, [], 0, 1, 31);
+    const copy = service.filePath;
+    expect(runMediaBinary).toHaveBeenCalledOnce();
+    expect(runMediaBinary.mock.calls[0][0]).toBe('ffmpeg');
+    expect(load.mock.calls[0][0].contentType).toBe('image/png');
+    expect(copy).not.toBe(image);
+    service.stop();
+    await vi.waitFor(() => expect(fs.existsSync(copy)).toBe(false));
+    expect(fs.existsSync(image)).toBe(true);
+  });
+
+  it.each(['prepare', 'stat', 'load'])('clears casting with the current identity when %s fails', async (stage) => {
+    await service.cast(target, first, [], 0, 1, 41);
+    let file = second;
+    if (stage === 'prepare') runMediaBinary.mockRejectedValueOnce(new Error('probe failed'));
+    if (stage === 'stat') file = path.join(directory, 'missing.png');
+    if (stage === 'load') load.mockRejectedValueOnce(new Error('receiver rejected media'));
+
+    await expect(service.cast(target, file, [], 0, 1, 42)).rejects.toThrow();
+
+    expect(service.casting).toBe(false);
+    expect(statuses[statuses.length - 1]).toEqual({
+      source: file, requestId: 42, casting: false, currentTime: 0, duration: 0, paused: true, ended: false,
+    });
+  });
+
+  it('ignores an old status poll after replacing media on the same receiver', async () => {
+    let finishOld;
+    let finishNew;
+    getStatus.mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { finishNew = resolve; }));
+    await service.cast(target, first, [], 0, 1, 51);
+    await service.cast(target, second, [], 0, 1, 52);
+    finishOld({ currentTime: 999, duration: 999, paused: true, ended: true });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(service.statusBusy).toBe(true);
+    expect(statuses[statuses.length - 1].requestId).toBe(52);
+    expect(statuses[statuses.length - 1].ended).toBe(false);
+    finishNew({ currentTime: 3, duration: 20, paused: false, ended: false });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(statuses[statuses.length - 1]).toMatchObject({ source: second, requestId: 52, currentTime: 3 });
+  });
+
+  it('a late LOAD completion cannot stop or overwrite a newer receiver', async () => {
+    await service.cast(target, first, [], 0, 1, 61);
+    let finishOld;
+    load.mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }));
+    const old = service.cast(target, second, [], 0, 1, 62);
+    const superseded = expect(old).rejects.toThrow(CAST_SUPERSEDED);
+    await vi.waitFor(() => expect(finishOld).toBeTypeOf('function'));
+    await service.cast(target, photo, [], 0, 1, 63);
+    const newest = service.device;
+    finishOld();
+    await superseded;
+    expect(service.device).toBe(newest);
+    expect(stop.mock.contexts).not.toContain(newest);
+    expect(statuses[statuses.length - 1]).toMatchObject({ source: photo, requestId: 63, casting: true });
+  });
+
+  it('reports a receiver fetch/decode failure with the active source identity', async () => {
+    getStatus.mockResolvedValue({ currentTime: 0, duration: 0, paused: true, ended: false, failed: true });
+    await service.cast(target, first, [], 0, 1, 71);
+    await vi.waitFor(() => expect(service.casting).toBe(false));
+    expect(statuses[statuses.length - 1]).toMatchObject({
+      source: first, requestId: 71, casting: false, failed: true,
+    });
+    expect(service.filePath).toBe('');
+  });
+
+  it('consumes unsolicited finished and error statuses without waiting for the next poll', async () => {
+    await service.cast(target, first, [], 0, 1, 72);
+    service.device.emit('media-status', { currentTime: 20, duration: 20, paused: true, ended: true, failed: false });
+    expect(statuses[statuses.length - 1]).toMatchObject({ source: first, requestId: 72, ended: true });
+    service.device.emit('media-status', { currentTime: 20, duration: 20, paused: true, ended: false, failed: true });
+    expect(service.casting).toBe(false);
+    expect(statuses[statuses.length - 1]).toMatchObject({ source: first, requestId: 72, casting: false, failed: true });
+  });
+
+  it('returns a real failure if an unsolicited receiver error arrives before LOAD resolves', async () => {
+    load.mockImplementationOnce(function failLoad() {
+      this.emit('media-status', { currentTime: 0, duration: 0, paused: true, ended: false, failed: true });
+      return Promise.resolve();
+    });
+    await expect(service.cast(target, first, [], 0, 1, 73)).rejects.toThrow('cast connection closed');
+    expect(statuses[statuses.length - 1]).toMatchObject({ source: first, requestId: 73, casting: false, failed: true });
+    expect(statuses.some(status => status.casting)).toBe(false);
+  });
+
+  it('clears the current request if pausing the previous receiver throws', async () => {
+    await service.cast(target, first, [], 0, 1, 81);
+    vi.spyOn(service.device, 'pause').mockImplementation(() => { throw new Error('closed socket'); });
+    await expect(service.cast(target, second, [], 0, 1, 82)).rejects.toThrow('closed socket');
+    expect(statuses[statuses.length - 1]).toMatchObject({ source: second, requestId: 82, casting: false });
+    expect(service.casting).toBe(false);
   });
 });
 
