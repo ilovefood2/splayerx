@@ -2,6 +2,8 @@ import fs from 'fs';
 import http from 'http';
 import os from 'os';
 import path from 'path';
+import { EventEmitter } from 'events';
+import { vi } from 'vitest';
 import {
   buildVirtualMp4,
   compatibilityFfmpegArgs,
@@ -97,6 +99,62 @@ describe('PlaybackServer', () => {
 
     expect(response.statusCode).to.equal(200);
     expect(response.body.toString()).to.equal('0123456789abcdefghijklmnopqrstuvwxyz');
+  });
+
+  it('closes file reads after repeated aborted range requests', async () => {
+    const fd = fs.openSync(filePath, 'r+');
+    fs.ftruncateSync(fd, 64 * 1024 * 1024);
+    fs.closeSync(fd);
+    const streams = [];
+    const createReadStream = fs.createReadStream;
+    const spy = vi.spyOn(fs, 'createReadStream').mockImplementation((...args) => {
+      const stream = createReadStream(...args);
+      streams.push(stream);
+      return stream;
+    });
+    try {
+      const url = await server.urlFor(filePath);
+      for (let i = 0; i < 3; i += 1) {
+        await new Promise((resolve, reject) => {
+          const outgoing = http.get(url, { headers: { Range: 'bytes=8388608-' } }, (response) => {
+            response.once('data', () => {
+              response.destroy();
+              outgoing.destroy();
+              resolve();
+            });
+            response.on('error', () => {});
+          });
+          outgoing.on('error', (error) => { if (error.code !== 'ECONNRESET') reject(error); });
+        });
+      }
+      await vi.waitFor(() => {
+        expect(streams).toHaveLength(3);
+        expect(streams.every(stream => stream.closed)).toBe(true);
+      });
+    } finally {
+      spy.mockRestore();
+      streams.forEach(stream => stream.destroy());
+    }
+  });
+
+  it('does not wait forever when the client closes during a blocked prefix write', async () => {
+    const response = new EventEmitter();
+    response.destroyed = false;
+    response.write = vi.fn(() => {
+      response.destroyed = true;
+      response.emit('close');
+      return false;
+    });
+    const media = { filePath, prefix: Promise.resolve(Buffer.alloc(16)) };
+    const read = vi.spyOn(fs, 'createReadStream');
+    try {
+      await server.send(media, 0, 31, response);
+      expect(read).not.toHaveBeenCalled();
+      expect(response.listenerCount('drain')).toBe(0);
+      expect(response.listenerCount('close')).toBe(0);
+    } finally {
+      read.mockRestore();
+    }
   });
 
   it('serves fragmented MP4 blocks as one contiguous ranged file', async () => {

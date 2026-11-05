@@ -187,14 +187,15 @@ export default {
       if (process.mas && oldVal) {
         this.$bus.$emit(`stop-accessing-${oldVal}`, oldVal);
       }
+      if (this.audioCtx) {
+        this.audioCtx.close();
+        this.audioCtx = null;
+      }
+      this.gainNode = null;
       if (this.isImage) {
-        if (this.audioCtx) {
-          this.audioCtx.close();
-          this.audioCtx = null;
-        }
         this.videoElement = null;
         this.imageElement = null;
-      } else if (!this.audioCtx) {
+      } else {
         this.audioCtx = new AudioContext();
       }
       // this.$bus.$emit('show-speedlabel');

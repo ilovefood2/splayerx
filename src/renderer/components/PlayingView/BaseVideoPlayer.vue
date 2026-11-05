@@ -284,11 +284,16 @@ export default {
   },
   beforeUnmount() {
     this.stopCompatibilityCanvas();
+    this.compatibilityGeneration += 1;
     if (this.useCompatibilityCanvas) {
       this.$refs.video.removeEventListener('playing', this.startCompatibilityCanvas);
     }
     this.$refs.video.ontimeupdate = null;
     this.removeEvents(this.events);
+    // Web Audio can keep a detached element alive, so explicitly abort its media request.
+    this.$refs.video.pause();
+    this.$refs.video.removeAttribute('src');
+    this.$refs.video.load();
   },
   methods: {
     basicInfoInitialization(videoElement: HTMLVideoElement) {

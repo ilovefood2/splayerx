@@ -3,7 +3,37 @@ import VideoCanvas from '@/containers/VideoCanvas.vue';
 import { windowRectService } from '@/services/window/WindowRectService';
 
 describe('VideoCanvas media controls', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([false, true])('closes the old audio graph when changing files (image: %s)', (isImage) => {
+    const oldAudio = { close: vi.fn().mockResolvedValue() };
+    const newAudio = { close: vi.fn().mockResolvedValue() };
+    const createAudio = vi.fn(function AudioMock() {
+      return newAudio;
+    });
+    vi.stubGlobal('AudioContext', createAudio);
+    const context = {
+      audioCtx: oldAudio,
+      gainNode: {},
+      isImage,
+      playingList: [],
+      playinglistRate: [],
+      clearImageAutoplayTimer: vi.fn(),
+      videoConfigInitialize: vi.fn(),
+      updatePlayinglistRate: vi.fn(),
+      play: vi.fn(),
+    };
+
+    VideoCanvas.watch.originSrc.call(context, '/library/new.mp4', '/library/old.mp4');
+
+    expect(oldAudio.close).toHaveBeenCalledOnce();
+    expect(context.gainNode).toBeNull();
+    expect(context.audioCtx).toBe(isImage ? null : newAudio);
+    expect(createAudio).toHaveBeenCalledTimes(isImage ? 0 : 1);
+  });
 
   it.each([[1920, 1080], [1080, 1920]])('fits the window after loading %ix%i video metadata', async (width, height) => {
     const windowRectControl = vi.fn();

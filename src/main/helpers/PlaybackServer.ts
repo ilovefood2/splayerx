@@ -579,6 +579,7 @@ export class PlaybackServer {
   ): Promise<void> {
     let start = requestedStart;
     const prefix = await media.prefix;
+    if (response.destroyed) return;
     const prefixEnd = Math.min(end, prefix.length - 1);
     if (start <= prefixEnd) {
       const chunk = prefix.slice(start, prefixEnd + 1);
@@ -588,17 +589,15 @@ export class PlaybackServer {
         return;
       }
       if (!response.write(chunk)) {
-        await new Promise(resolve => response.once('drain', resolve));
+        if (!(await this.waitForDrain(response))) return;
       }
     }
 
-    const stream = fs.createReadStream(media.filePath, {
-      start,
-      end,
-      highWaterMark: 1024 * 1024,
-    });
-    stream.on('error', error => response.destroy(error));
-    stream.pipe(response);
+    try {
+      if (await this.pipeRange(media.filePath, start, end, response)) response.end();
+    } catch (error) {
+      response.destroy(error);
+    }
   }
 
   private async sendVirtual(
@@ -651,6 +650,7 @@ export class PlaybackServer {
   }
 
   private waitForDrain(response: http.ServerResponse): Promise<boolean> {
+    if (response.destroyed) return Promise.resolve(false);
     return new Promise((resolve) => {
       const onDrain = () => {
         response.removeListener('close', onClose);
@@ -671,6 +671,7 @@ export class PlaybackServer {
     end: number,
     response: http.ServerResponse,
   ): Promise<boolean> {
+    if (response.destroyed) return Promise.resolve(false);
     return new Promise((resolve, reject) => {
       const stream = fs.createReadStream(filePath, {
         start,

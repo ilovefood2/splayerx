@@ -28,6 +28,30 @@ describe('Component - BaseVideoPlayer', () => {
     expect(wrapper.find('video').exists()).to.equal(true);
   });
 
+  it('releases the media request when an audio-connected video is unmounted', () => {
+    const video = {
+      ontimeupdate: () => {},
+      pause: sinon.spy(),
+      removeAttribute: sinon.spy(),
+      load: sinon.spy(),
+    };
+    const context = {
+      $refs: { video },
+      compatibilityGeneration: 3,
+      useCompatibilityCanvas: false,
+      stopCompatibilityCanvas: sinon.spy(),
+      events: ['loadedmetadata'],
+      removeEvents: sinon.spy(),
+    };
+
+    BaseVideoPlayer.beforeUnmount.call(context);
+
+    expect(context.compatibilityGeneration).to.equal(4);
+    expect(video.ontimeupdate).to.equal(null);
+    sinon.assert.calledWithExactly(video.removeAttribute, 'src');
+    sinon.assert.callOrder(context.removeEvents, video.pause, video.removeAttribute, video.load);
+  });
+
   it('keeps the fractional-opacity workaround Windows-only', () => {
     const wrapper = mount(BaseVideoPlayer, { props: propsData });
     const video = wrapper.find('video');
